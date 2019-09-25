@@ -93,9 +93,9 @@ def get_activations(layer_num, base_model, mode='summation', folder='ILSVRC2012_
                 os.remove(activation_matrix_filename)
             except OSError:
                 pass
-            np.savetxt(activation_matrix_filename, activations, delimiter=',')
+            np.savetxt(activation_matrix_filename, activations, fmt='%.8f', delimiter='\t')
 
-    np.savetxt(activation_matrix_filename, activations, delimiter=',')
+    np.savetxt(activation_matrix_filename, activations, fmt='%.8e', delimiter='\t')
 
 
 def find_strongest_image(layer_num, top=9, folder='ILSVRC2012_img_val'):
@@ -113,7 +113,7 @@ def find_strongest_image(layer_num, top=9, folder='ILSVRC2012_img_val'):
     save_to_folder = 'Data/Layer{}_Strongest_IMG'.format(layer_num)
 
     with open(activation_matrix_filename, mode='r'):
-        activations = pandas.read_csv(activation_matrix_filename, dtype=np.float32, header=None).as_matrix()
+        activations = pandas.read_table(activation_matrix_filename, dtype=np.float32, header=None).as_matrix()
 
     argsorted_activations = activations.argsort(axis=0)
     top_indices = [indices[-top:][::-1] for indices in argsorted_activations.T]
