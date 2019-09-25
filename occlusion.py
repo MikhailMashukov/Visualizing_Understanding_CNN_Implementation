@@ -78,21 +78,26 @@ def visualize_one_image(conv_base, path, layer, f, contrast, output_name):
     DeconvOutput(projection, contrast).save_as(filename=activation_filename + '.JPEG')
 
 
-def get_heatmaps(img_id, alexnet, title):
+def get_heatmaps(img_id, alexnet, title, show_plots=True):
     base_model = alexnet.base_model
     top_layer_model = alexnet.model
-    labels = get_labels()
+    # labels = get_labels()
 
     path = get_path_from_id(img_id)
+    save_to_folder = 'Data/TopFilters/'
+    if not os.path.exists(save_to_folder):
+        os.makedirs(save_to_folder)
 
     strongest_filter = get_strongest_filter(img_id, layer=5)
-    true_label = labels[img_id]
-    print(strongest_filter, true_label)
+    # true_label = labels[img_id]
+    # print(strongest_filter, true_label)
 
     predictions = AlexNet(base_model=base_model).predict(path)
-    print(decode_classnames_json(predictions))
-    print(decode_classnumber(predictions))
-    print(true_label)
+    pred_classes = decode_classnumber(predictions)[0]
+    # print(decode_classnames_json(predictions))
+    print('%d strongest filt.: %d, class nums: %s' %
+          (img_id, strongest_filter, ', '.join(str(v) for v in pred_classes)))
+    main_label = pred_classes[0]
 
     # DeconvOutput(preprocess_image_batch_grey_square(image_paths=path, square_x=50, square_y=50)).save_as('Occlusion',
     # title + '.JPEG')
@@ -100,28 +105,41 @@ def get_heatmaps(img_id, alexnet, title):
     class_prop = np.zeros((30, 30))
 
     for x in range(0, 30):
-        print(x)
+        # print('x %d' % x)
         for y in range(0, 30):
             prep_image = preprocess_image_batch_grey_square(path, 13 + x * 7, 13 + y * 7)
             activation = get_summed_activation_of_feature_map(top_layer_model, strongest_filter, prep_image)
             prediction = base_model.predict(prep_image)
             activations[x, y] = activation
-            class_prop[x, y] = prediction[0][true_label]
-    print('done')
+            if x == y:
+            #     first_label = prediction.argmax()
+            #     print("(0,0) max prediction - %d" % first_label)
+                cur_max_label = prediction.argmax()
+                print("(%d, %d): max pred %d, %7f, at main max pred: %7f (next %s)" % \
+                      (x, y, cur_max_label, prediction[0][cur_max_label], prediction[0][main_label],
+                       str(prediction[0][main_label - 2 : main_label + 3])))
+            class_prop[x, y] = prediction[0][main_label] # prediction[0][true_label]
+    # print('done')
 
+    filename = save_to_folder + '/{}_Heatmap.JPEG'.format(img_id)
     fig, ax = plt.subplots()
     cax = ax.imshow(activations, interpolation='nearest', cmap='plasma')
     plt.axis('off')
     # Add colorbar, make sure to specify tick locations to match desired ticklabels
     cbar = fig.colorbar(cax)
-    plt.show()
+    plt.savefig(filename)
+    if show_plots:
+        plt.show()
 
+    filename = save_to_folder + '/{}_MaxActivations.JPEG'.format(img_id)
     fig, ax = plt.subplots()
     cax = ax.imshow(class_prop, interpolation='nearest', cmap='plasma')
     plt.axis('off')
     # Add colorbar, make sure to specify tick locations to match desired ticklabels
     cbar = fig.colorbar(cax)
-    plt.show()
+    plt.savefig(filename)
+    if show_plots:
+        plt.show()
 
 
 if __name__ == '__main__':
@@ -130,7 +148,10 @@ if __name__ == '__main__':
     base_model = alexnet.base_model
     top_layer_model = alexnet.model
 
-    get_heatmaps(img_id, alexnet, 'Tractor')
+    # get_heatmaps(img_id, alexnet, 'Tractor')
+    for img_id in ([1] + list(range(50003, 50007)) + [14913, 31634] + \
+            list(range(1, 6))):
+        get_heatmaps(img_id, alexnet, str(img_id), False)
 
     # path = get_path_from_id(img_id)
     # visualize_one_image(base_model, path, 5, get_strongest_feature_map(img_id), contrast=22, output_name='Berg_Deconv_1')

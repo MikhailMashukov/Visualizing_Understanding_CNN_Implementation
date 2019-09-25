@@ -69,7 +69,10 @@ def get_path_from_id(img_id):
     return path
 
 
-def get_labels():
+def get_labels():  #d_
+    return [('l%d' % (i)) for i in range(1, 50100)]
+
+def get_labels1():
     """
     Imports labels for ILSVRC2012 Validation set and stores them in list
     Label is stored at array index corresponding to each image's ID
@@ -110,7 +113,7 @@ def accuracy_validation_set():
 
 if __name__ == '__main__':
     # Generate prediction and save to text file
-    if False:
+    if 1:  # False:
         model = AlexNet().model
         predict_validation_set(model)
     # Print accuracy
