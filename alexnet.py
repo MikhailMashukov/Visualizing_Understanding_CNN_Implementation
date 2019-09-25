@@ -144,6 +144,8 @@ class AlexNet():
 
     def __init__(self, highest_layer_num=None, base_model=None):
         self.highest_layer_num = highest_layer_num
+        # if base_model is None:
+        #     print("None")
         self.base_model = base_model if base_model else alexnet_model()  # If no base_model, create alexnet_model
         self.model = self._sub_model() if highest_layer_num else self.base_model  # Use full network if no highest_layer
 

@@ -405,9 +405,9 @@ if __name__ == '__main__':
     #     #project_top_layer_filters(deconv_base_model=deconv_base_model)
     #     #project_multiple_layer_filters(deconv_base_model=deconv_base_model)
     # project_multiple_layer_filters(deconv_base_model=deconv_base_model)
-    for img_id in (14913, 31634, 48518, 37498, 2254):
+    for img_id in (list(range(50001, 50007)) + [14913, 31634, 48518, 37498, 2254, 31977] +
+            list(range(1, 6))):
         project_multiple_layer_filters(img_id=img_id, deconv_base_model=deconv_base_model)
-    for img_id in (31977,):
         project_top_layer_filters(img_id=img_id, deconv_base_model=deconv_base_model)
 
     pass
