@@ -110,7 +110,7 @@ def find_strongest_image(layer_num, top=9, folder='ILSVRC2012_img_val'):
 
     activation_matrix_filename = 'Data/Strongest_Activation_Layer{}.csv'.format(layer_num)
     read_from_folder = folder
-    save_to_folder = 'Layer{}_Strongest_IMG'.format(layer_num)
+    save_to_folder = 'Data/Layer{}_Strongest_IMG'.format(layer_num)
 
     with open(activation_matrix_filename, mode='r'):
         activations = pandas.read_csv(activation_matrix_filename, dtype=np.float32, header=None).as_matrix()

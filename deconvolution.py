@@ -243,8 +243,8 @@ def visualize_top_images(layer, f, constrast):
     Visualize the activating pixels of the 9 images that maximally activate a given filter in a layer
     """
     conv_base_model = AlexNet().model
-    get_from_folder = 'Layer{}_Strongest_max_IMG'.format(layer)
-    save_to_folder = 'Layer{}_Projections_and_Images'.format(layer)
+    get_from_folder = 'Data/Layer{}_Strongest_max_IMG'.format(layer)
+    save_to_folder = 'Data/Layer{}_Projections_and_Images'.format(layer)
     if not os.path.exists(save_to_folder):
         os.makedirs(save_to_folder)
 
@@ -324,7 +324,7 @@ def project_top_layer_filters(img_id=None, deconv_base_model=None):
     conv_base_model = deconv_base_model.conv_base_model
 
     path = get_path_from_id(img_id)
-    save_to_folder = 'TopFilters'
+    save_to_folder = 'Data/TopFilters'
     if not os.path.exists(save_to_folder):
         os.makedirs(save_to_folder)
 
@@ -360,7 +360,7 @@ def project_multiple_layer_filters(img_id=None, deconv_base_model=None):
     conv_base_model = deconv_base_model.conv_base_model
 
     path = get_path_from_id(img_id)
-    save_to_folder = 'MultipleLayers'
+    save_to_folder = 'Data/MultipleLayers'
     if not os.path.exists(save_to_folder):
         os.makedirs(save_to_folder)
 

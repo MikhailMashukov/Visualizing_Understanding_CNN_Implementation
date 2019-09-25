@@ -68,7 +68,7 @@ def get_summed_activation_of_feature_map(top_layer_model, f, preprocd_img):
 
 
 def visualize_one_image(conv_base, path, layer, f, contrast, output_name):
-    save_to_folder = 'Occlusion/'
+    save_to_folder = 'Data/Occlusion/'
     if not os.path.exists(save_to_folder):
         os.makedirs(save_to_folder)
 
