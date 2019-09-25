@@ -138,12 +138,12 @@ def find_strongest_image(layer_num, top=9, folder='ILSVRC2012_img_val'):
             copyfile(copy_from, copy_to)
 
 
-def get_strongest_filter(img_id, layer):
+def get_strongest_filter(img_id, layer, base_model=None):
     filters = AlexNet.channels[layer]
     path = get_path_from_id(img_id)
 
     # Get activations for shortened model
-    activation_img = AlexNet(layer).predict(path)
+    activation_img = AlexNet(layer, base_model=base_model).predict(path)
 
     # Make sure that dimensions 2 and 3 are spacial (Image is square)
     assert activation_img.shape[2] == activation_img.shape[3], "Index ordering incorrect"
@@ -166,12 +166,12 @@ def get_strongest_filter(img_id, layer):
     return activation_img.argmax()
 
 
-def get_strongest_filters(img_id, layer, top=3):
+def get_strongest_filters(img_id, layer, top=3, base_model=None):
     filters = AlexNet.channels[layer]
     path = get_path_from_id(img_id)
 
     # Get activations for shortened model
-    activation_img = AlexNet(layer).predict(path)
+    activation_img = AlexNet(layer, base_model=base_model).predict(path)
 
     # Make sure that dimensions 2 and 3 are spacial (Image is square)
     assert activation_img.shape[2] == activation_img.shape[3], "Index ordering incorrect"

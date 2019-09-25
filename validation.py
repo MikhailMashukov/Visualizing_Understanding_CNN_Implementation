@@ -38,7 +38,7 @@ def predict_validation_set(model, batch_size=500, break_after_batches=None, fold
                     img_id = '0' + img_id
                 img_batch_locations.append(folder + '/ILSVRC2012_val_000' + img_id + '.JPEG')
 
-            batch_predictions = AlexNet(model).top_classes(img_batch_locations)
+            batch_predictions = AlexNet(base_model=model).top_classes(img_batch_locations)
 
             for i in range(batch_size):
                 results_file.write(

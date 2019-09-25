@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from deconvolution import Deconvolution, DeconvOutput
 
 import numpy as np
+import os
 from scipy.misc import imread, imresize
 
 
@@ -68,6 +69,8 @@ def get_summed_activation_of_feature_map(top_layer_model, f, preprocd_img):
 
 def visualize_one_image(conv_base, path, layer, f, contrast, output_name):
     save_to_folder = 'Occlusion/'
+    if not os.path.exists(save_to_folder):
+        os.makedirs(save_to_folder)
 
     projection = Deconvolution(conv_base).project_down(path, layer, f)
 

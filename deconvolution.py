@@ -321,14 +321,17 @@ def project_top_layer_filters(img_id=None, deconv_base_model=None):
         img_id = randint(1, 50000)
     if deconv_base_model is None:
         deconv_base_model = Deconvolution(AlexNet().model)
+    conv_base_model = deconv_base_model.conv_base_model
 
     path = get_path_from_id(img_id)
     save_to_folder = 'TopFilters'
+    if not os.path.exists(save_to_folder):
+        os.makedirs(save_to_folder)
 
     projections = []
     box_borders = []
     layer = 5
-    for max_filter in get_strongest_filters(img_id, layer, top=3):
+    for max_filter in get_strongest_filters(img_id, layer, top=3, base_model=conv_base_model):
         projection = deconv_base_model.project_down(path, layer, max_filter)
 
         # Increase Contrast
@@ -354,17 +357,21 @@ def project_multiple_layer_filters(img_id=None, deconv_base_model=None):
         img_id = randint(1, 50000)
     if deconv_base_model is None:
         deconv_base_model = Deconvolution(AlexNet().model)
+    conv_base_model = deconv_base_model.conv_base_model
 
     path = get_path_from_id(img_id)
     save_to_folder = 'MultipleLayers'
+    if not os.path.exists(save_to_folder):
+        os.makedirs(save_to_folder)
 
     projections = []
     box_borders = []
     contrast = [None, 1, 3, 7, 13, 22]
     for layer in (1, 2, 3, 4, 5):
-        assert get_strongest_filter(img_id, layer) == get_strongest_filters(img_id, layer, top=1)
-        max_filter = get_strongest_filter(img_id, layer)
-        if layer == 1: print(img_id, ': ', max_filter)
+        max_filter = get_strongest_filter(img_id, layer, base_model=conv_base_model)
+        assert max_filter == get_strongest_filters(img_id, layer, top=1, base_model=conv_base_model)
+        # if layer == 1:
+        print('Image %d layer %d - max %d' % (img_id, layer, max_filter))
         projection = deconv_base_model.project_down(path, layer, max_filter)
 
         if layer != 1:
