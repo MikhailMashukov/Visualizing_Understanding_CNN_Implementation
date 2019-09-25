@@ -48,13 +48,12 @@ def get_activations(layer_num, base_model, mode='summation', folder='ILSVRC2012_
         # Make sure that dimensions 2 and 3 are spacial (Image is square)
         assert activation_img.shape[2] == activation_img.shape[3], "Index ordering incorrect"
 
-        if mode == 'summing':
+        if mode == 'summation':
             # Sum over spacial dimension to get activation for given filter and given image
             assert activation_img.shape[2] == activation_img.shape[3], "Index ordering incorrect"
             activation_img = activation_img.sum(3)
             activation_img = activation_img.sum(2)
-
-        if mode == 'maximum':
+        elif mode == 'maximum':
             # Find maximum activation for each filter for a given image
             activation_img = np.nanmax(activation_img, axis=3)
             activation_img = np.nanmax(activation_img, axis=2)
@@ -73,7 +72,7 @@ def get_activations(layer_num, base_model, mode='summation', folder='ILSVRC2012_
         activations[img_id] = activation_img[:]
 
         # Print progress
-        if img_id % time_interval == 0:
+        if img_id == 100 or (img_id % time_interval == 0):
             timesteps.append(time.time())
 
             last_interval = timesteps[-1] - timesteps[-2]
