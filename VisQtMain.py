@@ -34,6 +34,70 @@ from ControlWindow import *
 # from PersistDiagram import *
 # from PriceHistory import *
 
+# Transforms e.g. np.array[96, 55, 55] (or [96, 55, 55, 3])
+# into image with 10 55 * 55 images horizontally and 9 vertically
+def layoutLayersToOneImage(activations, colCount, channelMargin):
+    chanCount = activations.shape[0]
+    shift = activations.shape[1] + channelMargin
+    colMarginData = np.full([activations.shape[2], channelMargin] + list(activations.shape[3:]),
+                            0 if activations.dtype in [np.uint8, np.uint32] else -1,
+                            dtype=activations.dtype)
+    rowMarginData = None
+    fullList = []
+    for layerY in range(chanCount // colCount + 1):
+        if (layerY + 1) * colCount >= chanCount:
+            break
+        # rowData = activations[0, layerY * colCount]
+        rowList = []
+        for layerX in range(colCount):
+            if layerX > 0:
+                rowList.append(colMarginData)
+            rowList.append(activations[layerY * colCount + layerX])
+
+        rowData = np.concatenate(rowList, axis=1)
+        if layerY > 0:
+            if rowMarginData is None:
+                rowMarginData = np.full(
+                        [channelMargin, rowData.shape[1]] + list(activations.shape[3:]),
+                        0 if activations.dtype in [np.uint8, np.uint32] else -1,
+                        dtype=activations.dtype)
+            fullList.append(rowMarginData)
+        fullList.append(rowData)
+    return np.concatenate(fullList, axis=0)
+
+# def layoutLayersToOneImage(activations, colCount, channelMargin):
+#     chanCount = activations.shape[0]
+#     shift = activations.shape[-2] + channelMargin
+#     colMarginData = np.full([activations.shape[-1], channelMargin], -1)
+#     fullList = []
+#     for layerY in range(chanCount // colCount + 1):
+#         if (layerY + 1) * colCount >= chanCount:
+#             break
+#         # rowData = activations[0, layerY * colCount]
+#         rowList = []
+#         for layerX in range(colCount):
+#             if layerX > 0:
+#                 rowList.append(colMarginData)
+#             rowList.append(activations[layerY * colCount + layerX])
+#
+#         rowData = np.concatenate(rowList, axis=1)
+#         if layerY > 0:
+#             rowMarginData = np.full([channelMargin, rowData.shape[1]], -1)
+#             fullList.append(rowMarginData)
+#         fullList.append(rowData)
+#     return np.concatenate(fullList, axis=0)
+
+    # shift = activations.shape[-2] + 30
+    # for i in range(15):
+    #     channelData = activations[0, i]
+    #     ax = self.figure.add_subplot(5, 3, i + 1)
+    #     ax.clear()
+    #     ax.set_axis_off()
+    #     ax.imshow(channelData, cmap='plasma')
+    #               # extent=((i % colCount) * shift, (i % colCount) * shift + activations.shape[-2],
+    #               #         (i // colCount) * shift, (i // colCount) * shift + activations.shape[-1]))
+    # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
+
 
 class CImageDataset:
     def getImageFilePath(self, imageNum):
@@ -56,6 +120,7 @@ class CImageDataset:
             img = alexnet_utils.imresize(img, img_size)
             img = img[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
                 (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]
+            img[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
             return img
         else:
             imageData = alexnet_utils.preprocess_image_batch([imgFileName])[0]
@@ -64,7 +129,7 @@ class CImageDataset:
 
 
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
-    c_channelMargin = 1
+    c_channelMargin = 2
 
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
@@ -72,6 +137,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
         self.net = False
         self.exiting = False
+        self.lastAction = None
         self.inputImageDataset = CImageDataset()
         self.initUI()
         self.initAlexNetUI()
@@ -79,6 +145,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.showControlWindow()
 
         self.iterNumLabel.setText('Iteration 0')
+        self.maxAnalyzeChanCount = None
 
     def init(self):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
@@ -152,6 +219,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # curHorizWidget.addWidget(self.blockComboBox)
         # frame = QtGui.QFrame()
         # frame.add
+        self.blockComboBox.currentIndexChanged.connect(self.onBlockChanged)
         curHorizWidget.addWidget(self.blockComboBox)
         layout.addLayout(curHorizWidget)
 
@@ -187,17 +255,23 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 999999)
         spinBox.setValue(1)
+        spinBox.valueChanged.connect(lambda: self.onSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
         self.imageNumEdit = spinBox
 
         button = QtGui.QPushButton('show &image', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(lambda: self.onShowImagePressed())
+        button.clicked.connect(self.onShowImagePressed)
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('show &activations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(lambda: self.onShowActivationsPressed())
+        button.clicked.connect(self.onShowActivationsPressed)
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('show act. tops', self)
+        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+        button.clicked.connect(self.onShowActTopsPressed)
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('i&terations', self)
@@ -291,15 +365,27 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.setFocus()
 
     def initAlexNetUI(self):
-        # for layerName in
+        self.lastAction = None
+
         for i in range(5):
             self.blockComboBox.addItem('Conv. %d' % (i + 1))
+
+        self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
+
+        self.lastAction = self.onShowActTopsPressed   #d_
 
     def getSelectedImageNum(self):
         return self.imageNumEdit.value()
             # int(self.imageNumLineEdit.text())
 
+    def getChannelsToAnalyze(self, data):
+        if self.maxAnalyzeChanCount and data.shape[0] > self.maxAnalyzeChanCount:
+            return data[:self.maxAnalyzeChanCount]
+        else:
+            return data
+
     def onShowImagePressed(self):
+        self.lastAction = self.onShowImagePressed
         imageNum = self.getSelectedImageNum()
         imageData = self.inputImageDataset.getImage(imageNum, 'cropped')
         # mi = imageData.min()
@@ -310,7 +396,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #     imageData[i // 2, 180:220, :] = [0, 0, i]
         # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
 
-        ax = self.figure.add_subplot(141)
+        ax = self.figure.add_subplot(self.gridSpec[0, 0])
         ax.clear()
         ax.imshow(imageData, alpha=1) # , aspect='equal')
         # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
@@ -320,52 +406,80 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         import alexnet
         # import activations
 
+        self.lastAction = self.onShowActivationsPressed
         imageNum = self.getSelectedImageNum()
         imageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
         layerNum = self.blockComboBox.currentIndex() + 1
         model = alexnet.AlexNet(layerNum, self.alexNet.model)
         activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))
+        activations = self.getChannelsToAnalyze(activations[0])
 
-        layerCount = activations.shape[1]
-        shift = activations.shape[-2] + self.c_channelMargin
-        colCount = math.ceil(math.sqrt(layerCount) * 1.4)
+        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15)
+        data = layoutLayersToOneImage(np.sqrt(activations),
+                                      colCount, self.c_channelMargin)
+
         self.figure.set_tight_layout(True)
-        ax = self.figure.add_subplot(122, facecolor='r')
+        ax = self.figure.add_subplot(self.gridSpec[:, 1], facecolor='r')
         ax.clear()
-        colMarginData = np.full([self.c_channelMargin, activations.shape[-1]], -1)
-        fullList = []
-        for layerY in range(layerCount // colCount + 1):
-            if (layerY + 1) * colCount >= layerCount:
-                break
-            # rowData = activations[0, layerY * colCount]
-            rowList = []
-            for layerX in range(colCount):
-                if layerX > 0:
-                    rowList.append(colMarginData)
-                rowList.append(activations[0, layerY * colCount + layerX])
-
-            rowData = np.concatenate(rowList, axis=0)
-            if layerY > 0:
-                rowMarginData = np.full([rowData.shape[0], self.c_channelMargin], -1)
-                fullList.append(rowMarginData)
-            fullList.append(rowData)
-        data = np.concatenate(fullList, axis=1)
-
         # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
         ax.imshow(data, cmap='plasma')
-
-        # shift = activations.shape[-2] + 30
-        # for i in range(15):
-        #     channelData = activations[0, i]
-        #     ax = self.figure.add_subplot(5, 3, i + 1)
-        #     ax.clear()
-        #     ax.set_axis_off()
-        #     ax.imshow(channelData, cmap='plasma')
-        #               # extent=((i % colCount) * shift, (i % colCount) * shift + activations.shape[-2],
-        #               #         (i // colCount) * shift, (i // colCount) * shift + activations.shape[-1]))
-        # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
         self.canvas.draw()
 
+    def attachCoordinates(self, data):
+        shape = data.shape
+        arr = np.arange(0, shape[0])
+        grid = np.meshgrid(arr, np.arange(0, shape[1]))
+            # np.vstack(np.meshgrid(x_p,y_p,z_p)).reshape(3,-1).T
+        coords = np.vstack([grid[0].flatten(), grid[1].flatten(), data.flatten()])
+        return coords
+
+    def onShowActTopsPressed(self):
+        import alexnet
+
+        self.lastAction = self.onShowActTopsPressed
+        imageNum = self.getSelectedImageNum()
+        sourceImageData = self.inputImageDataset.getImage(imageNum, 'cropped')
+        # alexNetImageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
+        layerNum = self.blockComboBox.currentIndex() + 1
+        model = alexnet.AlexNet(layerNum, self.alexNet.model)
+        activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))
+        activations = self.getChannelsToAnalyze(activations[0])
+
+        # minDist = 2
+        mult = 4
+        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15)
+        resultList = []
+        activations[0, 32:35, 0] = 100     #d_
+        for layerInd in range(activations.shape[0]):
+            vals = self.attachCoordinates(activations[layerInd])   # Getting list of (x, y, value)
+            sortedVals = vals[:, vals[2, :].argsort()]
+            sourceUpperLeft = (int(sortedVals[0, -1]) * mult, int(sortedVals[1, -1]) * mult)
+            resultList.append(sourceImageData[sourceUpperLeft[1] : sourceUpperLeft[1] + 11,
+                                              sourceUpperLeft[0] : sourceUpperLeft[0] + 11, :])
+            # selectedList = []
+            # i = vals.shape[0] - 1
+            # while len(selectedList) < 9:
+            #     curVal = vals[i]
+            #     found = False
+            #     for prevVal in selectedList
+        data = np.stack(resultList, axis=0)
+        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
+
+        ax = self.figure.add_subplot(self.gridSpec[1, 0])
+        ax.imshow(data)
+        self.canvas.draw()
+
+    def onSpinBoxValueChanged(self):
+        if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
+            self.onShowActTopsPressed()
+            self.onShowImagePressed()
+            self.onShowActivationsPressed()
+
+            # self.lastAction()
+
+    def onBlockChanged(self):
+        if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
+            self.onSpinBoxValueChanged()
 
     @property
     def alexNet(self):
@@ -1250,7 +1364,7 @@ if __name__ == "__main__":
         mainWindow.init()
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
-        mainWindow.onShowActivationsPressed()
+        mainWindow.onSpinBoxValueChanged()
     else:
         mainWindow.fastInit()
     # mainWindow.loadData()
