@@ -7,8 +7,7 @@ from keras import backend as K
 from keras.utils.layer_utils import convert_all_kernels_in_model
 from keras.utils import plot_model
 
-import numpy as np
-from scipy.misc import imread, imresize
+from alexnet_utils import preprocess_image_batch
 
 from alexnet_additional_layers import split_tensor, cross_channel_normalization
 from decode_predictions import decode_classnames_json, decode_classnumber
@@ -80,53 +79,6 @@ def alexnet_model(weights_path=None):
     # m.compile(optimizer=sgd, loss='mse')
 
     return m
-
-
-def preprocess_image_batch(image_paths, img_size=(256, 256), crop_size=(227, 227), color_mode="rgb", out=None):
-    """
-    Resize, crop and normalize colors of images 
-    to make them suitable for alexnet_model (if default parameter values are chosen)
-    
-    This function is also from 
-    https://github.com/heuritech/convnets-keras/blob/master/convnetskeras/convnets.py
-    with only some minor changes
-    """
-
-    # Make function callable with single image instead of list
-    if type(image_paths) is str:
-        image_paths = [image_paths]
-
-    img_list = []
-    for im_path in image_paths:
-        img = imread(im_path, mode='RGB')
-        img = imresize(img, img_size)
-
-        img = img.astype('float32')
-        # Normalize the colors (in RGB space) with the empirical means on the training set
-        img[:, :, 0] -= 123.68
-        img[:, :, 1] -= 116.779
-        img[:, :, 2] -= 103.939
-        # We permute the colors to get them in the BGR order
-        if color_mode == "bgr":
-            img[:, :, [0, 1, 2]] = img[:, :, [2, 1, 0]]
-        img = img.transpose((2, 0, 1))
-
-        if crop_size:
-            img = img[:, (img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2
-            , (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2]
-
-        img_list.append(img)
-
-    try:
-        img_batch = np.stack(img_list, axis=0)
-    except:
-        raise ValueError('when img_size and crop_size are None, images'
-                         ' in image_paths must have the same shapes.')
-
-    if out is not None and hasattr(out, 'append'):
-        out.append(img_batch)
-    else:
-        return img_batch
 
 
 class AlexNet():

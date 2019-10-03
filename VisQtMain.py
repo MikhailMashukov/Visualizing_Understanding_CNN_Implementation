@@ -7,26 +7,25 @@ from matplotlib.backends.backend_qt4agg import FigureCanvas
 from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
 from matplotlib.figure import Figure
 from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
-from matplotlib import cm
+# from matplotlib import cm
 import pickle
 import numpy as np
 import PyQt4.Qt
 from PyQt4 import QtCore, QtGui
 # from PySide import QtGui
-import re
-# from glumpy import app, glm   # In case of "GLFW not found" copy glfw3.dll to C:\Python27\Lib\site-packages\PyQt4\
-# from glumpy.transforms import Position, Trackball, Viewport
-# from glumpy.api.matplotlib import *
-# import glumpy.app.window.key as keys
+# import re
+    # from glumpy import app, glm   # In case of "GLFW not found" copy glfw3.dll to C:\Python27\Lib\site-packages\PyQt4\
+    # from glumpy.transforms import Position, Trackball, Viewport
+    # from glumpy.api.matplotlib import *
+    # import glumpy.app.window.key as keys
 import os
 import random
 import sys
 import time
-# import wx
 
-sys.path.append(r"../../Qt_TradeSim")
-import DeepOptions
-import DeepMain
+sys.path.append(r"../Qt_TradeSim")
+# import DeepOptions
+# import DeepMain
 from MyUtils import *
 from ControlWindow import *
 # from CppNetChecker import *
@@ -35,13 +34,39 @@ from ControlWindow import *
 # from PriceHistory import *
 
 
-class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
+class CImageDataset:
+    def getImage(self, imageNum, preprocessStage='alexnet'):
+        import alexnet_utils
+
+        imgFileName = 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
+
+        if preprocessStage == 'source':
+            img = alexnet_utils.imread(imgFileName, mode='RGB')
+            return img
+        elif  preprocessStage == 'cropped':   # Cropped and resized, as for alexnet
+                # but in uint8, without normalization and transfosing back and forth.
+                # Float32 lead to incorrect colors in imshow
+            img_size=(256, 256)
+            crop_size=(227, 227)
+            img = alexnet_utils.imread(imgFileName, mode='RGB')
+            img = alexnet_utils.imresize(img, img_size)
+            img = img[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
+                (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]
+            return img
+        else:
+            imageData = alexnet_utils.preprocess_image_batch([imgFileName])[0]
+            imageData = imageData.transpose((1, 2, 0))
+            return imageData
+
+
+class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
         # super(QtMainWindow, self).__init__(parent)
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
         self.net = False
         self.exiting = False
+        self.inputImageDataset = CImageDataset()
         self.initUI()
 
         # self.showControlWindow()
@@ -49,67 +74,12 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         self.iterNumLabel.setText('Iteration 0')
 
     def init(self):
-        DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
-        DeepMain.MainWrapper.init(self)
+        # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
+        # DeepMain.MainWrapper.init(self)
         # DeepMain.MainWrapper.startNeuralNetTraining()
-        self.net = self.netTrader.net
-        self.fastInit()
-
-        self.otherNets = []  # [DeepMain.DeepNeuralNet2(self.net)]
-        if len(self.otherNets) == 1:
-            import tensorflow as tf
-
-            otherNet = self.otherNets[0]
-            print("self.net.inputVectorSize  ", self.net.inputVectorSize)
-            # otherNet.inputVectorSize  = 40
-            # otherNet.outputVectorSize = 49
-            # otherNet.xChannelCount    = 3
-            otherNet.init(False)
-            if 0:
-                try:   # Workaround for case when network doesn't load into otherNet.
-                       # Not necessary because the real problem was fixed: hlChannelCount was assigned properly
-                    srcVars = tf.trainable_variables()
-                    print("Src vars ", srcVars)
-                    # srcVars2 = self.net.tfGraph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-                    destVars = otherNet.tfGraph.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-                    for srcVar in srcVars:
-                        found = False
-                        for v in destVars:
-                            if v.name == srcVar.name:
-                                found = True
-                                val = self.net.sess.run(srcVar)
-                                otherNet.sess.run(tf.assign(v, val))
-                                print("Var %s assigned" % srcVar.name)
-                                break
-                        if not found:
-                            print("Variable %s not found" % srcVar.name)
-                        # destVar = destVars[srcVar.name]
-
-                except Exception as ex:
-                    print('Exception in init: %s' % str(ex))
-
-            otherStateFileName = 'Net2State/state.dat'
-            otherNet.loadState(otherStateFileName)
-            print("Other state loaded from %s" % otherStateFileName)
-
-        samples = self.getSamples()
-        feedDict = self.netTrader.getNetFeedDict_SamplesRange('train', samples)
-        for i in range(self.net.getIntermResultsBlockCount()):
-            block = self.net.getIntermResultsBlock(i, feedDict)
-            self.blockComboBox.addItem("Interm %d. %s (%s)" % \
-                    (i, str(block.shape), self.net.getIntermResultsBlockName(i)))
-        for i in range(self.net.getGradientsBlockCount()):
-            block = self.net.getGradientsBlock(i, feedDict)
-            self.blockComboBox.addItem("Gradients %d. %s" % (i, str(block.shape)))
-        self.blockComboBox.addItem("Samples results")
-
-        # for i in range(self.net.getWeightBlockCount2()):
-        #     block = self.net.getWeightBlock2(i)
-        #     self.blockComboBox.addItem("%d. %s" % (i + 1, str(block.shape)))
-        self.blockComboBox.setCurrentIndex(6)
-
-        epochIterCount = DeepOptions.trainSetSize / DeepOptions.batchSize
-        self.iterCountLineEdit.setText(str(int(epochIterCount)))
+        # self.net = self.netTrader.net
+        # self.fastInit()
+        pass
 
     def fastInit(self):
         self.curSavedBatchDatasetName = None
@@ -139,7 +109,7 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
 
     def initUI(self):
         self.setGeometry(100, 40, 1100, 700)
-        self.setWindowTitle('Qt Main 2')
+        self.setWindowTitle('Visualization Qt Main')
 
         c_buttonWidth = 50
         c_buttonHeight = 30
@@ -155,7 +125,7 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         self.layout = layout
         # self.setLayout(layout)
 
-
+        # Widgets line 1 - "Iteration ..."
         y = c_margin
         x = c_margin
         curHorizWidget = QtGui.QHBoxLayout()
@@ -169,7 +139,7 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         self.datasetComboBox.currentIndexChanged.connect(self.onDatasetChanged)
         curHorizWidget.addWidget(self.datasetComboBox)
 
-        x += 200 + c_margin
+        x += 150 + c_margin
         self.blockComboBox = QtGui.QComboBox(self)
         # self.blockComboBox.setGeometry(x, y, 300, c_buttonHeight)
         # curHorizWidget.addWidget(self.blockComboBox)
@@ -178,6 +148,7 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         curHorizWidget.addWidget(self.blockComboBox)
         layout.addLayout(curHorizWidget)
 
+        # Widgets line 2 - "Mouse move..."
         y += c_buttonHeight + c_margin
         x = c_margin
         curHorizWidget = QtGui.QHBoxLayout()
@@ -186,23 +157,31 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         curHorizWidget.addWidget(self.infoLabel)
         layout.addLayout(curHorizWidget)
 
+        # Widgets line 3
         y += c_buttonHeight + c_margin
         x = c_margin
         curHorizWidget = QtGui.QHBoxLayout()
         button = QtGui.QPushButton('test', self)
         button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(lambda: self.onTestPress())
+        # button.clicked.connect(lambda: self.onTestPress())
         curHorizWidget.addWidget(button)
 
         x += c_buttonWidth + c_margin
         button = QtGui.QPushButton('1 iteration', self)
-        button.clicked.connect(lambda: self.onDoItersPressed(1))
+        # button.clicked.connect(lambda: self.onDoItersPressed(1))
         curHorizWidget.addWidget(button)
 
         lineEdit = QtGui.QLineEdit(self)
         lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
+        lineEdit.setText("1")
         curHorizWidget.addWidget(lineEdit)
-        self.iterCountLineEdit = lineEdit
+        self.iterCountLineEdit = lineEdit   #-
+        self.imageNumLineEdit = lineEdit
+
+        button = QtGui.QPushButton('show image', self)
+        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+        button.clicked.connect(lambda: self.onShowImagePressed())
+        curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('iterations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
@@ -213,57 +192,54 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         button.clicked.connect(lambda: self.onLoadStatePressed())
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('+ learn. rate', self)
-        button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Reinit. worst neirons', self)
-        button.clicked.connect(lambda: self.onDeleteWorstNeironsPressed())
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('screenshot', self)
-        # button.setGeometry(x, y, c_buttonWidth * 1.6, c_buttonHeight)
-        # button.clicked.connect(self.makeScreenshot)
-        curHorizWidget.addWidget(button)
-        layout.addLayout(curHorizWidget)
-        # self.setCentralWidget(curHorizWidget)
-
-        curHorizWidget = QtGui.QHBoxLayout()
-        lineEdit = QtGui.QLineEdit(self)
-        lineEdit.setValidator(QtGui.QIntValidator(1, 99999))
-        curHorizWidget.addWidget(lineEdit)
-        lineEdit.setText("0")
-        self.startSampleIndLineEdit = lineEdit
-
-        lineEdit = QtGui.QLineEdit(self)
-        lineEdit.setValidator(QtGui.QIntValidator(1, 99999))
-        curHorizWidget.addWidget(lineEdit)
-        lineEdit.setText("300")
-        self.endSampleIndLineEdit = lineEdit
-
-        lineEdit = QtGui.QLineEdit(self)
-        lineEdit.setValidator(QtGui.QIntValidator(111, 999))
-        curHorizWidget.addWidget(lineEdit)
-        lineEdit.setText("322")
-        self.plotNumLineEdit = lineEdit
-
-        button = QtGui.QPushButton('Display', self)
-        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(lambda: self.onDisplayPressed())
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Display 6 grad.', self)
-        button.clicked.connect(lambda: self.onDisplay6Pressed())
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Display interm. res.', self)
-        button.clicked.connect(lambda: self.onDisplayIntermResultsPressed())
-        # button.mouseMoveEvent.connect(self.mouseMoveEvent)
-        # QtCore.QObject.connect(button, QtCore.SIGNAL("clicked()"), self.onDisplayIntermResultsPressed)
-        # QtCore.QObject.connect(button, QtCore.SIGNAL("mouseMoveEvent()"), self.mouseMoveEvent)
-        curHorizWidget.addWidget(button)
+        # button = QtGui.QPushButton('+ learn. rate', self)
+        # button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
+        # curHorizWidget.addWidget(button)
+        #
+        # button = QtGui.QPushButton('Reinit. worst neirons', self)
+        # button.clicked.connect(lambda: self.onDeleteWorstNeironsPressed())
+        # curHorizWidget.addWidget(button)
         layout.addLayout(curHorizWidget)
 
+        # Widgets line 4
+        if 0:
+            curHorizWidget = QtGui.QHBoxLayout()
+            lineEdit = QtGui.QLineEdit(self)
+            lineEdit.setValidator(QtGui.QIntValidator(1, 99999))
+            curHorizWidget.addWidget(lineEdit)
+            lineEdit.setText("0")
+            self.startSampleIndLineEdit = lineEdit
+
+            lineEdit = QtGui.QLineEdit(self)
+            lineEdit.setValidator(QtGui.QIntValidator(1, 99999))
+            curHorizWidget.addWidget(lineEdit)
+            lineEdit.setText("300")
+            self.endSampleIndLineEdit = lineEdit
+
+            lineEdit = QtGui.QLineEdit(self)
+            lineEdit.setValidator(QtGui.QIntValidator(111, 999))
+            curHorizWidget.addWidget(lineEdit)
+            lineEdit.setText("322")
+            self.plotNumLineEdit = lineEdit
+
+            button = QtGui.QPushButton('Display', self)
+            # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+            button.clicked.connect(lambda: self.onDisplayPressed())
+            curHorizWidget.addWidget(button)
+
+            button = QtGui.QPushButton('Display 6 grad.', self)
+            button.clicked.connect(lambda: self.onDisplay6Pressed())
+            curHorizWidget.addWidget(button)
+
+            button = QtGui.QPushButton('Display interm. res.', self)
+            button.clicked.connect(lambda: self.onDisplayIntermResultsPressed())
+            # button.mouseMoveEvent.connect(self.mouseMoveEvent)
+            # QtCore.QObject.connect(button, QtCore.SIGNAL("clicked()"), self.onDisplayIntermResultsPressed)
+            # QtCore.QObject.connect(button, QtCore.SIGNAL("mouseMoveEvent()"), self.mouseMoveEvent)
+            curHorizWidget.addWidget(button)
+            layout.addLayout(curHorizWidget)
+
+        # Drawings area
         y += c_buttonHeight + c_margin
         x = c_margin
         if 0:
@@ -297,17 +273,24 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
 
         button.setFocus()
 
-        # pixmap = QtGui.QPixmap.grabWindow(
-        #         # QtGui.QApplication.desktop().winId(),
-        #         self.winId(),
-        #         x=00, y=0, height=300, width=1000,
-        # )
-        # label.setPixmap(pixmap)
 
-        # plt.ion()
-        # self.fig = plt.figure()
-        # self.ax = self.fig.add_subplot(111, projection='3d')
-        # self.fig.show()
+    def onShowImagePressed(self):
+        imageNum = int(self.imageNumLineEdit.text())
+        imageData = self.inputImageDataset.getImage(imageNum, 'cropped')
+        # mi = imageData.min()
+        # ma = imageData.max()
+        # for i in range(0, 255, 2):
+        #     imageData[i // 2, 50:100, :] = [i, 0, 0]
+        #     imageData[i // 2, 105:160, :] = [0, i, 0]
+        #     imageData[i // 2, 180:220, :] = [0, 0, i]
+        # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
+
+        ax = self.figure.add_subplot(111)
+        ax.clear()
+        ax.imshow(imageData, alpha=1) # , aspect='equal')
+        # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
+        self.canvas.draw()
+
 
     def mouseMoveEvent(self, event):
             # event.x()
@@ -471,25 +454,6 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         ax.scatter(np.arange(testSamplesActuals.shape[0]), testActualClassNums, alpha=0.5)
         self.canvas.draw()
 
-    def createSamplesResultsTestData(self):
-        testSamplesActuals = np.zeros((200, 7))
-        randInds = np.random.randint(0, testSamplesActuals.shape[1], size=testSamplesActuals.shape[0])
-        testSamplesActuals[np.arange(testSamplesActuals.shape[0]), randInds] = 1
-
-        testSamplesPreds = np.random.uniform(size=(200, 7))
-        sums = np.sum(testSamplesPreds, axis=1)
-        testSamplesPreds /= sums[:, None]
-        return (testSamplesActuals, testSamplesPreds)
-
-    def sortByClass(self, samplesActuals, samplesPreds):
-        (xs, actualClassNums) = np.where(samplesActuals==1)
-        ests = actualClassNums + samplesPreds[np.arange(samplesPreds.shape[0]), actualClassNums] / 4
-        if samplesPreds.shape[1] > samplesActuals.shape[1]:
-            ests += samplesPreds[np.arange(samplesPreds.shape[0]),
-                                 actualClassNums + samplesActuals.shape[1]] / 16
-        indices = ests.argsort(kind='mergesort')
-        return (samplesActuals[indices, :], samplesPreds[indices, :])
-
     def drawSamplesResults(self, datasetName):
         if self.net:
             samples = self.getSamples()
@@ -627,44 +591,13 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         try:
             blockInd = self.blockComboBox.currentIndex()
             blockName = self.blockComboBox.itemText(blockInd)
-            result = re.search('Gradient.* (\d+)\. ', blockName)
-            if result:
-                self.drawGradients(datasetName, int(result.group(1)), int(self.plotNumLineEdit.text()))
-            elif blockName == "Samples results":
-                self.drawSamplesResults(datasetName)
+            # result = re.search('Gradient.* (\d+)\. ', blockName)
+            # if result:
+            #     self.drawGradients(datasetName, int(result.group(1)), int(self.plotNumLineEdit.text()))
+            # elif blockName == "Samples results":
+            #     self.drawSamplesResults(datasetName)
         except Exception as ex:
             print('Exception in onDisplayPressed: %s' % str(ex))
-
-    def onDisplay6Pressed(self):
-        datasetName = self.datasetComboBox.itemText(self.datasetComboBox.currentIndex())
-        # gradientBlockInd = self.blockComboBox.currentIndex()
-        blockInd = self.blockComboBox.currentIndex()
-        blockName = self.blockComboBox.itemText(blockInd)
-        result = re.search('Gradient.* (\d+)\. ', blockName)
-        if result:
-            gradientBlockInd = int(result.group(1))
-            self.drawGradients(datasetName, gradientBlockInd, 321, 0, 100)
-            self.drawGradients(datasetName, gradientBlockInd, 322, 100, 200)
-            self.drawGradients(datasetName, gradientBlockInd, 323, 1000, 2000)
-            self.drawGradients(datasetName, gradientBlockInd, 324, 2000, 3000)
-            self.drawGradients(datasetName, gradientBlockInd, 325, 3000, 6500)
-            self.drawGradients(datasetName, gradientBlockInd, 326, 6500, 10000)
-
-            ax = self.figure.add_subplot(326)
-            # cbar = self.figure.colorbar(self.im, ax=ax)
-
-
-            # startSampleInd0 = self.startSampleIndLineEdit.text()
-            # endSampleInd0   = self.endSampleIndLineEdit.text()
-            # try:
-            #     self.drawSamplesIntermResults(datasetName, intermBlockInd, )
-            #
-            #
-            # finally:
-            #     self.startSampleIndLineEdit.text() = startSampleInd0
-            #     self.endSampleIndLineEdit.text()   = endSampleInd0
-        else:
-            self.infoLabel.setText('Not gradients block selected')
 
     def onDisplayIntermResultsPressed(self):
         samples = self.getSamples()
@@ -813,12 +746,7 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
     def loadData(self):
         # with open('Block.dat', "rb") as file:
         #     self.block = pickle.load(file)
-
-
-
-
         pass
-
 
 
 
@@ -858,46 +786,46 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         # if processEvents:
         #     PyQt4.Qt.QCoreApplication.processEvents()
 
-    def takeScreenShot(self):
-        """ Takes a screenshot of the screen at give pos & size (rect). """
-        print('Taking screenshot...')
-        rect = self.GetRect()
-        # see http://aspn.activestate.com/ASPN/Mail/Message/wxpython-users/3575899
-        # created by Andrea Gavana
-
-        # Create a DC for the whole screen area
-        dcScreen = wx.ScreenDC()
-
-        # Create a Bitmap that will hold the screenshot image later on
-        # Note that the Bitmap must have a size big enough to hold the screenshot
-        # -1 means using the current default colour depth
-        bmp = wx.EmptyBitmap(rect.width, rect.height)
-
-        # Create a memory DC that will be used for actually taking the screenshot
-        memDC = wx.MemoryDC()
-
-        # Tell the memory DC to use our Bitmap
-        # all drawing action on the memory DC will go to the Bitmap now
-        memDC.SelectObject(bmp)
-
-        # Blit (in this case copy) the actual screen on the memory DC
-        # and thus the Bitmap
-        memDC.Blit(0,  # Copy to this X coordinate
-                   0,  # Copy to this Y coordinate
-                   rect.width,  # Copy this width
-                   rect.height,  # Copy this height
-                   dcScreen,  # From where do we copy?
-                   rect.x,  # What's the X offset in the original DC?
-                   rect.y  # What's the Y offset in the original DC?
-                   )
-
-        # Select the Bitmap out of the memory DC by selecting a new
-        # uninitialized Bitmap
-        memDC.SelectObject(wx.NullBitmap)
-
-        img = bmp.ConvertToImage()
-        fileName = "myImage.png"
-        img.SaveFile(fileName, wx.BITMAP_TYPE_PNG)
+    # def takeScreenShot(self):
+    #     """ Takes a screenshot of the screen at give pos & size (rect). """
+    #     print('Taking screenshot...')
+    #     rect = self.GetRect()
+    #     # see http://aspn.activestate.com/ASPN/Mail/Message/wxpython-users/3575899
+    #     # created by Andrea Gavana
+    #
+    #     # Create a DC for the whole screen area
+    #     dcScreen = wx.ScreenDC()
+    #
+    #     # Create a Bitmap that will hold the screenshot image later on
+    #     # Note that the Bitmap must have a size big enough to hold the screenshot
+    #     # -1 means using the current default colour depth
+    #     bmp = wx.EmptyBitmap(rect.width, rect.height)
+    #
+    #     # Create a memory DC that will be used for actually taking the screenshot
+    #     memDC = wx.MemoryDC()
+    #
+    #     # Tell the memory DC to use our Bitmap
+    #     # all drawing action on the memory DC will go to the Bitmap now
+    #     memDC.SelectObject(bmp)
+    #
+    #     # Blit (in this case copy) the actual screen on the memory DC
+    #     # and thus the Bitmap
+    #     memDC.Blit(0,  # Copy to this X coordinate
+    #                0,  # Copy to this Y coordinate
+    #                rect.width,  # Copy this width
+    #                rect.height,  # Copy this height
+    #                dcScreen,  # From where do we copy?
+    #                rect.x,  # What's the X offset in the original DC?
+    #                rect.y  # What's the Y offset in the original DC?
+    #                )
+    #
+    #     # Select the Bitmap out of the memory DC by selecting a new
+    #     # uninitialized Bitmap
+    #     memDC.SelectObject(wx.NullBitmap)
+    #
+    #     img = bmp.ConvertToImage()
+    #     fileName = "myImage.png"
+    #     img.SaveFile(fileName, wx.BITMAP_TYPE_PNG)
 
     def createAxes(self):
         self.ticks = SegmentCollection(mode="agg", transform=self.transform, viewport=self.viewport,
@@ -980,25 +908,25 @@ class QtMainWindow(QtGui.QMainWindow, DeepMain.MainWrapper):
         # color=np.random.uniform(0.0, 1, (p.shape[0], 4))
         self.points.append(values, color=colors)
 
-    def displayOutputsByAllWeights(self):
-        coords = np.array(self.neuralNet.buildOutputsByAllWeights(self.diagramOptions))
-        print("Min %f" % coords[:, :, 2].min())
-        minInds = coords[:, :, 2].argmin(axis=1)
-        # print(minInds)
-        self.lastAllWeightsResults = coords
-
-        color = np.array([0.5, 0.1, 1, 0.7])
-        # reshape(colors, color, coords.shape)
-        colors = np.zeros((coords.shape[0] * coords.shape[1], 4)) + color
-        # np.broadcast(colors, color, coords.shape)
-        for i1 in range(coords.shape[0]):
-            colors[i1 * coords.shape[1] + minInds[i1]] = (1, 0.1, 0.1, 0.7)
-
-        coords = reshape(coords, (coords.shape[0] * coords.shape[1], coords.shape[2]))
-        coords[:, 2] *= 5
-        self.points = PointCollection(mode="raw", transform=self.transform, viewport=self.viewport, color="local")
-        self.points.append(coords, color=colors)
-        self.resetTransform(2)
+    # def displayOutputsByAllWeights(self):
+    #     coords = np.array(self.neuralNet.buildOutputsByAllWeights(self.diagramOptions))
+    #     print("Min %f" % coords[:, :, 2].min())
+    #     minInds = coords[:, :, 2].argmin(axis=1)
+    #     # print(minInds)
+    #     self.lastAllWeightsResults = coords
+    #
+    #     color = np.array([0.5, 0.1, 1, 0.7])
+    #     # reshape(colors, color, coords.shape)
+    #     colors = np.zeros((coords.shape[0] * coords.shape[1], 4)) + color
+    #     # np.broadcast(colors, color, coords.shape)
+    #     for i1 in range(coords.shape[0]):
+    #         colors[i1 * coords.shape[1] + minInds[i1]] = (1, 0.1, 0.1, 0.7)
+    #
+    #     coords = reshape(coords, (coords.shape[0] * coords.shape[1], coords.shape[2]))
+    #     coords[:, 2] *= 5
+    #     self.points = PointCollection(mode="raw", transform=self.transform, viewport=self.viewport, color="local")
+    #     self.points.append(coords, color=colors)
+    #     self.resetTransform(2)
 
     def displayOutputsDiagram(self):
         coords = np.zeros((self.diagramOptions.stepCount * self.diagramOptions.stepCount, 3),
@@ -1235,8 +1163,9 @@ if __name__ == "__main__":
     mainWindow.show()
     if 1:
         mainWindow.init()
-        mainWindow.onDisplayIntermResultsPressed()
+        # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
+        mainWindow.onShowImagePressed()
     else:
         mainWindow.fastInit()
     # mainWindow.loadData()
