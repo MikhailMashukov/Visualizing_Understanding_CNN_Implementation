@@ -98,3 +98,7 @@ def preprocess_image_batch(image_paths, img_size=(256, 256), crop_size=(227, 227
         out.append(img_batch)
     else:
         return img_batch
+
+# def keras_set_image_data_format
+# # K.set_image_dim_ordering('th')
+#     K.set_image_data_format('channels_first')

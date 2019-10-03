@@ -29,7 +29,7 @@ class DeconvLayers:
         self.deconv_layers = self.init_deconv_layers()
 
     def deconv_layer_model(self, layer_name):
-        K.set_image_dim_ordering('th')
+        K.set_image_data_format('channels_first')
 
         # Get local variables from dictionaries
         conv_layer = self.conv_layers[layer_name]

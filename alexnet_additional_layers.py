@@ -11,7 +11,7 @@ def cross_channel_normalization(alpha=1e-4, k=2, beta=0.75, n=5, **kwargs):
     # This is the function used for cross channel normalization in the original Alexnet
 
     def f(X):
-        K.set_image_dim_ordering('th')
+        K.set_image_data_format('channels_first')
         b, ch, r, c = X.get_shape()
         half = n // 2
         square = K.square(X)

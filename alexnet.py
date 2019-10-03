@@ -22,7 +22,8 @@ def alexnet_model(weights_path=None):
     and only slightly modified to work with TF backend
     """
 
-    K.set_image_dim_ordering('th')
+    # K.set_image_dim_ordering('th')
+    K.set_image_data_format('channels_first')
     inputs = Input(shape=(3, 227, 227))
 
     conv_1 = Conv2D(96, 11, strides=4, activation='relu', name='conv_1')(inputs)

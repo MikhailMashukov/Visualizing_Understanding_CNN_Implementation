@@ -9,6 +9,7 @@ from matplotlib.figure import Figure
 from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
 # from matplotlib import cm
 import pickle
+import math
 import numpy as np
 import PyQt4.Qt
 from PyQt4 import QtCore, QtGui
@@ -35,16 +36,19 @@ from ControlWindow import *
 
 
 class CImageDataset:
+    def getImageFilePath(self, imageNum):
+        return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
+
     def getImage(self, imageNum, preprocessStage='alexnet'):
         import alexnet_utils
 
-        imgFileName = 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
+        imgFileName = self.getImageFilePath(imageNum)
 
         if preprocessStage == 'source':
             img = alexnet_utils.imread(imgFileName, mode='RGB')
             return img
         elif  preprocessStage == 'cropped':   # Cropped and resized, as for alexnet
-                # but in uint8, without normalization and transfosing back and forth.
+                # but in uint8, without normalization and transposing back and forth.
                 # Float32 lead to incorrect colors in imshow
             img_size=(256, 256)
             crop_size=(227, 227)
@@ -60,6 +64,8 @@ class CImageDataset:
 
 
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
+    c_channelMargin = 1
+
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
         # super(QtMainWindow, self).__init__(parent)
@@ -68,6 +74,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.exiting = False
         self.inputImageDataset = CImageDataset()
         self.initUI()
+        self.initAlexNetUI()
 
         # self.showControlWindow()
 
@@ -171,19 +178,29 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # button.clicked.connect(lambda: self.onDoItersPressed(1))
         curHorizWidget.addWidget(button)
 
-        lineEdit = QtGui.QLineEdit(self)
-        lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
-        lineEdit.setText("1")
-        curHorizWidget.addWidget(lineEdit)
-        self.iterCountLineEdit = lineEdit   #-
-        self.imageNumLineEdit = lineEdit
+        # lineEdit = QtGui.QLineEdit(self)
+        # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
+        # lineEdit.setText("1")
+        # curHorizWidget.addWidget(lineEdit)
+        # self.iterCountLineEdit = lineEdit   #-
+        # self.imageNumLineEdit = lineEdit
+        spinBox = QtGui.QSpinBox(self)
+        spinBox.setRange(1, 999999)
+        spinBox.setValue(1)
+        curHorizWidget.addWidget(spinBox)
+        self.imageNumEdit = spinBox
 
-        button = QtGui.QPushButton('show image', self)
+        button = QtGui.QPushButton('show &image', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onShowImagePressed())
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('iterations', self)
+        button = QtGui.QPushButton('show &activations', self)
+        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+        button.clicked.connect(lambda: self.onShowActivationsPressed())
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('i&terations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountLineEdit.text())))
         curHorizWidget.addWidget(button)
@@ -273,9 +290,17 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         button.setFocus()
 
+    def initAlexNetUI(self):
+        # for layerName in
+        for i in range(5):
+            self.blockComboBox.addItem('Conv. %d' % (i + 1))
+
+    def getSelectedImageNum(self):
+        return self.imageNumEdit.value()
+            # int(self.imageNumLineEdit.text())
 
     def onShowImagePressed(self):
-        imageNum = int(self.imageNumLineEdit.text())
+        imageNum = self.getSelectedImageNum()
         imageData = self.inputImageDataset.getImage(imageNum, 'cropped')
         # mi = imageData.min()
         # ma = imageData.max()
@@ -285,11 +310,71 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #     imageData[i // 2, 180:220, :] = [0, 0, i]
         # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
 
-        ax = self.figure.add_subplot(111)
+        ax = self.figure.add_subplot(141)
         ax.clear()
         ax.imshow(imageData, alpha=1) # , aspect='equal')
         # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
         self.canvas.draw()
+
+    def onShowActivationsPressed(self):
+        import alexnet
+        # import activations
+
+        imageNum = self.getSelectedImageNum()
+        imageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
+        layerNum = self.blockComboBox.currentIndex() + 1
+        model = alexnet.AlexNet(layerNum, self.alexNet.model)
+        activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))
+
+        layerCount = activations.shape[1]
+        shift = activations.shape[-2] + self.c_channelMargin
+        colCount = math.ceil(math.sqrt(layerCount) * 1.4)
+        self.figure.set_tight_layout(True)
+        ax = self.figure.add_subplot(122, facecolor='r')
+        ax.clear()
+        colMarginData = np.full([self.c_channelMargin, activations.shape[-1]], -1)
+        fullList = []
+        for layerY in range(layerCount // colCount + 1):
+            if (layerY + 1) * colCount >= layerCount:
+                break
+            # rowData = activations[0, layerY * colCount]
+            rowList = []
+            for layerX in range(colCount):
+                if layerX > 0:
+                    rowList.append(colMarginData)
+                rowList.append(activations[0, layerY * colCount + layerX])
+
+            rowData = np.concatenate(rowList, axis=0)
+            if layerY > 0:
+                rowMarginData = np.full([rowData.shape[0], self.c_channelMargin], -1)
+                fullList.append(rowMarginData)
+            fullList.append(rowData)
+        data = np.concatenate(fullList, axis=1)
+
+        # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
+        ax.imshow(data, cmap='plasma')
+
+        # shift = activations.shape[-2] + 30
+        # for i in range(15):
+        #     channelData = activations[0, i]
+        #     ax = self.figure.add_subplot(5, 3, i + 1)
+        #     ax.clear()
+        #     ax.set_axis_off()
+        #     ax.imshow(channelData, cmap='plasma')
+        #               # extent=((i % colCount) * shift, (i % colCount) * shift + activations.shape[-2],
+        #               #         (i // colCount) * shift, (i // colCount) * shift + activations.shape[-1]))
+        # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
+        self.canvas.draw()
+
+
+    @property
+    def alexNet(self):
+        if not self.net:
+            import alexnet
+
+            self.net = alexnet.AlexNet()
+        return self.net
+
 
 
     def mouseMoveEvent(self, event):
@@ -1165,7 +1250,7 @@ if __name__ == "__main__":
         mainWindow.init()
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
-        mainWindow.onShowImagePressed()
+        mainWindow.onShowActivationsPressed()
     else:
         mainWindow.fastInit()
     # mainWindow.loadData()
