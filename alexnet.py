@@ -29,11 +29,13 @@ def alexnet_model(weights_path=None):
     conv_1 = Conv2D(96, 11, strides=4, activation='relu', name='conv_1')(inputs)
 
     conv_2 = MaxPooling2D((3, 3), strides=(2, 2))(conv_1)
+                # 11  4  4 = 19, stride 8
     conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)
     conv_2 = ZeroPadding2D((2, 2))(conv_2)
     new_convs =[Conv2D(128, 5, activation="relu", name='conv_2_' + str(i + 1))
         (split_tensor(ratio_split=2, id_split=i)(conv_2)
          ) for i in range(2)]
+                # 2 * 8 <- (shifted)    19 8 8 8 8 = 51
     conv_2 =  Concatenate(axis=1, name="conv_2")(new_convs)
     # conv_2 = merge([ \
     #     Conv2D(128, 5, activation="relu", name='conv_2_' + str(i + 1))
@@ -41,9 +43,11 @@ def alexnet_model(weights_path=None):
     #      ) for i in range(2)])  # , mode='concat', concat_axis=1, name="conv_2")
 
     conv_3 = MaxPooling2D((3, 3), strides=(2, 2))(conv_2)
+                # 51 8 8 = 67, stride 16
     conv_3 = cross_channel_normalization()(conv_3)
     conv_3 = ZeroPadding2D((1, 1))(conv_3)
     conv_3 = Conv2D(384, 3, activation='relu', name='conv_3')(conv_3)
+                # 2 * 8 + 16 <-    67 16 16
 
     conv_4 = ZeroPadding2D((1, 1))(conv_3)
     conv_4 = Concatenate(axis=1, name="conv_4")([
@@ -119,6 +123,58 @@ class AlexNet():
         preds = self.predict(img_path)
         return decode_classnumber(preds, top)
 
+
+    # # Returns (multiplier, size). Source pixels, corresponding to the layer layerName's pixel (x, y)
+    # # has coordinates (x * multiplier, y * multiplier) - (... + size - 1, ... + size - 1)
+    # @staticmethod
+    # def get_layer_source_pixel_calc_params(layerName):
+    #     mult = 4
+    #     size = 11
+    #     if layerName == 'conv_1':
+    #         return (mult, size)
+    #     mult *= 2
+    #     size += mult + mult * 4
+    #     if layerName == 'conv_2':
+    #         return (mult, size)
+    #     mult *= 2
+    #     size += mult + mult * 2
+    #     if layerName == 'conv_3':
+    #         return (mult, size)
+    #     return (None, None)
+
+    @staticmethod
+    def get_source_block_calc_func(layerName):
+        if layerName == 'conv_1':
+            return AlexNet.get_conv_1_source_block
+        elif layerName == 'conv_2':
+            return AlexNet.get_conv_2_source_block
+        elif layerName == 'conv_3':
+            return AlexNet.get_conv_3_source_block
+        else:
+            return None
+
+    # Returns source pixels block, corresponding to the layer conv_1 pixel (x, y)
+    @staticmethod
+    def get_conv_1_source_block(x, y):
+        source_xy_0 = (x * 4, y * 4)
+        size = 11
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_2_source_block(x, y):
+        source_xy_0 = ((x - 2) * 8, (y - 2) * 8)
+        size = 51  # 11 + 4 * 2 + 8 * 4
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_3_source_block(x, y):
+        source_xy_0 = ((x - 2) * 16, (y - 2) * 16)
+        size = 51 + 8 * 2 + 16 * 2
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + size, source_xy_0[1] + size)
 
 if __name__ == "__main__":
     img_path = 'Example_JPG/Elephant.jpg'

@@ -34,6 +34,23 @@ from ControlWindow import *
 # from PersistDiagram import *
 # from PriceHistory import *
 
+def padImagesToMax(imageList, padValue=255):
+    maxSize = 0
+    for img in imageList:
+        if maxSize < max(img.shape[0:2]):
+            maxSize = max(img.shape[0:2])
+
+    resultList = []
+    for img in imageList:
+        if maxSize != img.shape[0] or maxSize != img.shape[1]:
+            padded = np.pad(img, ((0, maxSize - img.shape[0]),
+                                  (0, maxSize - img.shape[1]), (0, 0)),
+                            constant_values=padValue)
+        else:
+            padded = img
+        resultList.append(padded)
+    return resultList
+
 # Transforms e.g. np.array[96, 55, 55] (or [96, 55, 55, 3])
 # into image with 10 55 * 55 images horizontally and 9 vertically
 def layoutLayersToOneImage(activations, colCount, channelMargin):
@@ -45,7 +62,7 @@ def layoutLayersToOneImage(activations, colCount, channelMargin):
     rowMarginData = None
     fullList = []
     for layerY in range(chanCount // colCount + 1):
-        if (layerY + 1) * colCount >= chanCount:
+        if (layerY + 1) * colCount > chanCount:
             break
         # rowData = activations[0, layerY * colCount]
         rowList = []
@@ -145,7 +162,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.showControlWindow()
 
         self.iterNumLabel.setText('Iteration 0')
-        self.maxAnalyzeChanCount = None
+        self.maxAnalyzeChanCount = 16
 
     def init(self):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
@@ -272,6 +289,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button = QtGui.QPushButton('show act. tops', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(self.onShowActTopsPressed)
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('show &mult. act. tops', self)
+        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+        button.clicked.connect(self.onShowMultActTopsPressed)
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('i&terations', self)
@@ -446,26 +468,119 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         activations = self.getChannelsToAnalyze(activations[0])
 
         # minDist = 2
-        mult = 4
+        # (mult, size) = self.net.get_layer_source_pixel_calc_params('conv_%d' % layerNum)
+        # if mult is None:
+        #     return
+        sourceBlockCalcFunc = self.net.get_source_block_calc_func('conv_%d' % layerNum)
+        if sourceBlockCalcFunc is None:
+            return
         colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15)
         resultList = []
-        activations[0, 32:35, 0] = 100     #d_
-        for layerInd in range(activations.shape[0]):
-            vals = self.attachCoordinates(activations[layerInd])   # Getting list of (x, y, value)
+        if layerNum <= 2:
+            activations[0, 22:25, 0] = 100     #d_
+        for chanInd in range(activations.shape[0]):
+            vals = self.attachCoordinates(activations[chanInd])   # Getting list of (x, y, value)
             sortedVals = vals[:, vals[2, :].argsort()]
-            sourceUpperLeft = (int(sortedVals[0, -1]) * mult, int(sortedVals[1, -1]) * mult)
-            resultList.append(sourceImageData[sourceUpperLeft[1] : sourceUpperLeft[1] + 11,
-                                              sourceUpperLeft[0] : sourceUpperLeft[0] + 11, :])
+            sourceBlock = sourceBlockCalcFunc(int(sortedVals[0, -1]), int(sortedVals[1, -1]))
+            resultList.append(sourceImageData[sourceBlock[0] : sourceBlock[2], sourceBlock[1] : sourceBlock[3], :])
+            # sourceUpperLeft = (int(sortedVals[0, -1]) * mult, int(sortedVals[1, -1]) * mult)
+            # resultList.append(sourceImageData[sourceUpperLeft[1] : sourceUpperLeft[1] + size,
+            #                                   sourceUpperLeft[0] : sourceUpperLeft[0] + size, :])
+
             # selectedList = []
             # i = vals.shape[0] - 1
             # while len(selectedList) < 9:
             #     curVal = vals[i]
             #     found = False
             #     for prevVal in selectedList
+        # maxSize = 0
+        # for result in resultList:
+        #     if maxSize < max(result.shape[0:1]):
+        #         maxSize = max(result.shape[0:1])
+        # resultList2 = []
+        # for result in resultList:
+        #     if maxSize != result.shape[0] or maxSize != result.shape[1]:
+        #         padded = np.pad(result, ((0, maxSize - result.shape[0]),
+        #                                  (0, maxSize - result.shape[1]), (0, 0)),
+        #                         constant_values=255)
+        #     else:
+        #         padded = result
+        #     resultList2.append(padded)
+        resultList = padImagesToMax(resultList)
         data = np.stack(resultList, axis=0)
         data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
 
         ax = self.figure.add_subplot(self.gridSpec[1, 0])
+        ax.imshow(data)
+        self.canvas.draw()
+
+    def onShowMultActTopsPressed(self):
+        import alexnet
+
+        topCount = 9
+        oneImageMaxTopCount = 6
+        minDist = 2
+        self.lastAction = self.onShowMultActTopsPressed
+        layerNum = self.blockComboBox.currentIndex() + 1
+        model = alexnet.AlexNet(layerNum, self.alexNet.model)
+        sourceBlockCalcFunc = self.net.get_source_block_calc_func('conv_%d' % layerNum)
+        if sourceBlockCalcFunc is None:
+            return
+
+        bestSourceCoords = None
+            # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
+        sourceImagesData = dict()
+        for imageNum in range(1, max(10, self.getSelectedImageNum()) + 1):
+            activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))
+            activations = self.getChannelsToAnalyze(activations[0])
+
+            if bestSourceCoords is None:
+                bestSourceCoords = [[] for _ in range(activations.shape[0])]
+            if layerNum <= 2:
+                activations[0, 22:25, 0] = 100     #d_
+            for chanInd in range(activations.shape[0]):
+                vals = self.attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
+                sortedVals = vals[:, vals[2, :].argsort()]
+                valsToSave = sortedVals[:, -oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
+                valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
+                bestSourceCoords[chanInd].append(valsToSave)
+            sourceImagesData[imageNum] = self.inputImageDataset.getImage(imageNum, 'cropped')
+
+        resultList = []
+        topColCount = int(math.ceil(math.sqrt(topCount)))
+        for chanInd in range(activations.shape[0]):
+            vals = np.concatenate(bestSourceCoords[chanInd], axis=1)
+            sortedVals = vals[:, vals[3, :].argsort()]
+
+            selectedImageList = []
+            selectedList = []
+            i = sortedVals.shape[1] - 1
+            while len(selectedList) < topCount and i >= 0:
+                curVal = sortedVals[:, i]
+                isOk = True
+                for prevVal in selectedList:
+                    if curVal[0] == prevVal[0] and abs(curVal[1] - prevVal[1]) < minDist and \
+                            abs(curVal[2] - prevVal[2]) < minDist:
+                        isOk = False
+                        break
+                if isOk:
+                    sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
+                    imageData = sourceImagesData[int(curVal[0])]
+                    selectedImageList.append(imageData[sourceBlock[0] : sourceBlock[2], sourceBlock[1] : sourceBlock[3], :])
+                    selectedList.append(curVal)
+                i -= 1
+            selectedImageList = padImagesToMax(selectedImageList)
+            chanData = np.stack(selectedImageList, axis=0)
+            chanImageData = layoutLayersToOneImage(chanData, topColCount, 1)
+            resultList.append(chanImageData)
+
+        resultList = padImagesToMax(resultList)
+        data = np.stack(resultList, axis=0)
+        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15)
+        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
+
+        ax = self.figure.add_subplot(self.gridSpec[:, 1])
+        ax.clear()
         ax.imshow(data)
         self.canvas.draw()
 
@@ -1364,7 +1479,8 @@ if __name__ == "__main__":
         mainWindow.init()
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
-        mainWindow.onSpinBoxValueChanged()
+        mainWindow.onShowMultActTopsPressed()
+        # mainWindow.onSpinBoxValueChanged()
     else:
         mainWindow.fastInit()
     # mainWindow.loadData()
