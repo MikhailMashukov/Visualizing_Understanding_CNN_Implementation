@@ -2,6 +2,7 @@ import copy
 import datetime
 import matplotlib
 matplotlib.use('AGG')
+matplotlib.rcParams['savefig.dpi'] = 600
 import matplotlib.pyplot as plt
 from matplotlib.backends.backend_qt4agg import FigureCanvas
     # +FigureCanvasQTAgg as FigureCanvas
@@ -126,7 +127,7 @@ class CImageDataset:
         return 'im_%d_%s' % (imageNum, preprocessStage)
 
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
-    c_channelMargin = 2
+    c_channelMargin = 3
 
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
@@ -136,7 +137,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.exiting = False
         self.lastAction = None
         self.lastActionStartTime = None
-        self.cache = DataCache.CDataCache()
+        self.cache = DataCache.CDataCache(512)
+        self.activationCache = DataCache.CDataCache(128)
         self.inputImageDataset = CImageDataset(self.cache)
         self.initUI()
         self.initAlexNetUI()
@@ -144,7 +146,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.showControlWindow()
 
         self.iterNumLabel.setText('Iteration 0')
-        self.maxAnalyzeChanCount = 16
+        self.maxAnalyzeChanCount = 64
 
     def init(self):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
@@ -257,27 +259,29 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         curHorizWidget.addWidget(spinBox)
         self.imageNumEdit = spinBox
 
-        button = QtGui.QPushButton('show &image', self)
+        button = QtGui.QPushButton('Show &image', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(self.onShowImagePressed)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('show &activations', self)
+        button = QtGui.QPushButton('Show &activations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(self.onShowActivationsPressed)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('show act. tops', self)
+        button = QtGui.QPushButton('Show act. tops', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(self.onShowActTopsPressed)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('show &mult. act. tops', self)
+        self.multActTopsButtonText = 'Show &mult. act. tops'
+        button = QtGui.QPushButton(self.multActTopsButtonText, self)
+        self.multActTopsButton = button
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(self.onShowMultActTopsPressed)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('i&terations', self)
+        button = QtGui.QPushButton('I&terations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountLineEdit.text())))
         curHorizWidget.addWidget(button)
@@ -403,15 +407,21 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             return data
 
     def getImageActivations(self, layerNum, imageNum):
-        # itemCacheName = 'act_%d_%d' % (layerNum, imageNum)
-        # cacheItem = self.cache.getObject(itemCacheName)
-        # if not cacheItem is None:
-        #     return cacheItem
+        itemCacheName = 'act_%d_%d' % (layerNum, imageNum)
+        cacheItem = self.activationCache.getObject(itemCacheName)
+        if not cacheItem is None:
+            return cacheItem
 
         model = self.getAlexNet(layerNum)
-        activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))
-        # self.cache.saveObject(itemCacheName, activations)
+        imageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
+        imageData = imageData.transpose((2, 0, 1))
+        activations = model.model.predict(np.expand_dims(imageData, 0))                   # About 30 ms
+        # activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))  # About 50 ms
+        self.activationCache.saveObject(itemCacheName, activations)
         return activations
+
+    def closeEvent(self, event):
+        self.exiting = True
 
     def onCancelPressed(self):
         self.lastAction = None
@@ -524,22 +534,30 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         ax.imshow(data)
         self.canvas.draw()
 
-    def onShowMultActTopsPressed(self):
-        # import alexnet
-
+    class TMultActOpsOptions:
         topCount = 9
         oneImageMaxTopCount = 6
         minDist = 2
+
+    def onShowMultActTopsPressed(self):
+        options = QtMainWindow.TMultActOpsOptions()
         self.startAction(self.onShowMultActTopsPressed)
+        self.multActTopsButton.setText('  Show current  ')
+        self.needShowCurMultActTops = False
+        try:
+            self.multActTopsButton.clicked.disconnect()
+        except e:
+            pass
+        self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
         layerNum = self.blockComboBox.currentIndex() + 1
+        options.layerNum = layerNum
         # model = alexnet.AlexNet(layerNum, self.alexNet.model)
-        sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func('conv_%d' % layerNum)
-        if sourceBlockCalcFunc is None:
-            return
+        # sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func('conv_%d' % layerNum)
+        # if sourceBlockCalcFunc is None:
+        #     return
 
         bestSourceCoords = None
             # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
-        sourceImagesData = dict()
         prevT = datetime.datetime.now()
         for imageNum in range(1, max(10, self.getSelectedImageNum()) + 1):
             activations = self.getImageActivations(layerNum, imageNum)
@@ -552,10 +570,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             for chanInd in range(activations.shape[0]):
                 vals = self.attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
                 sortedVals = vals[:, vals[2, :].argsort()]
-                valsToSave = sortedVals[:, -oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
+                valsToSave = sortedVals[:, -options.oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
                 valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
                 bestSourceCoords[chanInd].append(valsToSave)
-            sourceImagesData[imageNum] = self.inputImageDataset.getImage(imageNum, 'cropped')
             if imageNum % 10 == 0:
                 t = datetime.datetime.now()
                 if self.lastActionStartTime:
@@ -566,32 +583,47 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 timeInfo += ', last 10 - %.2f' % \
                         ((t - prevT).total_seconds() * 1000 / 10)
                 prevT = t
-                self.showProgress('Stage 1: image %d%s, %.2f MBs in cache' % \
+                self.showProgress('Stage 1: image %d%s, %.2f + %.2f MBs in cache' % \
                                   (imageNum, timeInfo, \
-                                   self.cache.getUsedMemory() / (1 << 20)))
+                                   self.cache.getUsedMemory() / (1 << 20), \
+                                   self.activationCache.getUsedMemory() / (1 << 20)))
                 if self.lastAction is None or self.exiting:   # Cancel or close pressed
-                    return
+                    break
+                elif self.needShowCurMultActTops:
+                    self.showMultActTops(bestSourceCoords, activations.shape[0], options)
+                    self.needShowCurMultActTops = False
 
+        self.multActTopsButton.setText(self.multActTopsButtonText)
+        self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
+        if not self.exiting:
+            self.showMultActTops(bestSourceCoords, activations.shape[0], options)
+
+    def showMultActTops(self, bestSourceCoords, chanCount, options):
+        sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func(
+                'conv_%d' % options.layerNum)
+        if not bestSourceCoords or len(bestSourceCoords[0]) == 0:
+            return
         resultList = []
-        topColCount = int(math.ceil(math.sqrt(topCount)))
-        for chanInd in range(activations.shape[0]):
+        topColCount = int(math.ceil(math.sqrt(options.topCount)))
+        t0 = datetime.datetime.now()
+        for chanInd in range(chanCount):
             vals = np.concatenate(bestSourceCoords[chanInd], axis=1)
             sortedVals = vals[:, vals[3, :].argsort()]
 
             selectedImageList = []
             selectedList = []
             i = sortedVals.shape[1] - 1
-            while len(selectedList) < topCount and i >= 0:
+            while len(selectedList) < options.topCount and i >= 0:
                 curVal = sortedVals[:, i]
                 isOk = True
                 for prevVal in selectedList:
-                    if curVal[0] == prevVal[0] and abs(curVal[1] - prevVal[1]) < minDist and \
-                            abs(curVal[2] - prevVal[2]) < minDist:
+                    if curVal[0] == prevVal[0] and abs(curVal[1] - prevVal[1]) < options.minDist and \
+                            abs(curVal[2] - prevVal[2]) < options.minDist:
                         isOk = False
                         break
                 if isOk:
                     sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
-                    imageData = sourceImagesData[int(curVal[0])]
+                    imageData = self.inputImageDataset.getImage(int(curVal[0]), 'cropped')
                     selectedImageList.append(imageData[sourceBlock[0] : sourceBlock[2], sourceBlock[1] : sourceBlock[3], :])
                     selectedList.append(curVal)
                 i -= 1
@@ -599,10 +631,16 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             chanData = np.stack(selectedImageList, axis=0)
             chanImageData = layoutLayersToOneImage(chanData, topColCount, 1)
             resultList.append(chanImageData)
+            if (chanInd + 1) % 4 == 0:
+                t = datetime.datetime.now()
+                if (t - t0).total_seconds() >= 1:
+                    self.showProgress('Stage 2: %d channels' % \
+                                      (chanInd + 1))
+                    t0 = t
 
         resultList = padImagesToMax(resultList)
         data = np.stack(resultList, axis=0)
-        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15)
+        colCount = math.ceil(math.sqrt(chanCount) * 1.15)
         data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
 
         # try:
@@ -616,6 +654,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         ax.clear()
         ax.imshow(data)
         self.canvas.draw()
+
+    def onShowCurMultActTopsPressed(self):
+        self.needShowCurMultActTops = True
 
     def onSpinBoxValueChanged(self):
         if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:

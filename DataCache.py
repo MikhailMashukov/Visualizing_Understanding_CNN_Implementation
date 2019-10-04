@@ -10,11 +10,19 @@ import numpy as np
 class CDataCache:
     def __init__(self, maxMemoryMB=256):
         self.maxMemory = maxMemoryMB * (1 << 20)
+        self.maxLruSize = max(maxMemoryMB, 8)
+
         self.data = dict()
         self.usedMemory = 0
+        self.lrus = [set(), set()]    # New and previous sets of cache item names
 
     def getObject(self, name):              # Returns the object or None
-        return self.data.get(name)
+        cacheItem = self.data.get(name)
+        if not cacheItem is None:
+            if len(self.lrus[0]) >= self.maxLruSize:
+                self.lrus = [set(), self.lrus[0]]
+            self.lrus[0].add(name)
+        return cacheItem
 
     def saveObject(self, name, value):      # Adds or replaces the object in the cache
         prevValue = self.data.get(name)
@@ -22,16 +30,29 @@ class CDataCache:
             self.usedMemory -= self.getApproxObjectSize(prevValue)
 
         if self.usedMemory > self.maxMemory:
-            self.clear()
+            self.partialClean()
         self.data[name] = value
         self.usedMemory += self.getApproxObjectSize(value)
+
+    def getUsedMemory(self):
+        return self.usedMemory
 
     def clear(self):
         self.data = dict()
         self.usedMemory = 0
 
-    def getUsedMemory(self):
-        return self.usedMemory
+    def partialClean(self):
+        newDataDict = dict()
+        newUsedMemory = 0
+        for name, value in self.data.items():
+            if name in self.lrus[0] or name in self.lrus[1]:
+                newDataDict[name] = value
+                newUsedMemory += self.getApproxObjectSize(value)
+        self.data = newDataDict
+        self.usedMemory = newUsedMemory
+
+        if self.usedMemory > self.maxMemory / 2:
+            self.clear()
 
 
     @staticmethod
