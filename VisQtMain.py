@@ -37,6 +37,14 @@ from ControlWindow import *
 # from PersistDiagram import *
 # from PriceHistory import *
 
+def setProcessPriorityLow():
+    import psutil
+
+    p = psutil.Process()
+    p.nice(psutil.IDLE_PRIORITY_CLASS)
+
+setProcessPriorityLow()
+
 def padImagesToMax(imageList, padValue=255):
     maxSize = 0
     for img in imageList:
@@ -126,7 +134,7 @@ class CImageDataset:
             imageData = alexnet_utils.imresize(imageData, img_size)
             imageData = imageData[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
                 (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]
-            imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
+            # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
         else:
             imageData = alexnet_utils.preprocess_image_batch([imgFileName])[0]
             imageData = imageData.transpose((1, 2, 0))
@@ -243,6 +251,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         button = QtGui.QPushButton('Show &channel act.', self)
         button.clicked.connect(self.onShowChanActivationsPressed)
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Sorted &channel act.', self)
+        button.clicked.connect(self.onShowSortedChanActivationsPressed)
         curHorizWidget.addWidget(button)
         layout.addLayout(curHorizWidget)
 
@@ -460,6 +472,29 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.activationCache.saveObject(itemCacheName, allWeights)
         return allWeights
 
+    def getImagesActivationMatrix(self, layerNum, mode='summation'):
+        itemCacheName = 'actMat_%s_%d' % (mode, layerNum)
+        cacheItem = self.activationCache.getObject(itemCacheName)
+        if not cacheItem is None:
+            return cacheItem
+
+        import pandas
+
+        activation_matrix_filename = 'Data/Activations_{}/Strongest_Activation_Layer{}.csv'.format(
+                mode, layerNum)
+        with open(activation_matrix_filename, mode='r'):
+            activations = pandas.read_table(activation_matrix_filename, dtype=np.float32, header=None).as_matrix()
+        checkVals = [np.min(activations[0, :]), np.max(activations[0, :]), \
+                     np.min(activations[:, 0]), np.max(activations[:, 0])]
+        for checkVal in checkVals:
+            if checkVal != 0:
+                raise Exception('Unexpected non-zero value (%f) in %s' % \
+                                (checkVal, activation_matrix_filename))
+        activations = activations[1:, 1:]
+        self.activationCache.saveObject(itemCacheName, activations)
+        self.saveState()
+        return activations
+
     def closeEvent(self, event):
         self.exiting = True
 
@@ -497,7 +532,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))
         activations = self.getChannelsToAnalyze(activations[0])
 
-        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15)
+        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
         data = layoutLayersToOneImage(np.sqrt(activations),
                                       colCount, self.c_channelMargin)
 
@@ -534,7 +569,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func('conv_%d' % layerNum)
         if sourceBlockCalcFunc is None:
             return
-        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15)
+        colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
         resultList = []
         if layerNum <= 2:
             activations[0, 22:25, 0] = 100     #d_
@@ -580,8 +615,15 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         minDist = 3
 
     def onShowMultActTopsPressed(self):
-        options = QtMainWindow.TMultActOpsOptions()
         self.startAction(self.onShowMultActTopsPressed)
+        options = QtMainWindow.TMultActOpsOptions()
+        layerNum = self.blockComboBox.currentIndex() + 1
+        options.layerNum = layerNum
+        if 1:    # Fast, based on data produced by activations.py
+            self.showAllImagesActTops_FromCsv(options)
+            return
+
+        # My own implementation, from scratch, with images subblocks precision
         self.multActTopsButton.setText('Save current')
         self.needShowCurMultActTops = False
         try:
@@ -589,8 +631,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         except e:
             pass
         self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
-        layerNum = self.blockComboBox.currentIndex() + 1
-        options.layerNum = layerNum
         # model = alexnet.AlexNet(layerNum, self.alexNet.model)
         # sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func('conv_%d' % layerNum)
         # if sourceBlockCalcFunc is None:
@@ -683,7 +723,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         resultList = padImagesToMax(resultList)
         data = np.stack(resultList, axis=0)
-        colCount = math.ceil(math.sqrt(chanCount) * 1.15)
+        colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
         data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
 
         # try:
@@ -698,6 +738,50 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         ax.imshow(data)
         self.canvas.draw()
         return data.shape[0:2]
+
+    def showAllImagesActTops_FromCsv(self, options):
+        actMatrix = self.getImagesActivationMatrix(options.layerNum)
+        chanCount = actMatrix.shape[1]
+        if self.maxAnalyzeChanCount and chanCount > self.maxAnalyzeChanCount:
+            chanCount = self.maxAnalyzeChanCount
+        sortedValsList = []
+        for chanInd in range(chanCount):
+            sortedImageNums = np.flip(actMatrix[:, chanInd].argsort())[:options.topCount] + 1
+            sortedValsList.append(sortedImageNums)
+        imageNums = np.stack(sortedValsList, axis=0)
+        self.showTopImages(imageNums, options)
+
+    def showTopImages(self, imageNums, options):
+        topColCount = int(math.ceil(math.sqrt(options.topCount)))
+        chanCount = imageNums.shape[0]
+        resultList = []
+        t0 = datetime.datetime.now()
+        for chanInd in range(chanCount):
+            selectedImageList = []
+            for imageNum in imageNums[chanInd][:options.topCount]:
+                selectedImageList.append(self.inputImageDataset.getImage(imageNum, 'cropped'))
+            chanData = np.stack(selectedImageList, axis=0)
+            chanImageData = layoutLayersToOneImage(chanData, topColCount, 1)
+            resultList.append(chanImageData)
+            if (chanInd + 1) % 4 == 0:
+                t = datetime.datetime.now()
+                if (t - t0).total_seconds() >= 1:
+                    self.showProgress('%d channels, %.2f + %.2f MBs in cache' % \
+                                      (chanInd + 1, \
+                                       self.cache.getUsedMemory() / (1 << 20), \
+                                       self.activationCache.getUsedMemory() / (1 << 20)))
+                    t0 = t
+
+        data = np.stack(resultList, axis=0)
+        colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
+        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
+
+        ax = self.getMainSubplot()
+        ax.clear()
+        ax.imshow(data)
+        self.canvas.draw()
+        return data.shape[0:2]
+
 
     def onShowCurMultActTopsPressed(self):
         self.needShowCurMultActTops = True
@@ -740,10 +824,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 prevLayerActivations = self.getImageActivations(layerNum - 1, imageNum)[0]
                         # Conv2 - 256 * 27 * 27
 
-            colCount = math.ceil(math.sqrt(weights.shape[2]) * 1.15)
-            weightsImageData = weights.transpose((2, 0, 1))
-            weightsImageData = layoutLayersToOneImage(weightsImageData, colCount, 1, weights.min())
-
             if not showCurLayerActivations:
                 ax = self.figure.add_subplot(self.gridSpec[0, 0])
                 ax.clear()
@@ -752,10 +832,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                     ax.invert_yaxis()
                 ax.set_aspect('auto')
 
-            if 1:
-                ax = self.figure.add_subplot(self.gridSpec[1, 0])
-                ax.clear()
-                ax.imshow(weightsImageData, cmap='plasma')
+            colCount = math.ceil(math.sqrt(weights.shape[2]) * 1.15 / 2) * 2
+            self.showWeights(self.figure.add_subplot(self.gridSpec[1, 0]), weights, colCount)
 
             # bias = allWeights[1].numpy()[chanNum]
             chanConvData = conv2D_BeforeSumming(prevLayerActivations, weights)
@@ -771,10 +849,95 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
 
-    def onChanSpinBoxValueChanged(self):
-        if self.lastAction == self.onShowChanActivationsPressed:
-            self.onShowChanActivationsPressed()
+    def onShowSortedChanActivationsPressed(self):
+        try:
+            self.startAction(self.onShowSortedChanActivationsPressed)
+            imageNum = self.getSelectedImageNum()
+            layerNum = self.blockComboBox.currentIndex() + 1
+            chanNum = self.getSelectedChannelNum()
+            activations = self.getImageActivations(layerNum, imageNum)
+            activations = activations[0][chanNum]
 
+            self.figure.clear()
+            self.mainSubplotAxes = None
+            self.figure.set_tight_layout(True)
+
+            showCurLayerActivations = True
+            if showCurLayerActivations:
+                imageData = np.sqrt(activations)
+                ax = self.figure.add_subplot(self.gridSpec[0, 0])
+                ax.clear()
+                ax.imshow(imageData, cmap='plasma')
+
+            vals = self.attachCoordinates(activations)        # Getting list of (x, y, value)
+            sortedVals = vals[:, vals[2, :].argsort()]
+            curLayerMaxCoords = (int(sortedVals[0, -1]), int(sortedVals[1, -1]))
+
+            # allWeights = self.getAlexNet().model.layers[13]._trainable_weights     # Conv3 - 3 * 3 * 256 * 384 and bias 384
+            # allWeights = self.getAlexNet('conv_%d_weights' % layerNum)
+            allWeights = self.getNetWeights('conv_%d' % layerNum)
+            weights = allWeights[0].numpy()[:, :, :, chanNum]
+            if layerNum == 1:
+                prevLayerActivations = self.inputImageDataset.getImage(imageNum, 'cropped')
+            else:
+                prevLayerActivations = self.getImageActivations(layerNum - 1, imageNum)[0]
+                        # Conv2 - 256 * 27 * 27
+
+            if not showCurLayerActivations:
+                ax = self.figure.add_subplot(self.gridSpec[0, 0])
+                ax.clear()
+                ax.hist(weights.flatten(), bins=100)
+                if ax.get_ylim()[0] > ax.get_ylim()[1]:
+                    ax.invert_yaxis()
+                ax.set_aspect('auto')
+
+            chanCount = weights.shape[2]
+            showChanCount = int(math.ceil(chanCount / 4))
+            colCount = math.ceil(math.sqrt(showChanCount) * 1.15 / 2) * 2
+
+            # bias = allWeights[1].numpy()[chanNum]
+            chanConvData = conv2D_BeforeSumming(prevLayerActivations, weights)
+            # vals = np.stack([np.arange(chanConvData.shape[0]),
+            #                  np.max(np.abs(chanConvData), axis=(1,2))], axis=0)
+            # prevChansOrder = np.flip(vals[1, :].argsort())
+            vals = np.max(np.abs(chanConvData), axis=(1,2))
+            prevChansOrder = np.flip(vals.argsort())
+            sortedVals = chanConvData[prevChansOrder, :, :]
+            convImageData = layoutLayersToOneImage(sortedVals[:showChanCount], colCount, 1, chanConvData.min())
+            # ax = self.getMainSubplot()
+            ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            ax.clear()
+            im = ax.imshow(convImageData, cmap='plasma')
+            # colorBar = self.figure.colorbar(im, ax=ax)
+
+            options = QtMainWindow.TMultActOpsOptions()
+            options.layerNum = layerNum
+            actMatrix = self.getImagesActivationMatrix(layerNum)
+            sortedValsList = []
+            for chanInd in range(showChanCount):
+                sortedImageNums = np.flip(actMatrix[:, prevChansOrder[chanInd]].argsort())[:options.topCount] + 1
+                sortedValsList.append(sortedImageNums)
+            imageNums = np.stack(sortedValsList, axis=0)
+            self.showTopImages(imageNums, options)
+
+            self.showWeights(self.figure.add_subplot(self.gridSpec[1, 0]), weights[:, :, prevChansOrder],
+                             colCount * 2)
+
+            self.canvas.draw()
+        except Exception as ex:
+            self.showProgress("Error: %s" % str(ex))
+
+    def showWeights(self, ax, weights, colCount):
+        weightsImageData = weights.transpose((2, 0, 1))
+        weightsImageData = layoutLayersToOneImage(weightsImageData, colCount, 1, weights.min())
+
+        ax.clear()
+        ax.imshow(weightsImageData, cmap='plasma')
+
+
+    def onChanSpinBoxValueChanged(self):
+        if self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
+            self.lastAction()
 
     def onSpinBoxValueChanged(self):
         if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
@@ -785,15 +948,17 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.showProgress('3 operations: %.1f ms' % ((datetime.datetime.now() - t0).total_seconds() * 1000))
 
             # self.lastAction()
+        elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
+            self.lastAction()
+
+    def onBlockChanged(self):
+        if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
+            self.onSpinBoxValueChanged()
 
     def getMainSubplot(self):
         if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
             self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
         return self.mainSubplotAxes
-
-    def onBlockChanged(self):
-        if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
-            self.onSpinBoxValueChanged()
 
     # @property
     def getAlexNet(self, highestLayer = None):
@@ -1702,7 +1867,8 @@ if __name__ == "__main__":
         mainWindow.loadState()
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
-        mainWindow.onShowChanActivationsPressed()
+        # mainWindow.onShowMultActTopsPressed()
+        mainWindow.onShowSortedChanActivationsPressed()
         # mainWindow.onSpinBoxValueChanged()
     else:
         mainWindow.fastInit()
