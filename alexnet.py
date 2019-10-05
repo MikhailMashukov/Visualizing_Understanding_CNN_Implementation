@@ -99,15 +99,21 @@ class AlexNet():
     conv_layer_names = ['conv_' + id for id in ('1', '2_1', '2_2', '3', '4_1', '4_2', '5_1', '5_2')]
     deconv_layer_names = ['deconv_' + id for id in ('1', '2_1', '2_2', '3', '4_1', '4_2', '5_1', '5_2')]
 
-    def __init__(self, highest_layer_num=None, base_model=None):
-        self.highest_layer_num = highest_layer_num
+    def __init__(self, highest_layer=None, base_model=None):
+        self.highest_layer = highest_layer
         # if base_model is None:
         #     print("None")
         self.base_model = base_model if base_model else alexnet_model()  # If no base_model, create alexnet_model
-        self.model = self._sub_model() if highest_layer_num else self.base_model  # Use full network if no highest_layer
+        self.model = self._sub_model() if highest_layer else self.base_model  # Use full network if no highest_layer
 
     def _sub_model(self):
-        highest_layer_name = 'conv_{}'.format(self.highest_layer_num)
+        if isinstance(self.highest_layer, int):
+            highest_layer_name = 'conv_{}'.format(self.highest_layer)
+        else:
+            highest_layer_name = self.highest_layer
+            # if highest_layer_name[-len('_weights') : ] == '_weights':
+            #     highest_layer = self.base_model.get_layer(highest_layer_name[ : -len('_weights')])._trainable_weights
+            # else:
         highest_layer = self.base_model.get_layer(highest_layer_name)
         return Model(inputs=self.base_model.input,
                      outputs=highest_layer.output)

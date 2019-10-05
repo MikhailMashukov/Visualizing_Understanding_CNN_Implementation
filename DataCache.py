@@ -54,17 +54,31 @@ class CDataCache:
         if self.usedMemory > self.maxMemory / 2:
             self.clear()
 
+    def saveState_OpenedFile(self, file):
+        import pickle
+
+        pickle.dump(self.data, file)
+        pickle.dump(self.usedMemory, file)
+
+    def loadState_OpenedFile(self, file):
+        import pickle
+
+        self.data = pickle.load(file)
+        self.usedMemory = pickle.load(file)
 
     @staticmethod
     def getApproxObjectSize(value):   # Approximately
         if isinstance(value, np.ndarray):
             return value.nbytes
-        elif value is list:
+        elif isinstance(value, list):
             if value:
                 return CDataCache.getApproxObjectSize(value[0]) * len(value)
             else:
                 return 16
-        elif value is str:
+        elif isinstance(value, str):
             return 16 + len(value)
         else:
-            return 32
+            try:
+                return value.numpy().nbytes     # ResourceVariable
+            except:
+                return 32
