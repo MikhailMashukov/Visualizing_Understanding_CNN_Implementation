@@ -1,6 +1,7 @@
 from alexnet import AlexNet  # For hyper-parameters
 from validation import get_path_from_id
 from shutil import copyfile, rmtree
+from MyUtils import *
 
 import numpy as np
 import os
@@ -31,7 +32,7 @@ def get_activations(layer_num, base_model, mode='summation', folder='ILSVRC2012_
 
     print('Working on layer {}\n'.format(layer_num))
     filters = AlexNet.channels[layer_num]
-    activation_matrix_filename = 'Data/Strongest_Activation_Layer{}.csv'.format(layer_num)
+    activation_matrix_filename = 'Data/Strongest_Act_Layer{}_{}.csv'.format(layer_num, mode)
 
     # Init array to save activations, Filter and image numbers start with 1!!
     activations = np.full((AlexNet.val_set_size + 1, filters + 1), fill_value=0.0, dtype=np.float32)
@@ -117,9 +118,11 @@ def find_strongest_image(layer_num, top=9, folder='ILSVRC2012_img_val'):
 
     filters = AlexNet.channels[layer_num]
 
-    activation_matrix_filename = 'Data/Strongest_Activation_Layer{}.csv'.format(layer_num)
+    name_addition = ''
+    # name_addition = '_Maximum'
+    activation_matrix_filename = 'Data/Strongest_Act_Layer{}{}.csv'.format(layer_num, name_addition)
     read_from_folder = folder
-    save_to_folder = 'Data/Layer{}_Strongest_IMG'.format(layer_num)
+    save_to_folder = 'Data/Layer{}{}_Strongest_IMG'.format(layer_num, name_addition)
 
     with open(activation_matrix_filename, mode='r'):
         activations = pandas.read_table(activation_matrix_filename, dtype=np.float32, header=None).as_matrix()
@@ -183,11 +186,12 @@ def get_strongest_filters(img_id, layer, top=3, base_model=None):
 
 
 if __name__ == '__main__':
+    setProcessPriorityLow()
     base_model = AlexNet().model
     # Get activations and copy maximally activating images to folder
     # This takes a while! (~4h on my Surface i5)
     for i in (5, 4, 3, 2, 1):
-        get_activations(i, base_model)
+        get_activations(i, base_model)  #, 'maximum')
         start = time.time()
         find_strongest_image(i)
         print("Copied images in {} s\n".format(time.time() - start))

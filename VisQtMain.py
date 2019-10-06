@@ -37,18 +37,6 @@ from ControlWindow import *
 # from PersistDiagram import *
 # from PriceHistory import *
 
-def getCpuCoreCount():     # Returns number of cores without considering hyper-threading
-    import psutil
-
-    return psutil.cpu_count(False)
-
-def setProcessPriorityLow():
-    import psutil
-
-    p = psutil.Process()
-    p.nice(psutil.IDLE_PRIORITY_CLASS)
-
-setProcessPriorityLow()
 
 def padImagesToMax(imageList, padValue=255):
     maxSize = 0
@@ -152,7 +140,8 @@ class CImageDataset:
         return 'im_%d_%s' % (imageNum, preprocessStage)
 
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
-    c_channelMargin = 3
+    c_channelMargin = 2
+    c_channelMargin_Top = 5
 
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
@@ -473,6 +462,22 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
+    def getImagesActivations_Batch(self, layer, imageNums):
+        if isinstance(layer, int):
+            layerName = 'conv_%d' % layer
+        else:
+            layerName = layer
+
+        imageDataList = []
+        for imageNum in imageNums:
+            imageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
+            imageDataList.append(imageData.transpose((2, 0, 1)))
+        batchInput = np.stack(imageDataList)
+
+        model = self.getAlexNet(layerName)
+        activations = model.model.predict(batchInput)
+        return activations
+
     def getNetWeights(self, layerName):
         itemCacheName = 'w_%s' % (layerName)
         cacheItem = self.activationCache.getObject(itemCacheName)
@@ -627,6 +632,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         topCount = 25
         oneImageMaxTopCount = 6
         minDist = 3
+        batchSize = 16 * getCpuCoreCount()
 
     def onShowActTopsFromCsvPressed(self):
         # Fast, based on data produced by activations.py
@@ -643,59 +649,71 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         layerNum = self.blockComboBox.currentIndex() + 1
         options.layerNum = layerNum
 
-        self.multActTopsButton.setText('Save current')
         self.needShowCurMultActTops = False
+        self.multActTopsButton.setText('Save current')
         try:
             self.multActTopsButton.clicked.disconnect()
         except e:
             pass
         self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
-        # model = alexnet.AlexNet(layerNum, self.alexNet.model)
-        # sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func('conv_%d' % layerNum)
-        # if sourceBlockCalcFunc is None:
-        #     return
+
+        activations = self.getChannelsToAnalyze(self.getImageActivations(layerNum, 1)[0])
+        print(activations)
 
         bestSourceCoords = None
             # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
+        imageToProcessCount = max(10, self.getSelectedImageNum())
+        batchSize = options.batchSize
         prevT = datetime.datetime.now()
-        for imageNum in range(1, max(10, self.getSelectedImageNum()) + 1):
-            activations = self.getImageActivations(layerNum, imageNum)
-            activations = self.getChannelsToAnalyze(activations[0])
+        for batchNum in range((imageToProcessCount - 1) // batchSize + 1):
+            imageNums = range(batchNum * batchSize + 1, min((batchNum + 1) * batchSize, imageToProcessCount) + 1)
+            print("Batch: ", ','.join(str(i) for i in imageNums))
+            batchActivations = self.getImagesActivations_Batch(layerNum, imageNums)
+            for imageNum in imageNums:
+                activations = self.getChannelsToAnalyze(batchActivations[imageNum - imageNums[0]])
 
-            if bestSourceCoords is None:
-                bestSourceCoords = [[] for _ in range(activations.shape[0])]
-            # if layerNum <= 2:
-            #     activations[0, 22:25, 0] = 100     #d_
-            for chanInd in range(activations.shape[0]):
-                vals = self.attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
-                sortedVals = vals[:, vals[2, :].argsort()]
-                valsToSave = sortedVals[:, -options.oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
-                valsToSave[2, :] += np.mean(activations[chanInd]) / 3          # Adding influence of entire activation map
-                valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
-                bestSourceCoords[chanInd].append(valsToSave)
-            if imageNum % 10 == 0:
-                t = datetime.datetime.now()
-                if self.lastActionStartTime:
-                    timeInfo = ', %.2f ms/image' % \
-                        ((t - self.lastActionStartTime).total_seconds() * 1000 / imageNum)
-                else:
-                    timeInfo = ''
-                timeInfo += ', last 10 - %.2f' % \
-                        ((t - prevT).total_seconds() * 1000 / 10)
-                prevT = t
-                self.showProgress('Stage 1: image %d%s, %.2f + %.2f MBs in cache' % \
-                                  (imageNum, timeInfo, \
-                                   self.cache.getUsedMemory() / (1 << 20), \
-                                   self.activationCache.getUsedMemory() / (1 << 20)))
-                if self.lastAction is None or self.exiting:   # Cancel or close pressed
-                    break
-                elif self.needShowCurMultActTops:
-                    self.needShowCurMultActTops = False
-                    resultImageShape = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
-                    self.figure.savefig('Results/top%d_conv%d_%dChannels_%dImages.png' %
-                                            (options.topCount, layerNum, activations.shape[0], imageNum),
-                                        format='png', dpi=resultImageShape[0] / 3)
+                if bestSourceCoords is None:
+                    bestSourceCoords = [[] for _ in range(activations.shape[0])]
+                # if layerNum <= 2:
+                #     activations[0, 22:25, 0] = 100     #d_
+                for chanInd in range(activations.shape[0]):
+                    vals = self.attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
+                    sortedVals = vals[:, vals[2, :].argsort()]
+                    valsToSave = sortedVals[:, -options.oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
+                    valsToSave[2, :] += np.mean(activations[chanInd]) / 3          # Adding influence of entire activation map
+                    valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
+                    bestSourceCoords[chanInd].append(valsToSave)
+                if imageNum % 16 == 0:
+                    t = datetime.datetime.now()
+                    if self.lastActionStartTime:
+                        timeInfo = ', %.2f ms/image' % \
+                            ((t - self.lastActionStartTime).total_seconds() * 1000 / imageNum)
+                    else:
+                        timeInfo = ''
+                    timeInfo += ', last 16 - %.2f' % \
+                            ((t - prevT).total_seconds() * 1000 / 16)
+                    prevT = t
+                    self.showProgress('Stage 1: image %d%s, %.2f + %.2f MBs in cache' % \
+                                      (imageNum, timeInfo, \
+                                       self.cache.getUsedMemory() / (1 << 20), \
+                                       self.activationCache.getUsedMemory() / (1 << 20)))
+                    if self.lastAction is None or self.exiting:   # Cancel or close pressed
+                        break
+                    elif self.needShowCurMultActTops:
+                        self.needShowCurMultActTops = False
+                        resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
 
+                        from scipy.misc import imsave
+
+                        imsave('Data/top%d_conv%d_%dChannels_%dImages.png' %
+                                    (options.topCount, layerNum, activations.shape[0], imageNum),
+                               resultImage, format='png')
+
+                        # self.figure.savefig('Results/top%d_conv%d_%dChannels_%dImages.png' %
+                        #                         (options.topCount, layerNum, activations.shape[0], imageNum),
+                        #                     format='png', dpi=resultImageShape[0] / 3)
+            if self.lastAction is None or self.exiting:   # Cancel or close pressed
+                break
         self.multActTopsButton.setText(self.multActTopsButtonText)
         self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
         if not self.exiting:
@@ -747,7 +765,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         resultList = padImagesToMax(resultList)
         data = np.stack(resultList, axis=0)
         colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
+        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin_Top)
 
         # try:
         #     figure, axes = plt.subplots(223)
@@ -767,7 +785,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 (options.topCount, options.layerNum, int(maxImageNum))
         with open(fileName, 'wb') as file:
             pickle.dump(bestSourceCoords, file)
-        return data.shape[0:2]
+        return data
 
     def showActTops_FromCsv(self, options):
         actMatrix = self.getImagesActivationMatrix(options.layerNum)
@@ -804,7 +822,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         data = np.stack(resultList, axis=0)
         colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin)
+        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin_Top)
 
         ax = self.getMainSubplot()
         ax.clear()
@@ -1030,12 +1048,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
 
     def mouseMoveEvent(self, event):
-            # event.x()
-        s = 'Mouse move: %d, %d' % (int(event.x), int(event.y))
-        self.infoLabel.setText(s)
-        return
-
         try:
+            s = 'Mouse move: %d, %d' % (int(event.x), int(event.y))
+            self.infoLabel.setText(s)
+            return
+
             editBlockInd = None
             if event.inaxes and event.inaxes.get_navigate():
                 try:
@@ -1886,6 +1903,7 @@ if __name__ == "__main__":
     # window = app.Window(width=1000, height=760, color=(1, 1, 1, 0.5))
     mainWindow = QtMainWindow()
     mainWindow.show()
+    setProcessPriorityLow()
     if 1:
         mainWindow.init()
         mainWindow.loadState()

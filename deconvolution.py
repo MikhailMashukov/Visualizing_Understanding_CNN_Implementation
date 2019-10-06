@@ -2,6 +2,7 @@ from alexnet import AlexNet, alexnet_model, preprocess_image_batch
 from activations import get_strongest_filter, get_strongest_filters
 from validation import get_path_from_id
 from deconvolution_additional_layers import DeconvLayers
+from MyUtils import *
 
 from PIL import Image
 import numpy as np
@@ -400,6 +401,7 @@ def project_multiple_layer_filters(img_id=None, deconv_base_model=None):
 
 
 if __name__ == '__main__':
+    setProcessPriorityLow()
     deconv_base_model = Deconvolution(AlexNet().model)
     # for _ in range(15):
     #     #project_top_layer_filters(deconv_base_model=deconv_base_model)

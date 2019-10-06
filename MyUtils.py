@@ -70,6 +70,11 @@ def setProcessPriorityLow():
     except:
         p.nice(15)     # -20 to 20, bigger number is lower priority
 
+def getCpuCoreCount():     # Returns number of cores without considering hyper-threading
+    import psutil
+
+    return psutil.cpu_count(False)
+
 
 def deep_getsizeof(o, ids):
     d = deep_getsizeof
