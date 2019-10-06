@@ -156,6 +156,12 @@ class AlexNet():
             return AlexNet.get_conv_2_source_block
         elif layerName == 'conv_3':
             return AlexNet.get_conv_3_source_block
+        elif layerName == 'conv_4':
+            return AlexNet.get_conv_4_source_block
+        elif layerName == 'conv_5':
+            return AlexNet.get_conv_5_source_block
+        elif layerName[:6] == 'dense_':
+            return AlexNet.get_entire_image_block
         else:
             return None
 
@@ -177,10 +183,30 @@ class AlexNet():
     @staticmethod
     def get_conv_3_source_block(x, y):
         source_xy_0 = ((x - 2) * 16, (y - 2) * 16)
-        size = 51 + 8 * 2 + 16 * 2
+        size = 99  # 51 + 8 * 2 + 16 * 2
         return (0 if source_xy_0[0] < 0 else source_xy_0[0],
                 0 if source_xy_0[1] < 0 else source_xy_0[1],
                 source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_4_source_block(x, y):
+        source_xy_0 = ((x - 3) * 16, (y - 3) * 16)
+        size = 131  # 99 + 16 * 2
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_5_source_block(x, y):
+        source_xy_0 = ((x - 4) * 16, (y - 4) * 16)
+        size = 163  # 131 + 16 * 2
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_entire_image_block(x, y):
+        return (0, 0, 227, 227)
 
 if __name__ == "__main__":
     img_path = 'Example_JPG/Elephant.jpg'

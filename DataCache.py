@@ -6,59 +6,70 @@ import numpy as np
 # # import random
 # import sys
 # # import time
+import _thread
 
 class CDataCache:
     def __init__(self, maxMemoryMB=256):
         self.maxMemory = maxMemoryMB * (1 << 20)
         self.maxLruSize = max(maxMemoryMB, 8)
 
+        self.lock = _thread.RLock()
         self.data = dict()
         self.usedMemory = 0
         self.lrus = [set(), set()]    # New and previous sets of cache item names
 
     def getObject(self, name):              # Returns the object or None
-        cacheItem = self.data.get(name)
-        if not cacheItem is None:
-            if len(self.lrus[0]) >= self.maxLruSize:
-                self.lrus = [set(), self.lrus[0]]
-            self.lrus[0].add(name)
+        # print("Awaiting lock")
+        with self.lock:
+            # print("Lock+")
+            cacheItem = self.data.get(name)
+            if not cacheItem is None:
+                if len(self.lrus[0]) >= self.maxLruSize:
+                    self.lrus = [set(), self.lrus[0]]
+                self.lrus[0].add(name)
         return cacheItem
 
     def saveObject(self, name, value):      # Adds or replaces the object in the cache
-        prevValue = self.data.get(name)
-        if not prevValue is None:
-            self.usedMemory -= self.getApproxObjectSize(prevValue)
+        # print("Awaiting lock")
+        with self.lock:
+            # print("Lock+")
+            prevValue = self.data.get(name)
+            if not prevValue is None:
+                self.usedMemory -= self.getApproxObjectSize(prevValue)
 
-        if self.usedMemory > self.maxMemory:
-            self.partialClean()
-        self.data[name] = value
-        self.usedMemory += self.getApproxObjectSize(value)
+            if self.usedMemory > self.maxMemory:
+                self.partialClean()
+            self.data[name] = value
+            self.usedMemory += self.getApproxObjectSize(value)
 
     def getUsedMemory(self):
         return self.usedMemory
 
     def clear(self):
-        self.data = dict()
-        self.usedMemory = 0
+        with self.lock:
+            self.data = dict()
+            self.usedMemory = 0
 
     def partialClean(self):
         newDataDict = dict()
         newUsedMemory = 0
-        for name, value in self.data.items():
-            if name in self.lrus[0] or name in self.lrus[1]:
-                newDataDict[name] = value
-                newUsedMemory += self.getApproxObjectSize(value)
-        self.data = newDataDict
-        self.usedMemory = newUsedMemory
+        with self.lock:
+            for name, value in self.data.items():
+                if name in self.lrus[0] or name in self.lrus[1]:
+                    newDataDict[name] = value
+                    newUsedMemory += self.getApproxObjectSize(value)
+            self.data = newDataDict
+            self.usedMemory = newUsedMemory
 
-        if self.usedMemory > self.maxMemory / 2:
-            self.clear()
+            if self.usedMemory > self.maxMemory / 2:
+                self.clear()
 
     def saveState_OpenedFile(self, file):
         import pickle
 
-        pickle.dump(self.data, file)
-        pickle.dump(self.usedMemory, file)
+        with self.lock:
+            pickle.dump(self.data, file)
+            pickle.dump(self.usedMemory, file)
 
     def loadState_OpenedFile(self, file):
         import pickle
