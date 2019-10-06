@@ -26,12 +26,10 @@ import random
 import sys
 import time
 
-sys.path.append(r"../Qt_TradeSim")
-# import DeepOptions
-# import DeepMain
-import DataCache
+# sys.path.append(r"../Qt_TradeSim")
+import AlexNetVisWrapper
 from MyUtils import *
-from ControlWindow import *
+# from ControlWindow import *
 # from CppNetChecker import *
 # from NeuralNet import *
 # from PersistDiagram import *
@@ -99,46 +97,6 @@ def conv2D_BeforeSumming(activations, weights):
                 boundary='fill', mode='valid', fillvalue=-100))      # 'full'
     return np.stack(resultList, axis=0)
 
-class CImageDataset:
-    def __init__(self, cache):
-        self.cache = cache
-
-    def getImageFilePath(self, imageNum):
-        return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
-
-    def getImage(self, imageNum, preprocessStage='alexnet'):
-        itemCacheName = self._getImageCacheName(imageNum, preprocessStage)
-        cacheItem = self.cache.getObject(itemCacheName)
-        if not cacheItem is None:
-            return cacheItem
-
-        import alexnet_utils
-
-        imgFileName = self.getImageFilePath(imageNum)
-
-        if preprocessStage == 'source':
-            imageData = alexnet_utils.imread(imgFileName, mode='RGB')
-        elif  preprocessStage == 'cropped':   # Cropped and resized, as for alexnet
-                # but in uint8, without normalization and transposing back and forth.
-                # Float32 lead to incorrect colors in imshow
-            img_size=(256, 256)
-            crop_size=(227, 227)
-            imageData = alexnet_utils.imread(imgFileName, mode='RGB')
-            imageData = alexnet_utils.imresize(imageData, img_size)
-            imageData = imageData[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
-                (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]
-            # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
-        else:
-            imageData = alexnet_utils.preprocess_image_batch([imgFileName])[0]
-            imageData = imageData.transpose((1, 2, 0))
-
-        self.cache.saveObject(itemCacheName, imageData)
-        return imageData
-
-
-    def _getImageCacheName(self, imageNum, preprocessStage):
-        return 'im_%d_%s' % (imageNum, preprocessStage)
-
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     c_channelMargin = 2
     c_channelMargin_Top = 5
@@ -147,15 +105,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         QtGui.QMainWindow.__init__(self, parent)
         # super(QtMainWindow, self).__init__(parent)
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
-        self.net = False
         self.exiting = False
         self.lastAction = None
         self.lastActionStartTime = None
-        self.cache = DataCache.CDataCache(256 * getCpuCoreCount())
-        self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
-        self.inputImageDataset = CImageDataset(self.cache)
+        self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
+        self.imageDataset = self.netWrapper.getImageDataset()
         self.initUI()
-        self.initAlexNetUI()
+        # self.initAlexNetUI()
 
         # self.showControlWindow()
 
@@ -405,15 +361,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             curHorizWidget.addWidget(self.canvas)
             layout.addWidget(self.canvas)
 
-        button.setFocus()
-
-    def initAlexNetUI(self):
         self.lastAction = None
 
-        for i in range(5):
-            self.blockComboBox.addItem('conv_%d' % (i + 1))
-        for i in range(2):
-            self.blockComboBox.addItem('dense_%d' % (i + 1))
+        button.setFocus()
+
+    # def initAlexNetUI(self):
+
+        for layerName in self.netWrapper.getNetLayersToVisualize():
+            self.blockComboBox.addItem(layerName)
 
         self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
 
@@ -444,77 +399,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         else:
             return data
 
-    def getImageActivations(self, layer, imageNum):
-        if isinstance(layer, int):
-            layerName = 'conv_%d' % layer
-        else:
-            layerName = layer
-        itemCacheName = 'act_%s_%d' % (layerName, imageNum)
-        cacheItem = self.activationCache.getObject(itemCacheName)
-        if not cacheItem is None:
-            return cacheItem
-
-        model = self.getAlexNet(layerName)
-        imageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
-        imageData = imageData.transpose((2, 0, 1))
-        activations = model.model.predict(np.expand_dims(imageData, 0))                   # About 30 ms
-        # activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))  # About 50 ms
-        self.activationCache.saveObject(itemCacheName, activations)
-        return activations
-
-    def getImagesActivations_Batch(self, layer, imageNums):
-        if isinstance(layer, int):
-            layerName = 'conv_%d' % layer
-        else:
-            layerName = layer
-
-        imageDataList = []
-        for imageNum in imageNums:
-            imageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
-            imageDataList.append(imageData.transpose((2, 0, 1)))
-        batchInput = np.stack(imageDataList)
-
-        model = self.getAlexNet(layerName)
-        activations = model.model.predict(batchInput)
-        return activations
-
-    def getNetWeights(self, layerName):
-        itemCacheName = 'w_%s' % (layerName)
-        cacheItem = self.activationCache.getObject(itemCacheName)
-        if not cacheItem is None:
-            return cacheItem
-
-        model = self.getAlexNet().model
-        if layerName == 'conv_3':
-            allWeights = model.layers[13]._trainable_weights
-        else:
-            raise Exception('Unknown weights position in net')
-        self.activationCache.saveObject(itemCacheName, allWeights)
-        return allWeights
-
-    def getImagesActivationMatrix(self, layerNum, mode='summation'):
-        itemCacheName = 'actMat_%s_%d' % (mode, layerNum)
-        cacheItem = self.activationCache.getObject(itemCacheName)
-        if not cacheItem is None:
-            return cacheItem
-
-        import pandas
-
-        activation_matrix_filename = 'Data/Activations_{}/Strongest_Activation_Layer{}.csv'.format(
-                mode, layerNum)
-        with open(activation_matrix_filename, mode='r'):
-            activations = pandas.read_table(activation_matrix_filename, dtype=np.float32, header=None).as_matrix()
-        checkVals = [np.min(activations[0, :]), np.max(activations[0, :]), \
-                     np.min(activations[:, 0]), np.max(activations[:, 0])]
-        for checkVal in checkVals:
-            if checkVal != 0:
-                raise Exception('Unexpected non-zero value (%f) in %s' % \
-                                (checkVal, activation_matrix_filename))
-        activations = activations[1:, 1:]
-        self.activationCache.saveObject(itemCacheName, activations)
-        # self.saveState()
-        return activations
-
     def closeEvent(self, event):
         self.exiting = True
 
@@ -525,7 +409,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onShowImagePressed(self):
         self.startAction(self.onShowImagePressed)
         imageNum = self.getSelectedImageNum()
-        imageData = self.inputImageDataset.getImage(imageNum, 'cropped')
+        imageData = self.imageDataset.getImage(imageNum, 'cropped')
         # mi = imageData.min()
         # ma = imageData.max()
         # for i in range(0, 255, 2):
@@ -543,11 +427,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onShowActivationsPressed(self):
         self.startAction(self.onShowActivationsPressed)
         imageNum = self.getSelectedImageNum()
-        imageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
+        imageData = self.imageDataset.getImage(imageNum, 'alexnet')
         layerName = self.blockComboBox.currentText()
-        activations = self.getImageActivations(layerName, imageNum)
+        activations = self.netWrapper.getImageActivations(layerName, imageNum)
         # model = alexnet.AlexNet(layerNum, self.alexNet.model)
-        # activations = model.predict(self.inputImageDataset.getImageFilePath(imageNum))
+        # activations = model.predict(self.imageDataset.getImageFilePath(imageNum))
         if len(activations.shape) == 2:   # Dense level scalars
             activations = np.reshape(activations, [activations.shape[1], 1, 1])
             margin = 0
@@ -579,13 +463,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         self.startAction(self.onShowActTopsPressed)
         imageNum = self.getSelectedImageNum()
-        sourceImageData = self.inputImageDataset.getImage(imageNum, 'cropped')
-        # alexNetImageData = self.inputImageDataset.getImage(imageNum, 'alexnet')
+        sourceImageData = self.imageDataset.getImage(imageNum, 'cropped')
+        # alexNetImageData = self.imageDataset.getImage(imageNum, 'alexnet')
         layerName = self.blockComboBox.currentText()
-        activations = self.getImageActivations(layerName, imageNum)
+        activations = self.netWrapper.getImageActivations(layerName, imageNum)
         activations = self.getChannelsToAnalyze(activations[0])
 
-        sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func(layerName)
+        sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(layerName)
         if sourceBlockCalcFunc is None:
             return
         colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
@@ -657,8 +541,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             pass
         self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
 
-        activations = self.getChannelsToAnalyze(self.getImageActivations(layerNum, 1)[0])
-        print(activations)
+        # activations = self.getChannelsToAnalyze(self.netWrapper.getImageActivations(layerNum, 1)[0])
+        # print(activations)
 
         bestSourceCoords = None
             # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
@@ -668,7 +552,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         for batchNum in range((imageToProcessCount - 1) // batchSize + 1):
             imageNums = range(batchNum * batchSize + 1, min((batchNum + 1) * batchSize, imageToProcessCount) + 1)
             print("Batch: ", ','.join(str(i) for i in imageNums))
-            batchActivations = self.getImagesActivations_Batch(layerNum, imageNums)
+            batchActivations = self.netWrapper.getImagesActivations_Batch(layerNum, imageNums)
             for imageNum in imageNums:
                 activations = self.getChannelsToAnalyze(batchActivations[imageNum - imageNums[0]])
 
@@ -693,10 +577,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                     timeInfo += ', last 16 - %.2f' % \
                             ((t - prevT).total_seconds() * 1000 / 16)
                     prevT = t
-                    self.showProgress('Stage 1: image %d%s, %.2f + %.2f MBs in cache' % \
+                    self.showProgress('Stage 1: image %d%s, %s in cache' % \
                                       (imageNum, timeInfo, \
-                                       self.cache.getUsedMemory() / (1 << 20), \
-                                       self.activationCache.getUsedMemory() / (1 << 20)))
+                                       self.netWrapper.getCacheStatusInfo()))
                     if self.lastAction is None or self.exiting:   # Cancel or close pressed
                         break
                     elif self.needShowCurMultActTops:
@@ -720,7 +603,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.showMultActTops(bestSourceCoords, activations.shape[0], options)
 
     def showMultActTops(self, bestSourceCoords, chanCount, options):
-        sourceBlockCalcFunc = self.getAlexNet().get_source_block_calc_func(
+        sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(
                 'conv_%d' % options.layerNum)
         if not bestSourceCoords or len(bestSourceCoords[0]) == 0:
             return
@@ -746,7 +629,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                         break
                 if isOk:
                     sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
-                    imageData = self.inputImageDataset.getImage(int(curVal[0]), 'cropped')
+                    imageData = self.imageDataset.getImage(int(curVal[0]), 'cropped')
                     selectedImageList.append(imageData[sourceBlock[0] : sourceBlock[2], sourceBlock[1] : sourceBlock[3], :])
                     selectedList.append(curVal)
                 i -= 1
@@ -788,7 +671,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         return data
 
     def showActTops_FromCsv(self, options):
-        actMatrix = self.getImagesActivationMatrix(options.layerNum)
+        actMatrix = self.netWrapper.getImagesActivationMatrix(options.layerNum)
         chanCount = actMatrix.shape[1]
         if self.maxAnalyzeChanCount and chanCount > self.maxAnalyzeChanCount:
             chanCount = self.maxAnalyzeChanCount
@@ -807,17 +690,16 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         for chanInd in range(chanCount):
             selectedImageList = []
             for imageNum in imageNums[chanInd][:options.topCount]:
-                selectedImageList.append(self.inputImageDataset.getImage(imageNum, 'cropped'))
+                selectedImageList.append(self.imageDataset.getImage(imageNum, 'cropped'))
             chanData = np.stack(selectedImageList, axis=0)
             chanImageData = layoutLayersToOneImage(chanData, topColCount, 1)
             resultList.append(chanImageData)
             if (chanInd + 1) % 4 == 0:
                 t = datetime.datetime.now()
                 if (t - t0).total_seconds() >= 1:
-                    self.showProgress('%d channels, %.2f + %.2f MBs in cache' % \
+                    self.showProgress('%d channels, %s in cache' % \
                                       (chanInd + 1, \
-                                       self.cache.getUsedMemory() / (1 << 20), \
-                                       self.activationCache.getUsedMemory() / (1 << 20)))
+                                       self.netWrapper.getCacheStatusInfo()))
                     t0 = t
 
         data = np.stack(resultList, axis=0)
@@ -840,7 +722,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             imageNum = self.getSelectedImageNum()
             layerNum = self.blockComboBox.currentIndex() + 1
             chanNum = self.getSelectedChannelNum()
-            activations = self.getImageActivations(layerNum, imageNum)
+            activations = self.netWrapper.getImageActivations(layerNum, imageNum)
             activations = activations[0][chanNum]
 
             self.figure.clear()
@@ -864,12 +746,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
             # allWeights = self.getAlexNet().model.layers[13]._trainable_weights     # Conv3 - 3 * 3 * 256 * 384 and bias 384
             # allWeights = self.getAlexNet('conv_%d_weights' % layerNum)
-            allWeights = self.getNetWeights('conv_%d' % layerNum)
+            allWeights = self.netWrapper.getNetWeights('conv_%d' % layerNum)
             weights = allWeights[0].numpy()[:, :, :, chanNum]
             if layerNum == 1:
-                prevLayerActivations = self.inputImageDataset.getImage(imageNum, 'cropped')
+                prevLayerActivations = self.imageDataset.getImage(imageNum, 'cropped')
             else:
-                prevLayerActivations = self.getImageActivations(layerNum - 1, imageNum)[0]
+                prevLayerActivations = self.netWrapper.getImageActivations(layerNum - 1, imageNum)[0]
                         # Conv2 - 256 * 27 * 27
 
             if not showCurLayerActivations:
@@ -903,7 +785,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             imageNum = self.getSelectedImageNum()
             layerNum = self.blockComboBox.currentIndex() + 1
             chanNum = self.getSelectedChannelNum()
-            activations = self.getImageActivations(layerNum, imageNum)
+            activations = self.netWrapper.getImageActivations(layerNum, imageNum)
             activations = activations[0][chanNum]
 
             self.figure.clear()
@@ -923,12 +805,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
             # allWeights = self.getAlexNet().model.layers[13]._trainable_weights     # Conv3 - 3 * 3 * 256 * 384 and bias 384
             # allWeights = self.getAlexNet('conv_%d_weights' % layerNum)
-            allWeights = self.getNetWeights('conv_%d' % layerNum)
+            allWeights = self.netWrapper.getNetWeights('conv_%d' % layerNum)
             weights = allWeights[0].numpy()[:, :, :, chanNum]
             if layerNum == 1:
-                prevLayerActivations = self.inputImageDataset.getImage(imageNum, 'cropped')
+                prevLayerActivations = self.imageDataset.getImage(imageNum, 'cropped')
             else:
-                prevLayerActivations = self.getImageActivations(layerNum - 1, imageNum)[0]
+                prevLayerActivations = self.netWrapper.getImageActivations(layerNum - 1, imageNum)[0]
                         # Conv2 - 256 * 27 * 27
 
             if not showCurLayerActivations:
@@ -960,7 +842,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
             options = QtMainWindow.TMultActOpsOptions()
             options.layerNum = layerNum
-            actMatrix = self.getImagesActivationMatrix(layerNum)
+            actMatrix = self.netWrapper.getImagesActivationMatrix(layerNum)
             sortedValsList = []
             for chanInd in range(showChanCount):
                 sortedImageNums = np.flip(actMatrix[:, prevChansOrder[chanInd]].argsort())[:options.topCount] + 1
@@ -1008,43 +890,18 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
         return self.mainSubplotAxes
 
-    # @property
-    def getAlexNet(self, highestLayer = None):
-        if not self.net:
-            import alexnet
-
-            self.net = alexnet.AlexNet()
-            self.netsCache = dict()
-
-        if highestLayer is None:
-            return self.net
-        else:
-            if not highestLayer in self.netsCache:
-                import alexnet
-
-                self.netsCache[highestLayer] = alexnet.AlexNet(highestLayer, base_model=self.net.model)
-            return self.netsCache[highestLayer]
 
     def saveState(self):
         try:
-            with open('Data/VisImagesCache.dat', 'wb') as file:
-                self.cache.saveState_OpenedFile(file)
-            with open('Data/VisActivationsCache.dat', 'wb') as file:
-                self.activationCache.saveState_OpenedFile(file)
+            self.netWrapper.saveCacheState()
         except Exception as ex:
             self.showProgress("Error in saveState: %s" % str(ex))
 
     def loadState(self):
         try:
-            with open('Data/VisImagesCache.dat', 'rb') as file:
-                self.cache.loadState_OpenedFile(file)
-            with open('Data/VisActivationsCache.dat', 'rb') as file:
-                self.activationCache.loadState_OpenedFile(file)
+            self.netWrapper.loadCacheState()
         except Exception as ex:
             self.showProgress("Error in loadState: %s" % str(ex))
-
-
-
 
 
     def mouseMoveEvent(self, event):
@@ -1522,10 +1379,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.window.attach(self.viewport)
 
 
-    def showControlWindow(self):
-        self.controlWin = ControlWindow(window, self)
-        self.showCurParameters()
-        self.controlWin.show()
+    # def showControlWindow(self):
+    #     self.controlWin = ControlWindow(window, self)
+    #     self.showCurParameters()
+    #     self.controlWin.show()
 
 
     # def takeScreenShot(self):
