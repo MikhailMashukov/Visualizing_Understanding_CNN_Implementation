@@ -19,8 +19,6 @@ class CAlexNetVisWrapper:
         self.imageDataset = CImageDataset(self.cache)
         self.netsCache = None
 
-    # def getNetVisWrapper(self):
-
     def getImageDataset(self):
         return self.imageDataset
 

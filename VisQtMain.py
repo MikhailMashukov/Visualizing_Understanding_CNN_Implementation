@@ -28,6 +28,7 @@ import time
 
 # sys.path.append(r"../Qt_TradeSim")
 import AlexNetVisWrapper
+import MnistVis
 from MyUtils import *
 # from ControlWindow import *
 # from CppNetChecker import *
@@ -108,7 +109,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.exiting = False
         self.lastAction = None
         self.lastActionStartTime = None
-        self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
+        # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
+        self.netWrapper = MnistVis.CMnistVisWrapper()
         self.imageDataset = self.netWrapper.getImageDataset()
         self.initUI()
         # self.initAlexNetUI()
@@ -420,7 +422,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         ax = self.figure.add_subplot(self.gridSpec[0, 0])       # GridSpec: [y, x]
         ax.clear()
-        ax.imshow(imageData, alpha=1) # , aspect='equal')
+        if len(imageData.shape) > 2:
+            ax.imshow(imageData) # , aspect='equal')
+        else:
+            ax.imshow(imageData, cmap='Binary')
         # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
         self.canvas.draw()
 
@@ -1766,7 +1771,7 @@ if __name__ == "__main__":
         mainWindow.loadState()
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
-        # mainWindow.onShowActivationsPressed()
+        mainWindow.onShowActivationsPressed()
         # mainWindow.onShowMultActTopsPressed()
         # mainWindow.onShowSortedChanActivationsPressed()
         # mainWindow.onSpinBoxValueChanged()
