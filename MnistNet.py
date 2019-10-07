@@ -25,23 +25,27 @@ def variable_summaries(var):
 
 class CMnistRecognitionNet:
     class MyModel(tf.keras.Model):
+        # Error in loadState: You are trying to load a weight file containing 4 layers into a model with 0 layers.
+
         def __init__(self, highestLayerName=None):
             super(CMnistRecognitionNet.MyModel, self).__init__()
-            self.conv1 = tf.keras.layers.Conv2D(32, 3, activation='relu', name='conv_1')
+            self.conv1 = tf.keras.layers.Conv2D(32, 3, input_shape=(28, 28, 1), activation='relu', name='conv_1')
             self.maxPool = tf.keras.layers.MaxPooling2D((2, 2))
-            self.conv2 = tf.keras.layers.Conv2D(32, 3, activation='relu', name='conv_2')
+            self.conv2 = tf.keras.layers.Conv2D(20, 3, activation='relu', name='conv_2')
             self.flatten = tf.keras.layers.Flatten()
             self.d1 = tf.keras.layers.Dense(128, activation='relu', name='dense_1')
             self.d2 = tf.keras.layers.Dense(10, activation='softmax', name='dense_2')
 
-            with tf.compat.v1.name_scope('weights'):
-                weights = self.d1.get_weights()
-                variable_summaries(weights)
+            # with tf.compat.v1.name_scope('weights'):
+            #     weights = self.d1.get_weights()
+            #     variable_summaries(weights)
 
         def call(self, x, highestLayerName=None):
             x = self.conv1(x)
             if highestLayerName == 'conv_1':
                 return x
+            x = self.maxPool(x)
+            x = self.conv2(x)
             x = self.flatten(x)
             x = self.d1(x)
             if highestLayerName == 'dense_1':
@@ -77,6 +81,8 @@ class CMnistRecognitionNet:
         # self.watcher.make_notebook()
 
         self.model = CMnistRecognitionNet.MyModel()
+        # inputs = tf.keras.Input(shape=(28, 28, ), name='img')
+        # self.model = tf.keras.Model(inputs=inputs, outputs=self.myModel.d2, name='mnist_model')
 
         self.loss_object = tf.keras.losses.SparseCategoricalCrossentropy()
         self.optimizer = tf.keras.optimizers.Adam()

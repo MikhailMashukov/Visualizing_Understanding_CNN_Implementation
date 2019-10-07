@@ -225,7 +225,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         curHorizWidget = QtGui.QHBoxLayout()
         button = QtGui.QPushButton('test', self)
         button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        # button.clicked.connect(lambda: self.onTestPress())
+        button.clicked.connect(lambda: self.onTestPress())
         curHorizWidget.addWidget(button)
 
         x += c_buttonWidth + c_margin
@@ -571,7 +571,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         bestSourceCoords = None
             # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
-        imageToProcessCount = max(10, self.getSelectedImageNum())
+        imageToProcessCount = max(100 if self.netWrapper.name == 'mnist' else 20, \
+                    self.getSelectedImageNum())
         prevT = datetime.datetime.now()
 
         # if 0:     # Image-by-image
@@ -583,7 +584,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #         self._saveBestActivationsCoords(bestSourceCoords, activations, options)
         # else:     # Batched calculations
 
-        if 1:
+        try:
             batchSize = 1
         #     batchSize = options.batchSize
             for batchNum in range((imageToProcessCount - 1) // batchSize + 1):
@@ -641,8 +642,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                             #                     format='png', dpi=resultImageShape[0] / 3)
                 if self.lastAction is None or self.exiting:   # Cancel or close pressed
                     break
-        self.multActTopsButton.setText(self.multActTopsButtonText)
-        self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
+        finally:
+            self.multActTopsButton.setText(self.multActTopsButtonText)
+            self.multActTopsButton.clicked.disconnect()
+            self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
+
         if not self.exiting:
             self.showMultActTops(bestSourceCoords, activations.shape[0], options)
 
@@ -925,7 +929,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 self.showProgress('3 operations: %.1f ms' % ((datetime.datetime.now() - t0).total_seconds() * 1000))
 
                 # self.lastAction()
-            elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
+            elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed,
+                                     self.onShowMultActTopsPressed]:
                 self.lastAction()
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
@@ -945,7 +950,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # c_callIterCount = int(epochIterCount)  # 400
 
         infoStr = self.netWrapper.doLearning(iterCount)
-        self.showProgress(infoStr, False)
 
         # restIterCount = iterCount
         # while restIterCount > 0:
@@ -966,6 +970,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #     #             (epochNum, trainIterNum, learnResult))
 
         self.onSpinBoxValueChanged()   # onDisplayPressed()
+        self.showProgress(infoStr, False)
+
+    def onTestPress(self):
+        self.loadState()
 
 
     def saveState(self):
@@ -976,8 +984,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def loadState(self):
         try:
-            # self.netWrapper.loadState()
-            self.netWrapper.loadCacheState()
+            self.netWrapper.loadState()
+            # self.netWrapper.loadCacheState()
         except Exception as ex:
             self.showProgress("Error in loadState: %s" % str(ex))
 
@@ -1324,44 +1332,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         # datasetName = self.datasetComboBox.itemText(datasetInd)
         # self.drawSamplesResults(datasetName)
-
-    def onTestPress(self):
-        # self.plot()
-        # self.onDatasetChanged(0)
-
-        if 0:
-            pixmap2 = QtGui.QPixmap(self.imageLabel.width(), self.imageLabel.height())
-            painter = QtGui.QPainter(pixmap2)
-            painter.setBrush(QtCore.Qt.green)
-            painter.drawRect(20, 10, 850, 1130)
-            painter.end()
-
-            painter = QtGui.QPainter(self.pixmap)
-            painter.setBrush(QtCore.Qt.white)
-            painter.drawRect(20, 50, 1050, 1130)
-            painter.end()
-            # self.pixmap.setp
-            for i in range(1000):
-                self.imageLabel.setPixmap(self.pixmap)
-                self.imageLabel.setPixmap(pixmap2)
-                # self.imageLabel.render()
-
-        if 0:
-            pixmap = QtGui.QPixmap.grabWindow(
-                    # QtGui.QApplication.desktop().winId(),
-                    self.winId(),
-                    x=0, y=0, width=1000, height=500)
-
-            image = pixmap.toImage()
-            for x in range(300):
-                for y in range(300):
-                    c = QtGui.QColor(image.pixel(x + 25, y))
-                    c.setRed(255 if (c.red() + x) >= 255 else (c.red() + x))
-
-                    image.setPixel(x + 25, y, c.rgb())
-            pixmap = QtGui.QPixmap().fromImage(image)
-            # self.imageLabel.setPixmap(pixmap)
-            pass
 
     def onIncreaseLearningRatePressed(self):
         self.net.changeRate(2)

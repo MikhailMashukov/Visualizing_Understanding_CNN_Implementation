@@ -17,6 +17,7 @@ from MyUtils import *
 
 class CMnistVisWrapper:
     def __init__(self):
+        self.name = 'mnist'
         self.mnistDataset = CMnistDataset()
         self.net = None
         self.weightsPath = 'Data/MnistWeights.h5'

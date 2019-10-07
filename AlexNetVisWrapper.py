@@ -13,6 +13,7 @@ from MyUtils import *
 
 class CAlexNetVisWrapper:
     def __init__(self):
+        self.name = 'alexnet'
         self.net = None
         self.cache = DataCache.CDataCache(256 * getCpuCoreCount())
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
