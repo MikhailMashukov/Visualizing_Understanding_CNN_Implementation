@@ -42,7 +42,7 @@ class CAlexNetVisWrapper:
             return cacheItem
 
         model = self._getAlexNet(layerName)
-        imageData = self.imageDataset.getImage(imageNum, 'alexnet')
+        imageData = self.imageDataset.getImage(imageNum, 'net')
         imageData = imageData.transpose((2, 0, 1))
         activations = model.model.predict(np.expand_dims(imageData, 0))              # About 30 ms
         # activations = model.predict(self.imageDataset.getImageFilePath(imageNum))  # About 50 ms
@@ -57,7 +57,7 @@ class CAlexNetVisWrapper:
 
         imageDataList = []
         for imageNum in imageNums:
-            imageData = self.imageDataset.getImage(imageNum, 'alexnet')
+            imageData = self.imageDataset.getImage(imageNum, 'net')
             imageDataList.append(imageData.transpose((2, 0, 1)))
         batchInput = np.stack(imageDataList)
 
@@ -185,7 +185,8 @@ class CAlexNetVisWrapper:
                 self.netsCache[highestLayer] = alexnet.AlexNet(highestLayer, base_model=self.net.model)
             return self.netsCache[highestLayer]
 
-    def saveCacheState(self):
+    # This network only saves caches for further faster starting up
+    def saveState(self):
         try:
             with open('Data/VisImagesCache.dat', 'wb') as file:
                 self.cache.saveState_OpenedFile(file)
@@ -194,7 +195,7 @@ class CAlexNetVisWrapper:
         except Exception as ex:
             self.showProgress("Error in saveState: %s" % str(ex))
 
-    def loadCacheState(self):
+    def loadState(self):
         try:
             with open('Data/VisImagesCache.dat', 'rb') as file:
                 self.cache.loadState_OpenedFile(file)
@@ -211,7 +212,7 @@ class CImageDataset:
     def getImageFilePath(self, imageNum):
         return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
 
-    def getImage(self, imageNum, preprocessStage='alexnet'):
+    def getImage(self, imageNum, preprocessStage='net'):
         itemCacheName = self._getImageCacheName(imageNum, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)
         if not cacheItem is None:

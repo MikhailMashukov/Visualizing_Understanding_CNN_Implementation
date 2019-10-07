@@ -28,6 +28,8 @@ class CMnistRecognitionNet:
         def __init__(self, highestLayerName=None):
             super(CMnistRecognitionNet.MyModel, self).__init__()
             self.conv1 = tf.keras.layers.Conv2D(32, 3, activation='relu', name='conv_1')
+            self.maxPool = tf.keras.layers.MaxPooling2D((2, 2))
+            self.conv2 = tf.keras.layers.Conv2D(32, 3, activation='relu', name='conv_2')
             self.flatten = tf.keras.layers.Flatten()
             self.d1 = tf.keras.layers.Dense(128, activation='relu', name='dense_1')
             self.d2 = tf.keras.layers.Dense(10, activation='softmax', name='dense_2')
@@ -49,6 +51,7 @@ class CMnistRecognitionNet:
 
     def __init__(self):
         self.mnist = None
+        self.timeMeasureGroupSize = 20
 
     def init(self, mnistDataset, logDir):
         self.mnist = mnistDataset
@@ -84,6 +87,8 @@ class CMnistRecognitionNet:
         self.test_accuracy = tf.keras.metrics.SparseCategoricalAccuracy(name='test_accuracy')
         # self.gradTfVar = tf.Variable(np.zeros([128, 10], dtype=np.float32), name='grad_var')
 
+        self.trainIterNum = 0
+
     @tf.function
     def train_step(self, images, labels):
         with tf.GradientTape() as tape:
@@ -101,30 +106,26 @@ class CMnistRecognitionNet:
 
         # self.tensorboard_callback()
 
-        # return gradients[0]
+        return gradients
 
     @tf.function
-    def test_step(self, images, labels, trainIterNum):
+    def test_step(self, images, labels):
         predictions = self.model(images)
         t_loss = self.loss_object(labels, predictions)
 
         self.test_loss(t_loss)
         self.test_accuracy(labels, predictions)
 
-    def run(self):
-        c_timeMeasureGroupSize = 20
-
-        self.init()
-
-        print('Starting epoch 1')
-        trainIterNum = 0
+    def doLearning(self, iterCount):
+        print("Running %d iteration(s)" % iterCount)
         groupStartTime = datetime.datetime.now()
-        for epochNum in range(10):
+        restIterCount = iterCount
+        while restIterCount > 0:
             for images, labels in self.train_ds:
                 gradients = self.train_step(images, labels)
                 with self.train_writer.as_default():
-                    tf.summary.scalar('loss', self.train_loss.result(), step=trainIterNum)
-                    tf.summary.scalar('accuracy', self.train_accuracy.result(), step=trainIterNum)
+                    tf.summary.scalar('loss', self.train_loss.result(), step=self.trainIterNum)
+                    tf.summary.scalar('accuracy', self.train_accuracy.result(), step=self.trainIterNum)
                 #     self.watch_stream.write((trainIterNum, float(self.train_accuracy.result())))
                 # # print(self.model.d2.get_weights())
                 # self.watcher.observe(trainIterNum=trainIterNum,
@@ -135,19 +136,62 @@ class CMnistRecognitionNet:
                 # print("Iter. {}: acc. {}".format(trainIterNum, float(acc)))
                 # print("Iter. %d :   acc. %.3f" % (trainIterNum, acc))
 
-                trainIterNum += 1
-                if trainIterNum % c_timeMeasureGroupSize == 0:
-                    print("Iter. %d: acc. %.3f, last %d iter.: %.4f s" %
-                          (trainIterNum, self.train_accuracy.result(),
-                           c_timeMeasureGroupSize,
+                self.trainIterNum += 1
+                restIterCount -= 1
+                if restIterCount <= 0:
+                    break
+                # if self.trainIterNum % self.timeMeasureGroupSize == 0:
+
+        infoStr = "Iter. %d: loss %.5f, acc. %.4f, last %d iter.: %.4f s" % \
+                  (self.trainIterNum,
+                   self.train_loss.result(), self.train_accuracy.result(),
+                   iterCount,
+                   (datetime.datetime.now() - groupStartTime).total_seconds())
+                # groupStartTime = datetime.datetime.now()
+
+        self.train_loss.reset_states()
+        self.train_accuracy.reset_states()
+        return infoStr
+
+
+    def runOneEpoch(self):
+        groupStartTime = datetime.datetime.now()
+        for images, labels in self.train_ds:
+                gradients = self.train_step(images, labels)
+                with self.train_writer.as_default():
+                    tf.summary.scalar('loss', self.train_loss.result(), step=self.trainIterNum)
+                    tf.summary.scalar('accuracy', self.train_accuracy.result(), step=self.trainIterNum)
+                #     self.watch_stream.write((trainIterNum, float(self.train_accuracy.result())))
+                # # print(self.model.d2.get_weights())
+                # self.watcher.observe(trainIterNum=trainIterNum,
+                #                      weights=self.model.d1.get_weights(),
+                #                      d2weights=self.model.d2.get_weights())    # list [ np.array(128, 10), np.array(10) ]
+                #                      # grad=gradients)   # self.gradTfVar.eval())
+
+                # print("Iter. {}: acc. {}".format(trainIterNum, float(acc)))
+                # print("Iter. %d :   acc. %.3f" % (trainIterNum, acc))
+
+                self.trainIterNum += 1
+                if self.trainIterNum % self.timeMeasureGroupSize == 0:
+                    print("Iter. %d: loss %.5f, acc. %.4f, last %d iter.: %.4f s" %
+                          (self.trainIterNum,
+                           self.train_loss.result(), self.train_accuracy.result(),
+                           self.timeMeasureGroupSize,
                            (datetime.datetime.now() - groupStartTime).total_seconds()))
                     groupStartTime = datetime.datetime.now()
 
                 self.train_loss.reset_states()
                 self.train_accuracy.reset_states()
 
+    def runFullTrain(self):
+        # self.init()
+
+        print('Starting epoch 1')
+        # trainIterNum = 0
+        for epochNum in range(10):
+            self.runOneEpoch()
             for test_images, test_labels in self.test_ds:
-                self.test_step(test_images, test_labels, trainIterNum)
+                self.test_step(test_images, test_labels)
 
             # print("Iter. %d: acc. %.3f" % (trainIterNum, self.train_accuracy.result()))
             print('Epoch %d, Loss: %.6f, Accuracy: %.3f, Test Loss: %.6f, Test Accuracy: %.3f' %
