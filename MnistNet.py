@@ -4,11 +4,14 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 import tensorflow as tf
 
 import datetime
-import numpy as np
+import math
+# import numpy as np
 import psutil
 # import subprocess
-import sys
+# import sys
 import time
+
+import MnistModel2
 
 def variable_summaries(var):
     """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
@@ -53,6 +56,7 @@ class CMnistRecognitionNet:
             x = tf.keras.layers.Dropout(0.2)(x)
             return self.d2(x)
 
+
     def __init__(self):
         self.mnist = None
         self.timeMeasureGroupSize = 20
@@ -80,9 +84,7 @@ class CMnistRecognitionNet:
         # self.watch_stream = self.watcher.create_stream(name='metric1')
         # self.watcher.make_notebook()
 
-        self.model = CMnistRecognitionNet.MyModel()
-        # inputs = tf.keras.Input(shape=(28, 28, ), name='img')
-        # self.model = tf.keras.Model(inputs=inputs, outputs=self.myModel.d2, name='mnist_model')
+        self.createModel()
 
         self.loss_object = tf.keras.losses.SparseCategoricalCrossentropy()
         self.optimizer = tf.keras.optimizers.Adam()
@@ -94,6 +96,11 @@ class CMnistRecognitionNet:
         # self.gradTfVar = tf.Variable(np.zeros([128, 10], dtype=np.float32), name='grad_var')
 
         self.trainIterNum = 0
+
+    def createModel(self):
+        self.model = CMnistRecognitionNet.MyModel()
+        inputs = tf.keras.Input(shape=(28, 28, ), name='img')
+        self.kerasModel = tf.keras.Model(inputs=inputs, outputs=self.model.d2, name='mnist_model')
 
     @tf.function
     def train_step(self, images, labels):
@@ -159,36 +166,6 @@ class CMnistRecognitionNet:
         self.train_accuracy.reset_states()
         return infoStr
 
-
-    def runOneEpoch(self):
-        groupStartTime = datetime.datetime.now()
-        for images, labels in self.train_ds:
-                gradients = self.train_step(images, labels)
-                with self.train_writer.as_default():
-                    tf.summary.scalar('loss', self.train_loss.result(), step=self.trainIterNum)
-                    tf.summary.scalar('accuracy', self.train_accuracy.result(), step=self.trainIterNum)
-                #     self.watch_stream.write((trainIterNum, float(self.train_accuracy.result())))
-                # # print(self.model.d2.get_weights())
-                # self.watcher.observe(trainIterNum=trainIterNum,
-                #                      weights=self.model.d1.get_weights(),
-                #                      d2weights=self.model.d2.get_weights())    # list [ np.array(128, 10), np.array(10) ]
-                #                      # grad=gradients)   # self.gradTfVar.eval())
-
-                # print("Iter. {}: acc. {}".format(trainIterNum, float(acc)))
-                # print("Iter. %d :   acc. %.3f" % (trainIterNum, acc))
-
-                self.trainIterNum += 1
-                if self.trainIterNum % self.timeMeasureGroupSize == 0:
-                    print("Iter. %d: loss %.5f, acc. %.4f, last %d iter.: %.4f s" %
-                          (self.trainIterNum,
-                           self.train_loss.result(), self.train_accuracy.result(),
-                           self.timeMeasureGroupSize,
-                           (datetime.datetime.now() - groupStartTime).total_seconds()))
-                    groupStartTime = datetime.datetime.now()
-
-                self.train_loss.reset_states()
-                self.train_accuracy.reset_states()
-
     def runFullTrain(self):
         # self.init()
 
@@ -210,3 +187,91 @@ class CMnistRecognitionNet:
             # self.train_accuracy.reset_states()
 
 
+class CMnistRecognitionNet2(CMnistRecognitionNet):
+    def __init__(self, highest_layer=None, base_model=None):
+        super(CMnistRecognitionNet2, self).__init__()
+        self.highest_layer = highest_layer
+        # if base_model is None:
+        #     print("None")
+        self.base_model = base_model
+        self.model = None
+
+    def createModel(self):
+        if not self.base_model:
+            self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
+        self.model = self._sub_model() if self.highest_layer else self.base_model         # Use full network if no highest_layer
+
+    def _sub_model(self):
+        from keras.models import Model
+
+        if isinstance(self.highest_layer, int):
+            highest_layer_name = 'conv_{}'.format(self.highest_layer)
+        else:
+            highest_layer_name = self.highest_layer
+            # if highest_layer_name[-len('_weights') : ] == '_weights':
+            #     highest_layer = self.base_model.get_layer(highest_layer_name[ : -len('_weights')])._trainable_weights
+            # else:
+        highest_layer = self.base_model.get_layer(highest_layer_name)
+        return Model(inputs=self.base_model.input,
+                     outputs=highest_layer.output)
+
+    # def predict(self, img_path):
+    #     img = preprocess_image_batch(img_path)
+    #     return self.model.predict(img)
+    #
+
+    def doLearning(self, iterCount):
+        epochCount = int(math.ceil(iterCount / 100))
+        print("Running %d epoch(s)" % epochCount)
+        groupStartTime = datetime.datetime.now()
+        dataset = self.mnist.getNetSource('train')
+        history = self.model.fit(x=dataset[0], y=tf.keras.utils.to_categorical(dataset[1]),   #.  # x=self.train_ds,
+                                 epochs=epochCount, batch_size=32,
+                                 verbose=2)
+
+        # restIterCount = iterCount
+        # while restIterCount > 0:
+        #     for images, labels in self.train_ds:
+        #         gradients = self.train_step(images, labels)
+        #         with self.train_writer.as_default():
+        #             tf.summary.scalar('loss', self.train_loss.result(), step=self.trainIterNum)
+        #             tf.summary.scalar('accuracy', self.train_accuracy.result(), step=self.trainIterNum)
+        #         #     self.watch_stream.write((trainIterNum, float(self.train_accuracy.result())))
+        #         # # print(self.model.d2.get_weights())
+        #         # self.watcher.observe(trainIterNum=trainIterNum,
+        #         #                      weights=self.model.d1.get_weights(),
+        #         #                      d2weights=self.model.d2.get_weights())    # list [ np.array(128, 10), np.array(10) ]
+        #         #                      # grad=gradients)   # self.gradTfVar.eval())
+        #
+        #         # print("Iter. {}: acc. {}".format(trainIterNum, float(acc)))
+        #         # print("Iter. %d :   acc. %.3f" % (trainIterNum, acc))
+        #
+        #         self.trainIterNum += 1
+        #         restIterCount -= 1
+        #         if restIterCount <= 0:
+        #             break
+        #         # if self.trainIterNum % self.timeMeasureGroupSize == 0:
+        self.trainIterNum += iterCount
+
+        try:
+            infoStr = "loss %.5f" % history.history['loss'][-1]
+            infoStr += ", acc %.4f" % history.history['accuracy'][-1]
+        except Exception as ex:
+            print("Error in doLearning: %s" % str(ex))
+            infoStr = ''
+
+        infoStr = "Iter. %d: %s, last %d epochs: %.4f s" % \
+                  (self.trainIterNum,
+                   infoStr, epochCount,
+                   (datetime.datetime.now() - groupStartTime).total_seconds())
+                # groupStartTime = datetime.datetime.now()
+        # infoStr = "Iter. %d: loss %.5f, acc. %.4f, last %d iter.: %.4f s" % \
+        #           (self.trainIterNum,
+        #            self.train_loss.result(), self.train_accuracy.result(),
+        #            iterCount,
+        #            (datetime.datetime.now() - groupStartTime).total_seconds())
+        #         # groupStartTime = datetime.datetime.now()
+
+        # self.train_loss.reset_states()
+        # self.train_accuracy.reset_states()
+        return infoStr

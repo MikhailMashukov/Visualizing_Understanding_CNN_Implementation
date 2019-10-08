@@ -130,25 +130,6 @@ class AlexNet():
         return decode_classnumber(preds, top)
 
 
-    # # Returns (multiplier, size). Source pixels, corresponding to the layer layerName's pixel (x, y)
-    # # has coordinates (x * multiplier, y * multiplier) - (... + size - 1, ... + size - 1)
-    # @staticmethod
-    # def get_layer_source_pixel_calc_params(layerName):
-    #     mult = 4
-    #     size = 11
-    #     if layerName == 'conv_1':
-    #         return (mult, size)
-    #     mult *= 2
-    #     size += mult + mult * 4
-    #     if layerName == 'conv_2':
-    #         return (mult, size)
-    #     mult *= 2
-    #     size += mult + mult * 2
-    #     if layerName == 'conv_3':
-    #         return (mult, size)
-    #     return (None, None)
-
-
 if __name__ == "__main__":
     img_path = 'Example_JPG/Elephant.jpg'
 

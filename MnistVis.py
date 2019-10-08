@@ -20,7 +20,7 @@ class CMnistVisWrapper:
         self.name = 'mnist'
         self.mnistDataset = CMnistDataset()
         self.net = None
-        self.weightsPath = 'Data/MnistWeights.h5'
+        self.weightsPath = 'QtLogs/MnistWeights.h5'
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
 
     def getImageDataset(self):
@@ -71,7 +71,14 @@ class CMnistVisWrapper:
         try:
             self.loadCacheState()
             self.initNet()
+
+            # l = self.net.model.get_layer('conv_1')
+            # w = l.get_weights()[0]
+
             self.net.model.load_weights(self.weightsPath)
+
+            # l2 = self.net.model.get_layer('conv_1')
+            # w2 = l.get_weights()[0]
         except Exception as ex:
             print("Error in loadState: %s" % str(ex))
 
@@ -84,7 +91,7 @@ class CMnistVisWrapper:
     def initNet(self):
         import MnistNet
 
-        self.net = MnistNet.CMnistRecognitionNet()  # self.mnistDataset)     net uses its own copy, a bit changed data
+        self.net = MnistNet.CMnistRecognitionNet2()
         dataset = CMnistDataset()
         # dataset.loadData()
         self.net.init(dataset, 'QtLogs')

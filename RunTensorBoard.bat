@@ -1,0 +1,2 @@
+@rem set PATH=C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.0\bin;C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v9.0\libnvvp;%PATH%
+"C:\Program Files\Python35\Scripts\tensorboard.exe" --logdir=QtLogs %1 %2
