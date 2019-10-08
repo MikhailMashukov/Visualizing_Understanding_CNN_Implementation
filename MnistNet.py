@@ -60,6 +60,7 @@ class CMnistRecognitionNet:
     def __init__(self):
         self.mnist = None
         self.timeMeasureGroupSize = 20
+        self.createModel()
 
     def init(self, mnistDataset, logDir):
         self.mnist = mnistDataset
@@ -84,7 +85,7 @@ class CMnistRecognitionNet:
         # self.watch_stream = self.watcher.create_stream(name='metric1')
         # self.watcher.make_notebook()
 
-        self.createModel()
+        # self.createModel()
 
         self.loss_object = tf.keras.losses.SparseCategoricalCrossentropy()
         self.optimizer = tf.keras.optimizers.Adam()
@@ -189,12 +190,11 @@ class CMnistRecognitionNet:
 
 class CMnistRecognitionNet2(CMnistRecognitionNet):
     def __init__(self, highest_layer=None, base_model=None):
-        super(CMnistRecognitionNet2, self).__init__()
         self.highest_layer = highest_layer
         # if base_model is None:
         #     print("None")
         self.base_model = base_model
-        self.model = None
+        super(CMnistRecognitionNet2, self).__init__()
 
     def createModel(self):
         if not self.base_model:

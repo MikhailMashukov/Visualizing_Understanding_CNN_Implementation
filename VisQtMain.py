@@ -28,7 +28,7 @@ import time
 
 # sys.path.append(r"../Qt_TradeSim")
 import AlexNetVisWrapper
-import MnistVis
+import MnistNetVisWrapper
 from MyUtils import *
 # from ControlWindow import *
 # from CppNetChecker import *
@@ -58,10 +58,10 @@ def padImagesToMax(imageList, padValue=255):
 # into image with 10 55 * 55 images horizontally and 9 vertically
 def layoutLayersToOneImage(activations, colCount, channelMargin, fillValue=None):
     chanCount = activations.shape[0]
-    shift = activations.shape[1] + channelMargin
+    # shift = activations.shape[1] + channelMargin
     if fillValue is None:
         fillValue = 0 if activations.dtype in [np.uint8, np.uint32] else -1
-    colMarginData = np.full([activations.shape[2], channelMargin] + list(activations.shape[3:]),
+    colMarginData = np.full([activations.shape[1], channelMargin] + list(activations.shape[3:]),
                             fillValue,
                             dtype=activations.dtype)
     rowMarginData = None
@@ -110,7 +110,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastAction = None
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
-        self.netWrapper = MnistVis.CMnistVisWrapper()
+        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
         self.imageDataset = self.netWrapper.getImageDataset()
         self.initUI()
         # self.initAlexNetUI()
@@ -542,6 +542,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         oneImageMaxTopCount = 6
         minDist = 3
         batchSize = 16 * getCpuCoreCount()
+        embedImageNums = False
 
     def onShowActTopsFromCsvPressed(self):
         # Fast, based on data produced by activations.py
@@ -557,6 +558,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         options = QtMainWindow.TMultActOpsOptions()
         layerName = self.blockComboBox.currentText()
         options.layerName = layerName
+        options.embedImageNums = True
 
         self.needShowCurMultActTops = False
         self.multActTopsButton.setText('Save current')
@@ -676,11 +678,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                         break
                 if isOk:
                     sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
-                    imageData = self.imageDataset.getImage(int(curVal[0]), 'cropped')
+                    curImageNum = int(curVal[0])
+                    imageData = self.imageDataset.getImage(curImageNum, 'cropped')
+                    if options.embedImageNums and curImageNum <= 255 and imageData.max() > 1.01:
+                        imageData[-1][-1] = curImageNum
                     selectedImageList.append(imageData[sourceBlock[0] : sourceBlock[2], sourceBlock[1] : sourceBlock[3]])
                     selectedList.append(curVal)
                 i -= 1
-            imageBorderValue = 1 if selectedImageList[0].dtype == np.float32 else 255
+            imageBorderValue = 0  # 1 if selectedImageList[0].dtype == np.float32 else 255
             selectedImageList = padImagesToMax(selectedImageList, imageBorderValue)
             chanData = np.stack(selectedImageList, axis=0)
             chanImageData = layoutLayersToOneImage(chanData, topColCount, 1, imageBorderValue)
@@ -696,7 +701,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         resultList = padImagesToMax(resultList, imageBorderValue)
         data = np.stack(resultList, axis=0)
         colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin_Top)
+        chanBorderValue = 1 if selectedImageList[0].dtype == np.float32 else 255
+        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin_Top, chanBorderValue)
 
         # try:
         #     figure, axes = plt.subplots(223)
@@ -929,8 +935,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 self.showProgress('3 operations: %.1f ms' % ((datetime.datetime.now() - t0).total_seconds() * 1000))
 
                 # self.lastAction()
-            elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed,
-                                     self.onShowMultActTopsPressed]:
+            elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
                 self.lastAction()
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
@@ -969,7 +974,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #     #     DeepMain.MainWrapper.saveState(self, "States/State_%d_%05d_%f/state.dat" % \
         #     #             (epochNum, trainIterNum, learnResult))
 
-        self.onSpinBoxValueChanged()   # onDisplayPressed()
+        if self.lastAction in [self.onShowMultActTopsPressed]:
+            self.lastAction()
+        else:
+            self.onSpinBoxValueChanged()   # onDisplayPressed()
         self.showProgress(infoStr, False)
 
     def onTestPress(self):
@@ -981,6 +989,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.netWrapper.saveState()
         except Exception as ex:
             self.showProgress("Error in saveState: %s" % str(ex))
+
+    def loadCacheState(self):
+        try:
+            self.netWrapper.loadCacheState()
+        except Exception as ex:
+            self.showProgress("Error in loadState: %s" % str(ex))
 
     def loadState(self):
         try:
@@ -1788,10 +1802,10 @@ if __name__ == "__main__":
     setProcessPriorityLow()
     if 1:
         mainWindow.init()
-        mainWindow.loadState()
+        mainWindow.loadCacheState()
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
-        mainWindow.onShowActivationsPressed()
+        # mainWindow.onShowActivationsPressed()
         # mainWindow.onDoItersPressed(1)
         # mainWindow.onShowMultActTopsPressed()
         # mainWindow.onShowSortedChanActivationsPressed()

@@ -1,14 +1,14 @@
 # My TensorFlow\TensorWatch\mnist_watch.py, cut and attached to VisQtMain
 from __future__ import absolute_import, division, print_function, unicode_literals
 
-import argparse
+# import argparse
 import datetime
 # import subprocess
-import sys
+import os
 import time
 
 import numpy as np
-import psutil
+# import psutil
 
 import DataCache
 from MyUtils import *
@@ -22,12 +22,13 @@ class CMnistVisWrapper:
         self.net = None
         self.weightsPath = 'QtLogs/MnistWeights.h5'
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
+        self.netsCache = None
 
     def getImageDataset(self):
         return self.mnistDataset
 
     def getNetLayersToVisualize(self):
-        return ['conv_1', 'dense_1', 'dense_2']
+        return ['conv_1', 'conv_2', 'conv_3', 'dense_1', 'dense_2']
 
     def getImageActivations(self, layerName, imageNum):
         itemCacheName = 'act_%s_%d' % (layerName, imageNum)
@@ -35,17 +36,16 @@ class CMnistVisWrapper:
         if not cacheItem is None:
             return cacheItem
 
-        if self.net is None:
-            self.initNet()
+        model = self._getNet(layerName)
         imageData = self.mnistDataset.getImage(imageNum)
         imageData = np.expand_dims(imageData, 0)
-        activations = self.net.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
+        activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
     def doLearning(self, iterCount):
         if self.net is None:
-            self.initNet()
+            self._initMainNet()
         infoStr = self.net.doLearning(iterCount)
         self.activationCache.clear()
         return infoStr
@@ -69,16 +69,10 @@ class CMnistVisWrapper:
 
     def loadState(self):
         try:
-            self.loadCacheState()
-            self.initNet()
-
-            # l = self.net.model.get_layer('conv_1')
-            # w = l.get_weights()[0]
-
+            # self.loadCacheState()
+            if self.net is None:
+                self._initMainNet()
             self.net.model.load_weights(self.weightsPath)
-
-            # l2 = self.net.model.get_layer('conv_1')
-            # w2 = l.get_weights()[0]
         except Exception as ex:
             print("Error in loadState: %s" % str(ex))
 
@@ -86,34 +80,64 @@ class CMnistVisWrapper:
         return '%.2f MBs' % \
                 (self.activationCache.getUsedMemory() / (1 << 20))
 
-
-    # If data are not necessary right now, it' ok not to call this.
-    def initNet(self):
-        import MnistNet
-
-        self.net = MnistNet.CMnistRecognitionNet2()
-        dataset = CMnistDataset()
-        # dataset.loadData()
-        self.net.init(dataset, 'QtLogs')
-
-
     @staticmethod
     def get_source_block_calc_func(layerName):
         if layerName == 'conv_1':
             return CMnistVisWrapper.get_conv_1_source_block
+        elif layerName == 'conv_2':
+            return CMnistVisWrapper.get_conv_2_source_block
+        elif layerName == 'conv_3':
+            return CMnistVisWrapper.get_conv_2_source_block
         else:
             return CMnistVisWrapper.get_entire_image_block
 
     # Returns source pixels block, corresponding to the layer conv_1 pixel (x, y)
     @staticmethod
     def get_conv_1_source_block(x, y):
-        source_xy_0 = (x, y)
-        size = 3
+        source_xy_0 = (x * 2, y * 2)
+        size = 5
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_2_source_block(x, y):
+        source_xy_0 = (x * 2, y * 2)
+        size = 9
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_3_source_block(x, y):
+        source_xy_0 = (x * 4, y * 4)
+        size = 11 + 4 * 2
         return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
 
     @staticmethod
     def get_entire_image_block(_, y):
         return (0, 0, 28, 28)
+
+
+    def _initMainNet(self):
+        import MnistNet
+
+        self.net = MnistNet.CMnistRecognitionNet2()
+        dataset = CMnistDataset()
+        self.net.init(dataset, 'QtLogs')
+        if os.path.exists(self.weightsPath):
+            self.net.model.load_weights(self.weightsPath)
+
+        self.netsCache = dict()
+
+    def _getNet(self, highestLayer = None):
+        if not self.net:
+            self._initMainNet()
+
+        if highestLayer is None:
+            return self.net
+        else:
+            if not highestLayer in self.netsCache:
+                import MnistNet
+
+                self.netsCache[highestLayer] = MnistNet.CMnistRecognitionNet2(highestLayer, base_model=self.net.model)
+            return self.netsCache[highestLayer]
 
 
 class CMnistDataset:

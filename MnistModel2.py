@@ -19,22 +19,24 @@ def CMnistModel2(weights_path=None):
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(28, 28, 1))
 
-    conv_1 = Conv2D(32, 3, strides=(2, 2), activation='relu', name='conv_1')(inputs)
+    conv_1 = Conv2D(32, 5, strides=(2, 2), activation='relu', name='conv_1')(inputs)
 
-    conv_2 = MaxPooling2D((2, 2), strides=(1, 1))(conv_1)
+    conv_2 = Conv2D(20, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
+
+    conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
     # conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)
     # conv_2 = ZeroPadding2D((2, 2))(conv_2)
-    conv_2 = Conv2D(20, 3, strides=1, activation='relu', name='conv_2')(inputs)
+    conv_next = Conv2D(20, 3, strides=1, activation='relu', name='conv_3')(conv_next)
 
-    dense_1 = MaxPooling2D((2, 2), strides=(1, 1), name="convpool_2")(conv_2)
-
-    dense_1 = Flatten(name="flatten")(dense_1)
+    dense_1 = Flatten(name="flatten")(conv_next)
     dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
+
     dense_2 = Dropout(0.4)(dense_1)
     dense_2 = Dense(10, name='dense_2')(dense_2)
     prediction = Activation("softmax", name="softmax")(dense_2)
 
     m = Model(input=inputs, output=prediction)
+    print(m.summary())
 
     if not weights_path is None:
         m.load_weights(weights_path)
