@@ -1054,10 +1054,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def loadState(self, epochNum=None):
         try:
             if epochNum is None:
-                # if self.savedNetEpochs:
-                #     epochNum = self.savedNetEpochs[-1]
-                # else:
-                    epochNum = -1
+                epochNum = -1      # When there is only one file and its epoch is unknown
             self.netWrapper.loadState(epochNum)
             # self.netWrapper.loadCacheState()
             self.iterNumLabel.setText('Epoch %d' % self.netWrapper.curEpochNum)
@@ -1859,6 +1856,12 @@ if __name__ == "__main__":
     if 1:
         mainWindow.init()
         mainWindow.loadCacheState()
+
+        mainWindow.loadState(mainWindow.getSelectedEpochNum())
+        # mainWindow.netWrapper.getGradients()
+        # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
+        mainWindow.onDoItersPressed(1)
+
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
         # mainWindow.onShowActivationsPressed()

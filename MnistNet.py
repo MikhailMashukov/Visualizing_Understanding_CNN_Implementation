@@ -6,10 +6,10 @@ import tensorflow as tf
 import datetime
 import math
 # import numpy as np
-import psutil
+# import psutil
 # import subprocess
 # import sys
-import time
+# import time
 
 import MnistModel2
 
@@ -221,13 +221,20 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
     #
 
     def doLearning(self, iterCount):
+        # import keras.callbacks
+
         epochCount = int(math.ceil(iterCount / 100))
         print("Running %d epoch(s)" % epochCount)
         groupStartTime = datetime.datetime.now()
         dataset = self.mnist.getNetSource('train')
+        # tensorBoardCallback = keras.callbacks.TensorBoard(log_dir='QtLogs', histogram_freq=0,
+        #         batch_size=32, write_graph=True, write_grads=True, write_images=False,
+        #         embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=None, embeddings_data=None,
+        #         update_freq='epoch')
+        # tensorBoardCallback.set_model(self.model)
         history = self.model.fit(x=dataset[0], y=tf.keras.utils.to_categorical(dataset[1]),   #.  # x=self.train_ds,
                                  epochs=epochCount, batch_size=32,
-                                 verbose=2)
+                                 verbose=2)  # , callbacks=[tensorBoardCallback])
 
         # restIterCount = iterCount
         # while restIterCount > 0:

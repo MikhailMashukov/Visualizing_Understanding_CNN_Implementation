@@ -30,11 +30,33 @@ def getSavedNetEpochs(fileMask):     # E.g. QtLogs/MNISTWeights_epoch*.h5
             epochNums.append(int(result.group(1)))
     return sorted(epochNums)
 
+def getGradients(model):
+    """Return the gradient of every trainable weight in model
+    Parameters
+    -----------
+    model : a keras model instance
+
+    First, find all tensors which are trainable in the model. Surprisingly,
+    `model.trainable_weights` will return tensors for which
+    trainable=False has been set on their layer (last time I checked), hence the extra check.
+    Next, get the gradients of the loss with respect to the weights."""
+    # print('tensors')
+    weights = []
+    for tensor in model.trainable_weights:
+        layerInfo = tensor.name.split('/')
+        layerName = layerInfo[0]
+        if model.get_layer(layerName).trainable:
+            weights.append(tensor)
+    optimizer = model.optimizer
+    gradientTensors = optimizer.get_gradients(model.total_loss, weights)
+    return gradientTensors
+
 
 class CMnistVisWrapper:
     def __init__(self):
         self.name = 'mnist'
         self.weightsFileNameTempl = 'QtLogs/MnistWeights_Epoch%d.h5'
+        self.gradientsFileNameTempl = 'QtLogs/MnistGrads_Epoch%d.dat'
         self.mnistDataset = CMnistDataset()
         self.net = None
         self.curEpochNum = 0
@@ -70,6 +92,37 @@ class CMnistVisWrapper:
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
+    def getGradients(self):
+        import tensorflow as tf
+        import keras.backend as K
+        from keras.models import Model
+
+        model = self._getNet()
+        self.mnistDataset.loadData()
+        gradientTensors = getGradients(self.net.model)
+        # model2 = Model(inputs=model.base_model.input,
+        #              outputs=gradientTensors)
+        inp = [np.expand_dims(self.mnistDataset.train.images[:100], axis=3), 1, \
+                   tf.keras.utils.to_categorical(self.mnistDataset.train.labels[:100])]
+               #
+        # inp = {model.base_model.input.name: np.expand_dims(self.mnistDataset.train.images[:100], axis=3),
+        #        model.base_model.total_loss.name: tf.keras.utils.to_categorical(self.mnistDataset.train.labels[:100])}
+        f = K.function(inputs=[model.base_model.input,
+                               model.base_model._feed_sample_weights[0],
+                               model.base_model.targets[0]],
+                               # model.base_model.output],
+                            # model.base_model._feed_inputs, # + model.base_model._feed_targets  +model.base_model._feed_sample_weights,
+                       outputs=gradientTensors)
+        # f2 = K.function(inputs=[model.base_model.input, model.base_model._feed_sample_weights[0]],
+        #                outputs=model.base_model.output)
+        # result2 = f2(inp)
+        gradients = f(inp)
+        gradientDict = dict()
+        for i in range(len(gradientTensors)):
+            gradientDict[gradientTensors[i].name] = gradients[i]
+        return gradientDict
+
+
     def doLearning(self, iterCount):
         if self.net is None:
             self._initMainNet()
@@ -77,6 +130,7 @@ class CMnistVisWrapper:
             infoStr = self.net.doLearning(100)
             self.curEpochNum += 1
             self.saveState()
+            self.saveCurGradients()
         # self.activationCache.clear()
         return 'Epoch %d: %s' % (self.curEpochNum, infoStr)
 
@@ -92,6 +146,15 @@ class CMnistVisWrapper:
                 self.net.model.save_weights(self.weightsFileNameTempl % self.curEpochNum)
         except Exception as ex:
             print("Error in saveState: %s" % str(ex))
+
+    def saveCurGradients(self):
+        import pickle
+
+        with open(self.gradientsFileNameTempl % self.curEpochNum, 'wb') as file:
+            gradientDict = self.getGradients()
+            for name, value in gradientDict.items():
+                pickle.dump(name, file)
+                pickle.dump(value, file)
 
     # When it is desirable to initialize quickly (without tensorflow)
     def loadCacheState(self):
@@ -207,8 +270,8 @@ class CMnistDataset:
         try:
             with open(self.preparedDatasetFileName, 'rb') as file:
                 self.train = pickle.load(file)
-                # self.train.images = self.train.images[:5000]
-                # self.train.labels = self.train.labels[:5000]
+                self.train.images = self.train.images[:5000]
+                self.train.labels = self.train.labels[:5000]
                 self.test = pickle.load(file)
         except Exception as ex:
             print("Error in CMnistDataset.loadData: %s" % str(ex))
