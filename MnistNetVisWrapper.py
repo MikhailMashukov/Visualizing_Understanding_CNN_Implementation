@@ -40,6 +40,12 @@ class CMnistVisWrapper:
         imageData = self.mnistDataset.getImage(imageNum)
         imageData = np.expand_dims(imageData, 0)
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
+
+        # Converting to channels first, as VisQtMain expects
+        if len(activations.shape) == 4:
+            activations = activations.transpose((0, -1, 1, 2))
+        elif len(activations.shape) == 3:
+            activations = activations.transpose((0, -1, 1))
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 

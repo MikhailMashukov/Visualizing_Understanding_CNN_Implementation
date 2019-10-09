@@ -229,8 +229,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         curHorizWidget.addWidget(button)
 
         x += c_buttonWidth + c_margin
-        button = QtGui.QPushButton('1 iteration', self)
-        button.clicked.connect(lambda: self.onDoItersPressed(1))
+        button = QtGui.QPushButton('1 epoch', self)
+        button.clicked.connect(lambda: self.onDoItersPressed(100))
         curHorizWidget.addWidget(button)
 
         # lineEdit = QtGui.QLineEdit(self)
@@ -254,9 +254,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(self.onShowActivationsPressed)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Show act. tops', self)
-        button.clicked.connect(self.onShowActTopsPressed)
-        curHorizWidget.addWidget(button)
+        # button = QtGui.QPushButton('Show act. tops', self)     # Doesn't give interesting results
+        # button.clicked.connect(self.onShowActTopsPressed)
+        # curHorizWidget.addWidget(button)
 
         self.multActTopsButtonText = 'Show my &mult. act. tops'
         button = QtGui.QPushButton(self.multActTopsButtonText, self)
@@ -433,9 +433,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 imageData = np.squeeze(imageData, axis=2)
                 # if imageData.dtype == np.float32:
                 #     imageData *= 255
-                ax.imshow(imageData, cmap='Greys')
+                ax.imshow(imageData, cmap='Greys_r')
         else:
-            ax.imshow(imageData, cmap='Greys')
+            ax.imshow(imageData, cmap='Greys_r')
 
     def onShowActivationsPressed(self):
         self.startAction(self.onShowActivationsPressed)
@@ -534,7 +534,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         ax = self.figure.add_subplot(self.gridSpec[1, 0])
         ax.clear()
-        ax.imshow(data)
+        self.showImage(ax, data)
         self.canvas.draw()
 
     class TMultActOpsOptions:
@@ -635,6 +635,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
                             from scipy.misc import imsave
 
+                            if len(resultImage.shape) == 3 and resultImage.shape[2] == 1:
+                                resultImage = np.squeeze(resultImage, 2)
                             imsave('Data/top%d_%s_%dChannels_%dImages.png' %
                                         (options.topCount, layerName, activations.shape[0], imageNum),
                                    resultImage, format='png')
@@ -680,9 +682,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                     sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
                     curImageNum = int(curVal[0])
                     imageData = self.imageDataset.getImage(curImageNum, 'cropped')
+                    blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
                     if options.embedImageNums and curImageNum <= 255 and imageData.max() > 1.01:
-                        imageData[-1][-1] = curImageNum
-                    selectedImageList.append(imageData[sourceBlock[0] : sourceBlock[2], sourceBlock[1] : sourceBlock[3]])
+                        blockData[-1][-1] = curImageNum
+                    selectedImageList.append(blockData)
                     selectedList.append(curVal)
                 i -= 1
             imageBorderValue = 0  # 1 if selectedImageList[0].dtype == np.float32 else 255
@@ -697,6 +700,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                     self.showProgress('Stage 2: %d channels' % \
                                       (chanInd + 1))
                     t0 = t
+                if self.lastAction is None or self.exiting:   # Cancel or close pressed
+                    break
 
         resultList = padImagesToMax(resultList, imageBorderValue)
         data = np.stack(resultList, axis=0)
@@ -929,7 +934,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         try:
             if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
                 t0 = datetime.datetime.now()
-                self.onShowActTopsPressed()
                 self.onShowImagePressed()
                 self.onShowActivationsPressed()
                 self.showProgress('3 operations: %.1f ms' % ((datetime.datetime.now() - t0).total_seconds() * 1000))
