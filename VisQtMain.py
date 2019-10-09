@@ -98,6 +98,7 @@ def conv2D_BeforeSumming(activations, weights):
                 boundary='fill', mode='valid', fillvalue=-100))      # 'full'
     return np.stack(resultList, axis=0)
 
+
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     c_channelMargin = 2
     c_channelMargin_Top = 5
@@ -112,12 +113,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
         self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
         self.imageDataset = self.netWrapper.getImageDataset()
+        # self.savedNetEpochs = None
+        self.curEpochNum = 0
         self.initUI()
         # self.initAlexNetUI()
 
         # self.showControlWindow()
 
-        self.iterNumLabel.setText('Iteration 0')
+        self.iterNumLabel.setText('Epoch 0')
         self.maxAnalyzeChanCount = 130
 
     def init(self):
@@ -127,6 +130,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.net = self.netTrader.net
         # self.fastInit()
         self.mousePressPos = None
+
+        if not os.path.exists('Data/BestActs'):
+            os.makedirs('Data/BestActs')
+        # os.makedirs('Data/Weights')
+        self.loadNetStateList()
+        self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
 
     def fastInit(self):
         self.curSavedBatchDatasetName = None
@@ -179,7 +188,34 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.iterNumLabel.setGeometry(x, y, 200, c_buttonHeight)
         curHorizWidget.addWidget(self.iterNumLabel)
 
-        x += 200 + c_margin
+        self.epochComboBox = QtGui.QComboBox(self)
+        self.epochComboBox.currentIndexChanged.connect(self.onEpochComboBoxChanged)
+        # self.epochComboBox.currentIndexChanged.connect(self.onSpinBoxValueChanged)
+        curHorizWidget.addWidget(self.epochComboBox)
+
+        button = QtGui.QPushButton('Load state', self)
+        button.clicked.connect(lambda: self.onLoadStatePressed())
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Save state', self)   # and/or caches
+        button.clicked.connect(lambda: self.saveState())
+        curHorizWidget.addWidget(button)
+
+        # x += c_buttonWidth + c_margin
+        button = QtGui.QPushButton('1 epoch', self)
+        button.clicked.connect(lambda: self.onDoItersPressed(100))
+        curHorizWidget.addWidget(button)
+        layout.addLayout(curHorizWidget)
+
+        # Widgets line 2 - "Mouse move..."
+        y += c_buttonHeight + c_margin
+        x = c_margin
+        curHorizWidget = QtGui.QHBoxLayout()
+        self.infoLabel = QtGui.QLabel(self)
+        # self.infoLabel.setGeometry(x, y, self.width() - c_margin * 2, c_buttonHeight)
+        curHorizWidget.addWidget(self.infoLabel)
+
+        # x += 200 + c_margin
         self.datasetComboBox = QtGui.QComboBox(self)
         # self.datasetComboBox.setGeometry(x, y, 200, c_buttonHeight)
         self.datasetComboBox.currentIndexChanged.connect(self.onDatasetChanged)
@@ -210,15 +246,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         curHorizWidget.addWidget(button)
         layout.addLayout(curHorizWidget)
 
-        # Widgets line 2 - "Mouse move..."
-        y += c_buttonHeight + c_margin
-        x = c_margin
-        curHorizWidget = QtGui.QHBoxLayout()
-        self.infoLabel = QtGui.QLabel(self)
-        # self.infoLabel.setGeometry(x, y, self.width() - c_margin * 2, c_buttonHeight)
-        curHorizWidget.addWidget(self.infoLabel)
-        layout.addLayout(curHorizWidget)
-
         # Widgets line 3
         y += c_buttonHeight + c_margin
         x = c_margin
@@ -226,11 +253,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button = QtGui.QPushButton('test', self)
         button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onTestPress())
-        curHorizWidget.addWidget(button)
-
-        x += c_buttonWidth + c_margin
-        button = QtGui.QPushButton('1 epoch', self)
-        button.clicked.connect(lambda: self.onDoItersPressed(100))
         curHorizWidget.addWidget(button)
 
         # lineEdit = QtGui.QLineEdit(self)
@@ -271,12 +293,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button = QtGui.QPushButton('I&terations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountEdit.text())))
-        curHorizWidget.addWidget(button)
-
-        # button = QtGui.QPushButton('Load state', self)
-        # button.clicked.connect(lambda: self.onLoadStatePressed())
-        button = QtGui.QPushButton('Save state', self)   # and/or caches
-        button.clicked.connect(lambda: self.saveState())
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('+ learn. rate', self)
@@ -387,6 +403,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastAction = actionFunc
         self.lastActionStartTime = datetime.datetime.now()
 
+    def getSelectedEpochNum(self):
+        epochNum = None
+        epochText = self.epochComboBox.currentText().lower()
+        pos = epochText.find('epoch')
+        if pos >= 0:
+            epochNum = int(epochText[pos + len('epoch') : ])
+        return epochNum
+
     def getSelectedImageNum(self):
         return self.imageNumEdit.value()
             # int(self.imageNumLineEdit.text())
@@ -439,10 +463,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def onShowActivationsPressed(self):
         self.startAction(self.onShowActivationsPressed)
+        epochNum = self.getSelectedEpochNum()
         imageNum = self.getSelectedImageNum()
         imageData = self.imageDataset.getImage(imageNum, 'net')
         layerName = self.blockComboBox.currentText()
-        activations = self.netWrapper.getImageActivations(layerName, imageNum)
+        activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
         # model = alexnet.AlexNet(layerNum, self.alexNet.model)
         # activations = model.predict(self.imageDataset.getImageFilePath(imageNum))
         drawMode = 'map'
@@ -556,6 +581,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # My own implementation, from scratch, with images subblocks precision
         self.startAction(self.onShowMultActTopsPressed)
         options = QtMainWindow.TMultActOpsOptions()
+        options.epochNum = self.getSelectedEpochNum()
         layerName = self.blockComboBox.currentText()
         options.layerName = layerName
         options.embedImageNums = True
@@ -568,7 +594,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             pass
         self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
 
-        # activations = self.getChannelsToAnalyze(self.netWrapper.getImageActivations(layerNum, 1)[0])
+        # activations = self.getChannelsToAnalyze(self.netWrapper.getImageActivations(
+        #           layerNum, 1, options.epochNum)[0])
         # print(activations)
 
         bestSourceCoords = None
@@ -592,10 +619,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             for batchNum in range((imageToProcessCount - 1) // batchSize + 1):
                 imageNums = range(batchNum * batchSize + 1, min((batchNum + 1) * batchSize, imageToProcessCount) + 1)
                 if batchSize == 1:
-                    batchActivations = self.netWrapper.getImageActivations(layerName, batchNum + 1)
+                    batchActivations = self.netWrapper.getImageActivations(
+                            layerName, batchNum + 1, options.epochNum)
                 else:
                     print("Batch: ", ','.join(str(i) for i in imageNums))
-                    batchActivations = self.netWrapper.getImagesActivations_Batch(layerName, imageNums)
+                    batchActivations = self.netWrapper.getImagesActivations_Batch(
+                            layerName, imageNums, options.epochNum)
                 if len(batchActivations.shape) == 2:
                     batchActivations = np.expand_dims(np.expand_dims(batchActivations, axis=2), 2)
 
@@ -632,18 +661,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                         elif self.needShowCurMultActTops:
                             self.needShowCurMultActTops = False
                             resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
-
-                            from scipy.misc import imsave
-
-                            if len(resultImage.shape) == 3 and resultImage.shape[2] == 1:
-                                resultImage = np.squeeze(resultImage, 2)
-                            imsave('Data/top%d_%s_%dChannels_%dImages.png' %
-                                        (options.topCount, layerName, activations.shape[0], imageNum),
-                                   resultImage, format='png')
-
-                            # self.figure.savefig('Results/top%d_%s_%dChannels_%dImages.png' %
-                            #                         (options.topCount, layerName, activations.shape[0], imageNum),
-                            #                     format='png', dpi=resultImageShape[0] / 3)
+                            self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0], imageNum)
                 if self.lastAction is None or self.exiting:   # Cancel or close pressed
                     break
         finally:
@@ -652,7 +670,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
 
         if not self.exiting:
-            self.showMultActTops(bestSourceCoords, activations.shape[0], options)
+            resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
+            self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0], imageToProcessCount)
 
     def showMultActTops(self, bestSourceCoords, chanCount, options):
         sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(options.layerName)
@@ -721,13 +740,27 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.showImage(ax, data)
         self.canvas.draw()
 
-        import pickle
+        # import pickle
 
-        fileName = 'Data/BestActs%d_%s_%dImages.dat' % \
-                (options.topCount, options.layerName, int(maxImageNum))
-        with open(fileName, 'wb') as file:
-            pickle.dump(bestSourceCoords, file)
+        # fileName = 'Data/BestActs/BestActs%d_%s_%dImages.dat' % \
+        #         (options.topCount, options.layerName, int(maxImageNum))
+        # with open(fileName, 'wb') as file:
+        #     pickle.dump(bestSourceCoords, file)
         return data
+
+    def saveMultActTopsImage(self, imageData, options, layerName, chanCount, imageNum):
+        from scipy.misc import imsave
+
+        if len(imageData.shape) == 3 and imageData.shape[2] == 1:
+            imageData = np.squeeze(imageData, 2)
+        fileName = 'Data/top%d_%s_epoch%d_%dChan_%dImages.png' % \
+                    (options.topCount, layerName, options.epochNum, \
+                     chanCount, imageNum)
+        imsave(fileName, imageData, format='png')
+
+        # self.figure.savefig('Results/top%d_%s_%dChannels_%dImages.png' %
+        #                         (options.topCount, layerName, activations.shape[0], imageNum),
+        #                     format='png', dpi=resultImageShape[0] / 3)
 
     def showActTops_FromCsv(self, options):
         actMatrix = self.netWrapper.getImagesActivationMatrix(options.layerNum)
@@ -778,10 +811,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onShowChanActivationsPressed(self):
         try:
             self.startAction(self.onShowChanActivationsPressed)
+            epochNum = self.getSelectedEpochNum()
             imageNum = self.getSelectedImageNum()
             layerNum = self.blockComboBox.currentIndex() + 1
             chanNum = self.getSelectedChannelNum()
-            activations = self.netWrapper.getImageActivations(layerNum, imageNum)
+            activations = self.netWrapper.getImageActivations(layerNum, imageNum, epochNum)
             activations = activations[0][chanNum]
 
             self.figure.clear()
@@ -810,7 +844,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             if layerNum == 1:
                 prevLayerActivations = self.imageDataset.getImage(imageNum, 'cropped')
             else:
-                prevLayerActivations = self.netWrapper.getImageActivations(layerNum - 1, imageNum)[0]
+                prevLayerActivations = self.netWrapper.getImageActivations(layerNum - 1, imageNum, epochNum)[0]
                         # Conv2 - 256 * 27 * 27
 
             if not showCurLayerActivations:
@@ -841,10 +875,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onShowSortedChanActivationsPressed(self):
         try:
             self.startAction(self.onShowSortedChanActivationsPressed)
+            epochNum = self.getSelectedEpochNum()
             imageNum = self.getSelectedImageNum()
             layerNum = self.blockComboBox.currentIndex() + 1
             chanNum = self.getSelectedChannelNum()
-            activations = self.netWrapper.getImageActivations(layerNum, imageNum)
+            activations = self.netWrapper.getImageActivations(layerNum, imageNum, epochNum)
             activations = activations[0][chanNum]
 
             self.figure.clear()
@@ -869,7 +904,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             if layerNum == 1:
                 prevLayerActivations = self.imageDataset.getImage(imageNum, 'cropped')
             else:
-                prevLayerActivations = self.netWrapper.getImageActivations(layerNum - 1, imageNum)[0]
+                prevLayerActivations = self.netWrapper.getImageActivations(layerNum - 1, imageNum, epochNum)[0]
                         # Conv2 - 256 * 27 * 27
 
             if not showCurLayerActivations:
@@ -959,6 +994,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # c_callIterCount = int(epochIterCount)  # 400
 
         infoStr = self.netWrapper.doLearning(iterCount)
+        self.loadNetStateList()
+        self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
+        self.iterNumLabel.setText('Epoch %d' % self.netWrapper.curEpochNum)
 
         # restIterCount = iterCount
         # while restIterCount > 0:
@@ -984,8 +1022,18 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.onSpinBoxValueChanged()   # onDisplayPressed()
         self.showProgress(infoStr, False)
 
+    def onEpochComboBoxChanged(self):
+        # if self.lastAction in [self.onShowMultActTopsPressed]:
+        #     self.lastAction()
+        # else:
+            self.onSpinBoxValueChanged()   # onDisplayPressed()
+
     def onTestPress(self):
-        self.loadState()
+        # self.loadState()
+        pass
+
+    def onLoadStatePressed(self):
+        self.loadState(self.getSelectedEpochNum())
 
 
     def saveState(self):
@@ -994,16 +1042,31 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         except Exception as ex:
             self.showProgress("Error in saveState: %s" % str(ex))
 
-    def loadCacheState(self):
+    def loadNetStateList(self):
         try:
-            self.netWrapper.loadCacheState()
+            savedNetEpochs = self.netWrapper.getSavedNetEpochs()
+            self.epochComboBox.clear()
+            for epochNum in savedNetEpochs:
+                self.epochComboBox.addItem('Epoch %d' % epochNum)
         except Exception as ex:
             self.showProgress("Error in loadState: %s" % str(ex))
 
-    def loadState(self):
+    def loadState(self, epochNum=None):
         try:
-            self.netWrapper.loadState()
+            if epochNum is None:
+                # if self.savedNetEpochs:
+                #     epochNum = self.savedNetEpochs[-1]
+                # else:
+                    epochNum = -1
+            self.netWrapper.loadState(epochNum)
             # self.netWrapper.loadCacheState()
+            self.iterNumLabel.setText('Epoch %d' % self.netWrapper.curEpochNum)
+        except Exception as ex:
+            self.showProgress("Error in loadState: %s" % str(ex))
+
+    def loadCacheState(self):
+        try:
+            self.netWrapper.loadCacheState()
         except Exception as ex:
             self.showProgress("Error in loadState: %s" % str(ex))
 
@@ -1354,17 +1417,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onIncreaseLearningRatePressed(self):
         self.net.changeRate(2)
         self.infoLabel.setText('Learning rate increased')
-
-    def onLoadStatePressed(self):
-        if os.path.isfile(self.stateFileName + '.index'):
-            try:
-               # and self.studyType != StudyType.DeepDiff:
-                self.loadState(self.stateFileName)
-                self.onDisplayPressed()
-                self.infoLabel.setText('State loaded from %s' % self.stateFileName)
-            except Exception as ex:
-                self.infoLabel.setText('Exception on state loading: %s' % str(ex))
-                print('Exception on state loading: %s' % str(ex))
 
     def onDeleteWorstNeironsPressed(self):
         samples = self.getSamples(0, 10000)

@@ -2,10 +2,11 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 # import argparse
-import datetime
+# import datetime
+import math
 # import subprocess
 import os
-import time
+# import time
 
 import numpy as np
 # import psutil
@@ -15,12 +16,28 @@ from MyUtils import *
 
 # FLAGS = None
 
+def getSavedNetEpochs(fileMask):     # E.g. QtLogs/MNISTWeights_epoch*.h5
+    import glob
+    import re
+
+    epochNums = []
+    # for fileName in os.listdir(fileMask):
+    for fileName in glob.glob(fileMask):
+        fileName = fileName.lower()
+        result = re.search(r'epoch(\d+)\.', fileName)
+        # p = fileName.find('epoch')
+        if result:
+            epochNums.append(int(result.group(1)))
+    return sorted(epochNums)
+
+
 class CMnistVisWrapper:
     def __init__(self):
         self.name = 'mnist'
+        self.weightsFileNameTempl = 'QtLogs/MnistWeights_Epoch%d.h5'
         self.mnistDataset = CMnistDataset()
         self.net = None
-        self.weightsPath = 'QtLogs/MnistWeights.h5'
+        self.curEpochNum = 0
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
         self.netsCache = None
 
@@ -30,13 +47,17 @@ class CMnistVisWrapper:
     def getNetLayersToVisualize(self):
         return ['conv_1', 'conv_2', 'conv_3', 'dense_1', 'dense_2']
 
-    def getImageActivations(self, layerName, imageNum):
-        itemCacheName = 'act_%s_%d' % (layerName, imageNum)
+    def getImageActivations(self, layerName, imageNum, epochNum=None):
+        if epochNum is None:
+            epochNum = self.curEpochNum
+        itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
         cacheItem = self.activationCache.getObject(itemCacheName)
         if not cacheItem is None:
             return cacheItem
 
         model = self._getNet(layerName)
+        if epochNum != self.curEpochNum:
+            self.loadState(epochNum)
         imageData = self.mnistDataset.getImage(imageNum)
         imageData = np.expand_dims(imageData, 0)
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
@@ -52,18 +73,25 @@ class CMnistVisWrapper:
     def doLearning(self, iterCount):
         if self.net is None:
             self._initMainNet()
-        infoStr = self.net.doLearning(iterCount)
-        self.activationCache.clear()
-        return infoStr
+        for _ in range(int(math.ceil(iterCount / 100))):
+            infoStr = self.net.doLearning(100)
+            self.curEpochNum += 1
+            self.saveState()
+        # self.activationCache.clear()
+        return 'Epoch %d: %s' % (self.curEpochNum, infoStr)
+
+
+    def getSavedNetEpochs(self):
+        return getSavedNetEpochs(self.weightsFileNameTempl.replace('%d', '*'))
 
     def saveState(self):
         try:
             with open('Data/MnistVisActCache.dat', 'wb') as file:
                 self.activationCache.saveState_OpenedFile(file)
             if not self.net is None:
-                self.net.model.save_weights(self.weightsPath)
+                self.net.model.save_weights(self.weightsFileNameTempl % self.curEpochNum)
         except Exception as ex:
-            print("Error in loadState: %s" % str(ex))
+            print("Error in saveState: %s" % str(ex))
 
     # When it is desirable to initialize quickly (without tensorflow)
     def loadCacheState(self):
@@ -73,12 +101,13 @@ class CMnistVisWrapper:
         except Exception as ex:
             print("Error in loadCacheState: %s" % str(ex))
 
-    def loadState(self):
+    def loadState(self, epochNum=-1):
         try:
             # self.loadCacheState()
             if self.net is None:
                 self._initMainNet()
-            self.net.model.load_weights(self.weightsPath)
+            self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
+            self.curEpochNum = epochNum
         except Exception as ex:
             print("Error in loadState: %s" % str(ex))
 
@@ -127,8 +156,8 @@ class CMnistVisWrapper:
         self.net = MnistNet.CMnistRecognitionNet2()
         dataset = CMnistDataset()
         self.net.init(dataset, 'QtLogs')
-        if os.path.exists(self.weightsPath):
-            self.net.model.load_weights(self.weightsPath)
+        # if os.path.exists(self.weightsFileNameTempl):
+        #     self.net.model.load_weights(self.weightsFileNameTempl)
 
         self.netsCache = dict()
 
@@ -178,9 +207,11 @@ class CMnistDataset:
         try:
             with open(self.preparedDatasetFileName, 'rb') as file:
                 self.train = pickle.load(file)
+                # self.train.images = self.train.images[:5000]
+                # self.train.labels = self.train.labels[:5000]
                 self.test = pickle.load(file)
         except Exception as ex:
-            print("Error in loadData: %s" % str(ex))
+            print("Error in CMnistDataset.loadData: %s" % str(ex))
             self._loadData_Keras()
             with open(self.preparedDatasetFileName, 'wb') as file:
                 pickle.dump(self.train, file)

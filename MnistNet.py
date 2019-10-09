@@ -260,9 +260,8 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
             print("Error in doLearning: %s" % str(ex))
             infoStr = ''
 
-        infoStr = "Iter. %d: %s, last %d epochs: %.4f s" % \
-                  (self.trainIterNum,
-                   infoStr, epochCount,
+        infoStr = "%s, last %d epochs: %.4f s" % \
+                  (infoStr, epochCount,
                    (datetime.datetime.now() - groupStartTime).total_seconds())
                 # groupStartTime = datetime.datetime.now()
         # infoStr = "Iter. %d: loss %.5f, acc. %.4f, last %d iter.: %.4f s" % \
