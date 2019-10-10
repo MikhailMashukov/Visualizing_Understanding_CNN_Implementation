@@ -62,6 +62,8 @@ class CMnistVisWrapper:
         self.curEpochNum = 0
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
         self.netsCache = None
+        self.gradientTensors = None
+        self.gradientKerasFunc = None
 
     def getImageDataset(self):
         return self.mnistDataset
@@ -99,22 +101,26 @@ class CMnistVisWrapper:
         model = self._getNet()
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
-        gradientTensors = getGradientTensors(self.net.model)
+            print("State loaded")
+        if self.gradientTensors is None:
+            self.gradientTensors = getGradientTensors(self.net.model)
+            self.gradientKerasFunc = K.function(inputs=[model.base_model.input,
+                       model.base_model._feed_sample_weights[0],
+                       model.base_model.targets[0]],
+                    outputs=self.gradientTensors)
         data = self.mnistDataset.getNetSource()
         inp = [data[0][:firstImageCount], 1, \
                    tf.keras.utils.to_categorical(data[1][:firstImageCount], num_classes=10)]
-        f = K.function(inputs=[model.base_model.input,
-                               model.base_model._feed_sample_weights[0],
-                               model.base_model.targets[0]],
-                       outputs=gradientTensors)
-        gradients = f(inp)
+        print("Data for net prepared")
+        gradients = self.gradientKerasFunc(inp)
+        print("Gradients calculated")
         layerInd = None
-        for i in range(len(gradientTensors)):
-            name = gradientTensors[i].name
+        for i in range(len(self.gradientTensors)):
+            name = self.gradientTensors[i].name
             if name.find(layerName) >= 0 and name.find('Bias') < 0:
                 if layerInd != None:
                     raise Exception('Multiple matching gradients layers (%s and %s)' % \
-                                    (gradientTensors[layerInd].name, name))
+                                    (self.gradientTensors[layerInd].name, name))
                 layerInd = i
         if layerInd is None:
             raise Exception('Unknown layer %s' % layerName)

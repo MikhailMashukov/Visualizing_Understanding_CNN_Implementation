@@ -102,6 +102,7 @@ def conv2D_BeforeSumming(activations, weights):
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     c_channelMargin = 2
     c_channelMargin_Top = 5
+    AllEpochs = -2
 
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
@@ -410,6 +411,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def getSelectedEpochNum(self):
         epochNum = None
         epochText = self.epochComboBox.currentText().lower()
+        if epochText.find('all') >= 0:
+            return self.AllEpochs
         pos = epochText.find('epoch')
         if pos >= 0:
             epochNum = int(epochText[pos + len('epoch') : ])
@@ -966,7 +969,18 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         firstImageCount = self.getSelectedImageNum()
         layerName = self.blockComboBox.currentText()
 
-        data = self.netWrapper.getGradients(layerName, firstImageCount, epochNum)
+        data2 = None
+        print("Getting data")
+        if epochNum == self.AllEpochs:
+            dataList = []
+            for curEpochNum in self.netWrapper.getSavedNetEpochs():
+                dataList.append(self.netWrapper.getGradients(layerName, firstImageCount, curEpochNum))
+            data = np.stack(dataList, axis=0)
+            if len(data.shape) == 5:
+                data2 = np.mean(data, axis=(2))    # Averaging by other convolution channels dimension out of 2
+            data = np.mean(data, axis=(1))
+        else:
+            data = self.netWrapper.getGradients(layerName, firstImageCount, epochNum)
         stdData = None
         drawMode = 'map'
         shape = data.shape
@@ -974,9 +988,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             # data = np.reshape(data, (shape[0] * shape[1], shape[2], shape[3]))
             stdData = np.std(data, axis=(2, 3))
             data = np.mean(data, axis=(2, 3))
+            if not data2 is None:
+                data2 = np.mean(data2, axis=(2, 3))
         elif len(shape) == 3:
             stdData = np.std(data, axis=(2, 3))
             data = np.mean(data, axis=(2))
+            if not data2 is None:
+                data2 = np.mean(data2, axis=(2))
 
         shape = data.shape
         if len(shape) == 2:
@@ -991,6 +1009,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             data = self.getChannelsToAnalyze(data)
             margin = self.c_channelMargin
 
+        if epochNum == self.AllEpochs and len(data.shape) >= 2:
+            data = data.transpose([1, 0] + list(data.shape[2:]))
+            stdData = stdData.transpose([1, 0] + list(stdData.shape[2:]))
+            if not data2 is None:
+                data2 = data2.transpose([1, 0] + list(data2.shape[2:]))
+
+        print("Data transformed")
         self.clearFigure()
         ax = self.getMainSubplot()
         ax.clear()
@@ -1001,6 +1026,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             im = ax.imshow(data, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
         elif drawMode == '2d':
+            if epochNum == self.AllEpochs:
+                data = np.abs(data)
+                data[data < 1e-15] = 1e-15
+                data = np.log10(data)
             im = ax.imshow(data, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
         else:
@@ -1014,11 +1043,22 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         ax = self.figure.add_subplot(self.gridSpec[1, 0])
         ax.clear()
-        ax.hist(data.flatten(), bins=100)
-        if ax.get_ylim()[0] > ax.get_ylim()[1]:
-            ax.invert_yaxis()
-        ax.set_aspect('auto')
+        if data2 is None:
+            ax.hist(data.flatten(), bins=100)
+            if ax.get_ylim()[0] > ax.get_ylim()[1]:
+                ax.invert_yaxis()
+            ax.set_aspect('auto')
+        else:
+            if epochNum == self.AllEpochs:
+                data2 = np.abs(data2)
+                data2[data2 < 1e-15] = 1e-15
+                data2 = np.log10(data2)
+            im = ax.imshow(data2, cmap='plasma')
+            colorBar = self.figure.colorbar(im, ax=ax)
+
+        print("Plots Updated")
         self.canvas.draw()
+        print("Done")
 
 
     def onChanSpinBoxValueChanged(self):
@@ -1109,6 +1149,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         try:
             savedNetEpochs = self.netWrapper.getSavedNetEpochs()
             self.epochComboBox.clear()
+            self.epochComboBox.addItem('---  All  ---')
             for epochNum in savedNetEpochs:
                 self.epochComboBox.addItem('Epoch %d' % epochNum)
         except Exception as ex:
