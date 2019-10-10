@@ -180,10 +180,13 @@ class CMnistVisWrapper:
             self._initMainNet()
         epochNum = 0    # Number for starting from small epochs each time
         for _ in range(int(math.ceil(iterCount / 100))):
-            if epochNum < 4:
-                (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
-            elif 4 << (epochNum - 4) <= 55:
-                (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+            if iterCount > 500:
+                if epochNum < 4:
+                    (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
+                elif 4 << (epochNum - 4) <= 55:
+                    (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+                else:
+                    (start, end) = (0, None)
             else:
                 (start, end) = (0, None)
             infoStr = self.net.doLearning(1, start, end, self.curEpochNum)
@@ -248,7 +251,7 @@ class CMnistVisWrapper:
         elif layerName == 'conv_2':
             return CMnistVisWrapper.get_conv_2_source_block
         elif layerName == 'conv_3':
-            return CMnistVisWrapper.get_conv_2_source_block
+            return CMnistVisWrapper.get_conv_3_source_block
         else:
             return CMnistVisWrapper.get_entire_image_block
 

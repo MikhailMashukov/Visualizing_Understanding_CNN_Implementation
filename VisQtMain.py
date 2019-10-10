@@ -267,7 +267,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         spinBox.valueChanged.connect(lambda: self.onSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
         self.imageNumEdit = spinBox
-        self.iterCountEdit = spinBox
 
         button = QtGui.QPushButton('Show &image', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
@@ -295,6 +294,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button = QtGui.QPushButton('Show &gradients', self)
         button.clicked.connect(self.onShowGradientsPressed)
         curHorizWidget.addWidget(button)
+
+        spinBox = QtGui.QSpinBox(self)
+        spinBox.setRange(1, 1000000)
+        spinBox.setValue(1000)
+        spinBox.setSingleStep(100)
+        curHorizWidget.addWidget(spinBox)
+        self.iterCountEdit = spinBox
 
         button = QtGui.QPushButton('I&terations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
@@ -2011,7 +2017,7 @@ if __name__ == "__main__":
         # mainWindow.netWrapper.getGradients()
         # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
         # mainWindow.onDoItersPressed(1)
-        mainWindow.onResetWorstNeironsPressed()
+        # mainWindow.onResetWorstNeironsPressed()
 
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()

@@ -228,6 +228,7 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         fullTestDataset = self.mnist.getNetSource('test')
         if endTrainImageNum is None:
             endTrainImageNum = fullDataset[0].shape[0]
+        batchSize = 32
         print("Running %d epoch(s) from %d, %d images each" % \
                 (epochCount, initialEpochNum, endTrainImageNum - startTrainImageNum))
         groupStartTime = datetime.datetime.now()
@@ -238,37 +239,15 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         testDataset = (fullTestDataset[0][:testDatasetSize],
                    tf.keras.utils.to_categorical(fullTestDataset[1][:testDatasetSize]))
         tensorBoardCallback = TensorBoard(log_dir='QtLogs', histogram_freq=0,
-                batch_size=32, write_graph=True, write_grads=True, write_images=1,
+                write_graph=True, write_grads=True, write_images=1,    # batch_size=32,
                 embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=None, embeddings_data=None,
-                update_freq='batch')
+                update_freq='epoch')
+        summaryCallback = MnistModel2.CSummaryWriteCallback(self.mnist,
+                self.train_writer, self.test_writer, int(initialEpochNum * fullDataset[0].shape[0] / batchSize))
         # tensorBoardCallback.set_model(self.model)
         history = self.model.fit(x=dataset[0], y=dataset[1], validation_data=testDataset,
-                                 epochs=initialEpochNum+epochCount, initial_epoch=initialEpochNum, batch_size=32,
-                                 verbose=2, callbacks=[tensorBoardCallback])
-
-        # restIterCount = iterCount
-        # while restIterCount > 0:
-        #     for images, labels in self.train_ds:
-        #         gradients = self.train_step(images, labels)
-        #         with self.train_writer.as_default():
-        #             tf.summary.scalar('loss', self.train_loss.result(), step=self.trainIterNum)
-        #             tf.summary.scalar('accuracy', self.train_accuracy.result(), step=self.trainIterNum)
-        #         #     self.watch_stream.write((trainIterNum, float(self.train_accuracy.result())))
-        #         # # print(self.model.d2.get_weights())
-        #         # self.watcher.observe(trainIterNum=trainIterNum,
-        #         #                      weights=self.model.d1.get_weights(),
-        #         #                      d2weights=self.model.d2.get_weights())    # list [ np.array(128, 10), np.array(10) ]
-        #         #                      # grad=gradients)   # self.gradTfVar.eval())
-        #
-        #         # print("Iter. {}: acc. {}".format(trainIterNum, float(acc)))
-        #         # print("Iter. %d :   acc. %.3f" % (trainIterNum, acc))
-        #
-        #         self.trainIterNum += 1
-        #         restIterCount -= 1
-        #         if restIterCount <= 0:
-        #             break
-        #         # if self.trainIterNum % self.timeMeasureGroupSize == 0:
-        # self.trainIterNum += iterCount
+                                 epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
+                                 batch_size=batchSize, verbose=2, callbacks=[tensorBoardCallback, summaryCallback])
 
         try:
             if not history.history:
@@ -283,13 +262,5 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
                   (infoStr, epochCount,
                    (datetime.datetime.now() - groupStartTime).total_seconds())
                 # groupStartTime = datetime.datetime.now()
-        # infoStr = "Iter. %d: loss %.5f, acc. %.4f, last %d iter.: %.4f s" % \
-        #           (self.trainIterNum,
-        #            self.train_loss.result(), self.train_accuracy.result(),
-        #            iterCount,
-        #            (datetime.datetime.now() - groupStartTime).total_seconds())
-        #         # groupStartTime = datetime.datetime.now()
 
-        # self.train_loss.reset_states()
-        # self.train_accuracy.reset_states()
         return infoStr
