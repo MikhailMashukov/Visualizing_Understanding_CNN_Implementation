@@ -30,7 +30,7 @@ def getSavedNetEpochs(fileMask):     # E.g. QtLogs/MNISTWeights_epoch*.h5
             epochNums.append(int(result.group(1)))
     return sorted(epochNums)
 
-def getGradients(model):
+def getGradientTensors(model):
     """Return the gradient of every trainable weight in model
     Parameters
     -----------
@@ -84,7 +84,7 @@ class CMnistVisWrapper:
         imageData = np.expand_dims(imageData, 0)
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
 
-        # Converting to channels first, as VisQtMain expects
+        # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
         if len(activations.shape) == 4:
             activations = activations.transpose((0, -1, 1, 2))
         elif len(activations.shape) == 3:
@@ -92,35 +92,43 @@ class CMnistVisWrapper:
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
-    def getGradients(self):
+    def getGradients(self, layerName, firstImageCount, epochNum):
         import tensorflow as tf
         import keras.backend as K
-        from keras.models import Model
 
         model = self._getNet()
-        self.mnistDataset.loadData()
-        gradientTensors = getGradients(self.net.model)
-        # model2 = Model(inputs=model.base_model.input,
-        #              outputs=gradientTensors)
-        inp = [np.expand_dims(self.mnistDataset.train.images[:100], axis=3), 1, \
-                   tf.keras.utils.to_categorical(self.mnistDataset.train.labels[:100])]
-               #
-        # inp = {model.base_model.input.name: np.expand_dims(self.mnistDataset.train.images[:100], axis=3),
-        #        model.base_model.total_loss.name: tf.keras.utils.to_categorical(self.mnistDataset.train.labels[:100])}
+        if epochNum != self.curEpochNum:
+            self.loadState(epochNum)
+        gradientTensors = getGradientTensors(self.net.model)
+        data = self.mnistDataset.getNetSource()
+        inp = [data[0][:firstImageCount], 1, \
+                   tf.keras.utils.to_categorical(data[1][:firstImageCount], num_classes=10)]
         f = K.function(inputs=[model.base_model.input,
                                model.base_model._feed_sample_weights[0],
                                model.base_model.targets[0]],
-                               # model.base_model.output],
-                            # model.base_model._feed_inputs, # + model.base_model._feed_targets  +model.base_model._feed_sample_weights,
                        outputs=gradientTensors)
-        # f2 = K.function(inputs=[model.base_model.input, model.base_model._feed_sample_weights[0]],
-        #                outputs=model.base_model.output)
-        # result2 = f2(inp)
         gradients = f(inp)
-        gradientDict = dict()
+        layerInd = None
         for i in range(len(gradientTensors)):
-            gradientDict[gradientTensors[i].name] = gradients[i]
-        return gradientDict
+            name = gradientTensors[i].name
+            if name.find(layerName) >= 0 and name.find('Bias') < 0:
+                if layerInd != None:
+                    raise Exception('Multiple matching gradients layers (%s and %s)' % \
+                                    (gradientTensors[layerInd].name, name))
+                layerInd = i
+        if layerInd is None:
+            raise Exception('Unknown layer %s' % layerName)
+        gradients = gradients[layerInd]
+        if len(gradients.shape) == 4:
+            gradients = gradients.transpose((2, 3, 0, 1))
+        elif len(gradients.shape) == 3:
+            gradients = gradients.transpose((-1, 0, 1))
+        return gradients
+
+        # gradientDict = dict()        # For saving to file
+        # for i in range(len(gradientTensors)):
+        #     gradientDict[gradientTensors[i].name] = gradients[i]
+        # return gradientDict
 
 
     def doLearning(self, iterCount):
@@ -130,7 +138,7 @@ class CMnistVisWrapper:
             infoStr = self.net.doLearning(100)
             self.curEpochNum += 1
             self.saveState()
-            self.saveCurGradients()
+            # self.saveCurGradients()
         # self.activationCache.clear()
         return 'Epoch %d: %s' % (self.curEpochNum, infoStr)
 

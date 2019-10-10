@@ -290,6 +290,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(self.onShowActTopsFromCsvPressed)
         curHorizWidget.addWidget(button)
 
+        button = QtGui.QPushButton('Show &gradients', self)
+        button.clicked.connect(self.onShowGradientsPressed)
+        curHorizWidget.addWidget(button)
+
         button = QtGui.QPushButton('I&terations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountEdit.text())))
@@ -448,6 +452,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
         self.canvas.draw()
 
+    def clearFigure(self):
+        self.figure.clear()
+        self.mainSubplotAxes = None
+        self.figure.set_tight_layout(True)
+
     def showImage(self, ax, imageData):
         # ax.clear()    # Including clear here is handy, but not obvious
         if len(imageData.shape) >= 3:
@@ -465,7 +474,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.startAction(self.onShowActivationsPressed)
         epochNum = self.getSelectedEpochNum()
         imageNum = self.getSelectedImageNum()
-        imageData = self.imageDataset.getImage(imageNum, 'net')
         layerName = self.blockComboBox.currentText()
         activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
         # model = alexnet.AlexNet(layerNum, self.alexNet.model)
@@ -490,7 +498,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
             data = layoutLayersToOneImage(np.sqrt(activations),
                                           colCount, margin)
-
             ax.imshow(data, cmap='plasma')
         else:
             ax.plot(activations)
@@ -818,10 +825,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             activations = self.netWrapper.getImageActivations(layerNum, imageNum, epochNum)
             activations = activations[0][chanNum]
 
-            self.figure.clear()
-            self.mainSubplotAxes = None
-            self.figure.set_tight_layout(True)
-
+            self.clearFigure()
             showCurLayerActivations = True
             if showCurLayerActivations:
                 imageData = np.sqrt(activations)
@@ -882,9 +886,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             activations = self.netWrapper.getImageActivations(layerNum, imageNum, epochNum)
             activations = activations[0][chanNum]
 
-            self.figure.clear()
-            self.mainSubplotAxes = None
-            self.figure.set_tight_layout(True)
+            self.clearFigure()
 
             showCurLayerActivations = True
             if showCurLayerActivations:
@@ -958,6 +960,66 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         ax.clear()
         ax.imshow(weightsImageData, cmap='plasma')
 
+    def onShowGradientsPressed(self):
+        self.startAction(self.onShowGradientsPressed)
+        epochNum = self.getSelectedEpochNum()
+        firstImageCount = self.getSelectedImageNum()
+        layerName = self.blockComboBox.currentText()
+
+        data = self.netWrapper.getGradients(layerName, firstImageCount, epochNum)
+        stdData = None
+        drawMode = 'map'
+        shape = data.shape
+        if len(shape) == 4:
+            # data = np.reshape(data, (shape[0] * shape[1], shape[2], shape[3]))
+            stdData = np.std(data, axis=(2, 3))
+            data = np.mean(data, axis=(2, 3))
+        elif len(shape) == 3:
+            stdData = np.std(data, axis=(2, 3))
+            data = np.mean(data, axis=(2))
+
+        shape = data.shape
+        if len(shape) == 2:
+            drawMode = '2d'
+            # if shape[1] < 50:
+            #     drawMode = 'plot'
+            #     data = data.flatten()
+            # else:
+            #     data = np.reshape(data, [data.shape[1], 1, 1])
+            #     margin = 0
+        else:
+            data = self.getChannelsToAnalyze(data)
+            margin = self.c_channelMargin
+
+        self.clearFigure()
+        ax = self.getMainSubplot()
+        ax.clear()
+        if drawMode == 'map':
+            colCount = math.ceil(math.sqrt(data.shape[0]) * 1.15 / 2) * 2
+            data = layoutLayersToOneImage(data,  #np.sqrt(activations),
+                                          colCount, margin, 0)
+            im = ax.imshow(data, cmap='plasma')
+            colorBar = self.figure.colorbar(im, ax=ax)
+        elif drawMode == '2d':
+            im = ax.imshow(data, cmap='plasma')
+            colorBar = self.figure.colorbar(im, ax=ax)
+        else:
+            ax.plot(data)
+
+        if not stdData is None:
+            ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            ax.clear()
+            im = ax.imshow(stdData, cmap='plasma')
+            colorBar = self.figure.colorbar(im, ax=ax)
+
+        ax = self.figure.add_subplot(self.gridSpec[1, 0])
+        ax.clear()
+        ax.hist(data.flatten(), bins=100)
+        if ax.get_ylim()[0] > ax.get_ylim()[1]:
+            ax.invert_yaxis()
+        ax.set_aspect('auto')
+        self.canvas.draw()
+
 
     def onChanSpinBoxValueChanged(self):
         if self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
@@ -974,7 +1036,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 self.showProgress('3 operations: %.1f ms' % ((datetime.datetime.now() - t0).total_seconds() * 1000))
 
                 # self.lastAction()
-            elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
+            elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed,
+                                     self.onShowGradientsPressed]:
                 self.lastAction()
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
@@ -1149,7 +1212,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         print("V ", self.curEditedBlocks[editBlockInd + 1][editElemY][x])
 
-        # self.figure.clear()
+        # self.clearFigure()
         ax = self.figure.add_subplot(331)
         ax.clear()
         ax.plot(np.arange(sampleBlock.shape[1]), sampleBlock[0], color=(0.3, 0.3, 0.8, 0.5), linestyle = 'dashed')
@@ -1379,7 +1442,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # intermBlockInd = self.blockComboBox.currentIndex()
         # if hasattr(sample, 'realDiffs'):
         #         plt.plot(sample.realDiffs, color=(0, 0.8, 0))
-        self.figure.clear()
+        self.clearFigure()
         ax = self.figure.add_subplot(331)
         ax.clear()
         # if self.prevDrawnResults is not None:
@@ -1860,7 +1923,7 @@ if __name__ == "__main__":
         mainWindow.loadState(mainWindow.getSelectedEpochNum())
         # mainWindow.netWrapper.getGradients()
         # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
-        mainWindow.onDoItersPressed(1)
+        # mainWindow.onDoItersPressed(1)
 
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
