@@ -109,13 +109,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # super(QtMainWindow, self).__init__(parent)
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
         self.exiting = False
+        self.cancelling = False
         self.lastAction = None
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
         self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
         self.imageDataset = self.netWrapper.getImageDataset()
         # self.savedNetEpochs = None
-        self.curEpochNum = 0
+        # self.curEpochNum = 0
         self.initUI()
         # self.initAlexNetUI()
 
@@ -304,9 +305,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
         # curHorizWidget.addWidget(button)
         #
-        # button = QtGui.QPushButton('Reinit. worst neirons', self)
-        # button.clicked.connect(lambda: self.onDeleteWorstNeironsPressed())
-        # curHorizWidget.addWidget(button)
+        button = QtGui.QPushButton('Reinit. worst neirons', self)
+        button.clicked.connect(lambda: self.onResetWorstNeironsPressed())
+        curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('&Cancel', self)
         button.clicked.connect(self.onCancelPressed)
@@ -407,6 +408,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def startAction(self, actionFunc):
         self.lastAction = actionFunc
         self.lastActionStartTime = datetime.datetime.now()
+        self.cancelling = False
 
     def getSelectedEpochNum(self):
         epochNum = None
@@ -433,9 +435,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def closeEvent(self, event):
         self.exiting = True
+        self.netWrapper.cancelling = True
 
     def onCancelPressed(self):
-        self.lastAction = None
+        # self.lastAction = None
+        self.cancelling = True
+        self.netWrapper.cancelling = True
         self.showProgress('Cancelling...')
 
     def onShowImagePressed(self):
@@ -666,13 +671,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                         self.showProgress('Stage 1: image %d%s, %s in cache' % \
                                           (imageNum, timeInfo, \
                                            self.netWrapper.getCacheStatusInfo()))
-                        if self.lastAction is None or self.exiting:   # Cancel or close pressed
+                        if self.cancelling or self.exiting:
                             break
                         elif self.needShowCurMultActTops:
                             self.needShowCurMultActTops = False
                             resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
                             self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0], imageNum)
-                if self.lastAction is None or self.exiting:   # Cancel or close pressed
+                if self.cancelling or self.exiting:
                     break
         finally:
             self.multActTopsButton.setText(self.multActTopsButtonText)
@@ -729,7 +734,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                     self.showProgress('Stage 2: %d channels' % \
                                       (chanInd + 1))
                     t0 = t
-                if self.lastAction is None or self.exiting:   # Cancel or close pressed
+                if self.cancelling or self.exiting:
                     break
 
         resultList = padImagesToMax(resultList, imageBorderValue)
@@ -975,12 +980,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             dataList = []
             for curEpochNum in self.netWrapper.getSavedNetEpochs():
                 dataList.append(self.netWrapper.getGradients(layerName, firstImageCount, curEpochNum))
-            data = np.stack(dataList, axis=0)
+            data = np.abs(np.stack(dataList, axis=0))
             if len(data.shape) == 5:
                 data2 = np.mean(data, axis=(2))    # Averaging by other convolution channels dimension out of 2
             data = np.mean(data, axis=(1))
         else:
-            data = self.netWrapper.getGradients(layerName, firstImageCount, epochNum)
+            data = np.abs(self.netWrapper.getGradients(layerName, firstImageCount, epochNum))
         stdData = None
         drawMode = 'map'
         shape = data.shape
@@ -991,7 +996,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             if not data2 is None:
                 data2 = np.mean(data2, axis=(2, 3))
         elif len(shape) == 3:
-            stdData = np.std(data, axis=(2, 3))
+            stdData = np.std(data, axis=(2))
             data = np.mean(data, axis=(2))
             if not data2 is None:
                 data2 = np.mean(data2, axis=(2))
@@ -1011,7 +1016,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         if epochNum == self.AllEpochs and len(data.shape) >= 2:
             data = data.transpose([1, 0] + list(data.shape[2:]))
-            stdData = stdData.transpose([1, 0] + list(stdData.shape[2:]))
+            if not stdData is None:
+                stdData = stdData.transpose([1, 0] + list(stdData.shape[2:]))
             if not data2 is None:
                 data2 = data2.transpose([1, 0] + list(data2.shape[2:]))
 
@@ -1096,6 +1102,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # epochIterCount = DeepOptions.trainSetSize / DeepOptions.batchSize
         # c_callIterCount = int(epochIterCount)  # 400
 
+        curEpochNum = self.getSelectedEpochNum()
+        if curEpochNum < 0:
+            savedEpochNums = self.netWrapper.getSavedNetEpochs()
+            if savedEpochNums:
+                curEpochNum = savedEpochNums[-1]
+        if curEpochNum >= 0:
+            self.netWrapper.loadState(curEpochNum)
+
         infoStr = self.netWrapper.doLearning(iterCount)
         self.loadNetStateList()
         self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
@@ -1137,6 +1151,47 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def onLoadStatePressed(self):
         self.loadState(self.getSelectedEpochNum())
+
+    def onResetWorstNeironsPressed(self):
+        self.startAction(self.onResetWorstNeironsPressed)
+        curEpochNum = self.getSelectedEpochNum()
+        if curEpochNum < 0:
+            curEpochNum = self.netWrapper.getSavedNetEpochs()[-1]
+        for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
+            gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
+            weights = self.netWrapper.getMultWeights(layerName)
+            if layerName[:4] == 'conv':
+                std0 = np.std(weights)
+                absGradients = np.abs(gradients)
+                meanGradients = np.mean(absGradients, axis=(0, 2, 3))
+                sortedInds = meanGradients.argsort()
+                # mask = np.zeros((gradients.shape)) ...
+                # mask[:, sortedInds[len(sortedInds) // 2 : ], :, :] = 1
+                # otherWeights = np.ma.array(gradients, mask=1-mask)
+                others = weights[:, sortedInds[ : len(sortedInds) // 2], :, :]
+                othersStdDev = np.std(others)
+                resetShape = list(gradients.shape)
+                resetShape[1] = len(sortedInds) - len(sortedInds) // 2
+                weights[:, sortedInds[len(sortedInds) // 2 : ], :, :] = \
+                    np.random.normal(scale=othersStdDev, size=resetShape)   # np.std(weights)
+                self.netWrapper.setMultWeights(layerName, weights)
+                print("Std: %.9f - %.9f" % (std0, np.std(weights)))
+            elif layerName[:5] == 'dense':
+                std0 = np.std(weights)
+                absGradients = np.abs(gradients)
+                meanGradients = np.mean(absGradients, axis=(0, ))
+                sortedInds = meanGradients.argsort()
+                others = weights[:, sortedInds[ : len(sortedInds) // 2]]
+                othersStdDev = np.std(others)
+                resetShape = list(gradients.shape)
+                resetShape[1] = len(sortedInds) - len(sortedInds) // 2
+                weights[:, sortedInds[len(sortedInds) // 2 : ]] = \
+                    np.random.normal(scale=othersStdDev, size=resetShape)
+                self.netWrapper.setMultWeights(layerName, weights)
+                print("Std: %.9f - %.9f" % (std0, np.std(weights)))
+
+
+        self.infoLabel.setText('Worst neirons reinitialized')
 
 
     def saveState(self):
@@ -1518,15 +1573,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onIncreaseLearningRatePressed(self):
         self.net.changeRate(2)
         self.infoLabel.setText('Learning rate increased')
-
-    def onDeleteWorstNeironsPressed(self):
-        samples = self.getSamples(0, 10000)
-        feedDict = self.netTrader.getNetFeedDict_SamplesRange('train', samples)
-        # block = self.net.getGradientsBlock(2, feedDict)
-        self.net.reinitWorstNeirons(2, feedDict)
-        self.net.reinitWorstNeirons(3, feedDict)
-        self.net.reinitWorstNeirons(4, feedDict)
-        self.infoLabel.setText('Worst neirons reinitialized')
 
     def getSamples(self, startSampleInd = None, endSampleInd = None):
         datasetName = self.datasetComboBox.itemText(self.datasetComboBox.currentIndex())
@@ -1965,6 +2011,7 @@ if __name__ == "__main__":
         # mainWindow.netWrapper.getGradients()
         # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
         # mainWindow.onDoItersPressed(1)
+        mainWindow.onResetWorstNeironsPressed()
 
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()

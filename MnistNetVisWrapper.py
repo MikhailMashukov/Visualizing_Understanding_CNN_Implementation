@@ -60,6 +60,7 @@ class CMnistVisWrapper:
         self.mnistDataset = CMnistDataset()
         self.net = None
         self.curEpochNum = 0
+        self.cancelling = False
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
         self.netsCache = None
         self.gradientTensors = None
@@ -94,6 +95,42 @@ class CMnistVisWrapper:
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
+    # Returns convolutions' multiplication weights (not bias) or similar for other layers
+    def getMultWeights(self, layerName):  # , epochNum):
+        model = self._getNet()
+        layer = model.base_model.get_layer(layerName)
+        allWeights = layer.get_weights()
+        assert len(allWeights) == 1 or len(allWeights[0].shape) > len(allWeights[1].shape)
+        weights = allWeights[0]
+        if len(weights.shape) == 4:
+            weights = weights.transpose((2, 3, 0, 1))
+        elif len(weights.shape) == 3:
+            weights = weights.transpose((2, 0, 1))       # I suppose channels_first mean this
+        return weights
+
+        # for trainWeights in layer._trainable_weights:
+        #     if trainWeights.name.find('bias') < 0:
+        #         return trainWeights.numpy()
+        # raise Exception('No weights found for layer %s' % layerName)
+
+    def setMultWeights(self, layerName, weights):  # , epochNum):
+        model = self._getNet()
+        layer = model.base_model.get_layer(layerName)
+        allWeights = layer.get_weights()
+        if len(weights.shape) == 4:
+            weights = weights.transpose((2, 3, 0, 1))
+        elif len(weights.shape) == 3:
+            weights = weights.transpose((1, 2, 0))
+        allWeights[0] = weights
+        layer.set_weights(allWeights)
+
+        # for index, trainWeights in enumerate(allWeights):
+        #     if trainWeights.name.find('bias') < 0:
+        #         allWeights[index] = matWeights
+        #         layer.set_weights(allWeights)
+        #         return
+        # raise Exception('No weights found for layer %s' % layerName)
+
     def getGradients(self, layerName, firstImageCount, epochNum):
         import tensorflow as tf
         import keras.backend as K
@@ -126,7 +163,7 @@ class CMnistVisWrapper:
             raise Exception('Unknown layer %s' % layerName)
         gradients = gradients[layerInd]
         if len(gradients.shape) == 4:
-            gradients = gradients.transpose((2, 3, 0, 1))
+            gradients = gradients.transpose((2, 3, 0, 1))    # Becomes (in channel, out channel, y, x)
         elif len(gradients.shape) == 3:
             gradients = gradients.transpose((-1, 0, 1))
         return gradients
@@ -138,13 +175,25 @@ class CMnistVisWrapper:
 
 
     def doLearning(self, iterCount):
+        self.cancelling = False
         if self.net is None:
             self._initMainNet()
+        epochNum = 0    # Number for starting from small epochs each time
         for _ in range(int(math.ceil(iterCount / 100))):
-            infoStr = self.net.doLearning(100)
+            if epochNum < 4:
+                (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
+            elif 4 << (epochNum - 4) <= 55:
+                (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+            else:
+                (start, end) = (0, None)
+            infoStr = self.net.doLearning(1, start, end, self.curEpochNum)
             self.curEpochNum += 1
+            epochNum += 1
             self.saveState()
             # self.saveCurGradients()
+            if self.cancelling:
+                break
+
         # self.activationCache.clear()
         return 'Epoch %d: %s' % (self.curEpochNum, infoStr)
 
@@ -284,8 +333,8 @@ class CMnistDataset:
         try:
             with open(self.preparedDatasetFileName, 'rb') as file:
                 self.train = pickle.load(file)
-                self.train.images = self.train.images[:5000]
-                self.train.labels = self.train.labels[:5000]
+                # self.train.images = self.train.images[:5000]
+                # self.train.labels = self.train.labels[:5000]
                 self.test = pickle.load(file)
         except Exception as ex:
             print("Error in CMnistDataset.loadData: %s" % str(ex))
