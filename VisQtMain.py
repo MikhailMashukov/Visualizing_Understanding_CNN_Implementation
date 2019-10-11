@@ -29,6 +29,7 @@ import os
 # sys.path.append(r"../Qt_TradeSim")
 import AlexNetVisWrapper
 import MnistNetVisWrapper
+import MultActTops
 from MyUtils import *
 from VisUtils import *
 # from ControlWindow import *
@@ -402,6 +403,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         else:
             return data
 
+    def getChannelToAnalyzeCount(self, data):
+        chanCount = data.shape[0]
+        if self.maxAnalyzeChanCount and chanCount > self.maxAnalyzeChanCount:
+            chanCount = self.maxAnalyzeChanCount
+        colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
+        chanCount = chanCount // colCount * colCount
+        return (chanCount, colCount)
+
     def closeEvent(self, event):
         self.exiting = True
         self.netWrapper.cancelling = True
@@ -481,14 +490,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             ax.plot(activations)
         self.canvas.draw()
 
-    def attachCoordinates(self, data):
-        shape = data.shape
-        arr = np.arange(0, shape[0])
-        grid = np.meshgrid(arr, np.arange(0, shape[1]))
-            # np.vstack(np.meshgrid(x_p,y_p,z_p)).reshape(3,-1).T
-        coords = np.vstack([grid[0].flatten(), grid[1].flatten(), data.flatten()])
-        return coords
-
     def onShowActTopsPressed(self):
         # import alexnet
 
@@ -511,7 +512,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # if layerName in ['conv_1', 'conv_2']
         #     activations[0, 22:25, 0] = 100     #d_
         for chanInd in range(activations.shape[0]):
-            vals = self.attachCoordinates(activations[chanInd])   # Getting list of (x, y, value)
+            vals = attachCoordinates(activations[chanInd])   # Getting list of (x, y, value)
             sortedVals = vals[:, vals[2, :].argsort()]
             sourceBlock = sourceBlockCalcFunc(int(sortedVals[0, -1]), int(sortedVals[1, -1]))
             resultList.append(sourceImageData[sourceBlock[0] : sourceBlock[2], sourceBlock[1] : sourceBlock[3], :])
@@ -565,7 +566,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onShowMultActTopsPressed(self):
         # My own implementation, from scratch, with images subblocks precision
         self.startAction(self.onShowMultActTopsPressed)
-        options = QtMainWindow.TMultActOpsOptions()
+        calculator = MultActTops.CMultActTopsCalculator(self, self.activationCache, self.netWrapper)
+        options = calculator
         options.epochNum = self.getSelectedEpochNum()
         layerName = self.blockComboBox.currentText()
         options.layerName = layerName
@@ -576,12 +578,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         activations1 = self.netWrapper.getImageActivations(
                             layerName, 1, options.epochNum)
         activations1 = self.getChannelsToAnalyze(activations1[0])
-        options.chanCount = activations1.shape[0]
-        if self.checkMultActTopsInCache(chanCount, options):
+        (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
+        if calculator.checkMultActTopsInCache():
             # No need to collect activations, everything will be taken from cache
-            resultImage = self.showMultActTops(None, chanCount, options)
-            # self.saveMultActTopsImage(resultImage, options, layerName, chanCount,
-            #                           options.imageToProcessCount)
+            resultImage = calculator.showMultActTops(None)
+            # calculator.saveMultActTopsImage(resultImage)
             return
 
         self.needShowCurMultActTops = False
@@ -596,125 +597,35 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #           layerNum, 1, options.epochNum)[0])
         # print(activations)
 
-        bestSourceCoords = [[] for _ in range(options.chanCount)]
-            # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
-        prevT = datetime.datetime.now()
-
         try:
-            batchSize = 1
-        #     batchSize = options.batchSize
-            for batchNum in range((options.imageToProcessCount - 1) // batchSize + 1):
-                imageNums = range(batchNum * batchSize + 1,
-                                  min((batchNum + 1) * batchSize, options.imageToProcessCount) + 1)
-                if batchSize == 1:
-                    batchActivations = self.netWrapper.getImageActivations(
-                            layerName, batchNum + 1, options.epochNum)
-                else:
-                    print("Batch: ", ','.join(str(i) for i in imageNums))
-                    batchActivations = self.netWrapper.getImagesActivations_Batch(
-                            layerName, imageNums, options.epochNum)
-                if len(batchActivations.shape) == 2:
-                    batchActivations = np.expand_dims(np.expand_dims(batchActivations, axis=2), 2)
-
-                for imageNum in imageNums:
-                    activations = self.getChannelsToAnalyze(batchActivations[imageNum - imageNums[0]])
-                    # self._saveBestActivationsCoords(bestSourceCoords, activations, options)
-
-                    # if layerNum <= 2:
-                    #     activations[0, 22:25, 0] = 100     #d_
-                    for chanInd in range(options.chanCount):
-                        vals = self.attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
-                        sortedVals = vals[:, vals[2, :].argsort()]
-                        valsToSave = sortedVals[:, -options.oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
-                        valsToSave[2, :] += np.mean(activations[chanInd]) / 3          # Adding influence of entire activation map
-                        valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
-                        bestSourceCoords[chanInd].append(valsToSave)
-                    if imageNum % 16 == 0:
-                        t = datetime.datetime.now()
-                        if self.lastActionStartTime:
-                            timeInfo = ', %.2f ms/image' % \
-                                ((t - self.lastActionStartTime).total_seconds() * 1000 / imageNum)
-                        else:
-                            timeInfo = ''
-                        timeInfo += ', last 16 - %.2f' % \
-                                ((t - prevT).total_seconds() * 1000 / 16)
-                        prevT = t
-                        self.showProgress('Stage 1: image %d%s, %s in cache' % \
-                                          (imageNum, timeInfo, \
-                                           self.netWrapper.getCacheStatusInfo()))
-                        if self.cancelling or self.exiting:
-                            break
-                        elif self.needShowCurMultActTops:
-                            self.needShowCurMultActTops = False
-                            resultImage = self.showMultActTops(bestSourceCoords, options.chanCount, options)
-                            self.saveMultActTopsImage(resultImage, options, layerName, options.chanCount, imageNum)
-                if self.cancelling or self.exiting:
-                    break
+            calculator.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
+            (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
         finally:
             self.multActTopsButton.setText(self.multActTopsButtonText)
             self.multActTopsButton.clicked.disconnect()
             self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
 
         if not self.exiting:
-            resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
-            self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0],
-                                      options.imageToProcessCount)
+            resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
+            calculator.saveMultActTopsImage(resultImage)
 
-    def calcMultActTopsSourceCoords(self, options, progressCallback):
-        bestSourceCoords = [[] for _ in range(options.chanCount)]
-            # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
-        prevT = datetime.datetime.now()
+    class TProgressIndicator:
+        def __init__(self, mainWindow, calculator):
+            self.mainWindow = mainWindow
+            self.calculator = calculator
 
-        try:
-            batchSize = 1
-        #     batchSize = options.batchSize
-            for batchNum in range((options.imageToProcessCount - 1) // batchSize + 1):
-                imageNums = range(batchNum * batchSize + 1,
-                                  min((batchNum + 1) * batchSize, options.imageToProcessCount) + 1)
-                if batchSize == 1:
-                    batchActivations = self.netWrapper.getImageActivations(
-                            layerName, batchNum + 1, options.epochNum)
-                else:
-                    print("Batch: ", ','.join(str(i) for i in imageNums))
-                    batchActivations = self.netWrapper.getImagesActivations_Batch(
-                            layerName, imageNums, options.epochNum)
-                if len(batchActivations.shape) == 2:
-                    batchActivations = np.expand_dims(np.expand_dims(batchActivations, axis=2), 2)
+        # Returns false if the process should be stopped
+        def onMultActTopsProgress(self, infoStr, processedImageCount, curBestSourceCoords):
+            self.mainWindow.showProgress(infoStr)
+            if self.mainWindow.cancelling or self.mainWindow.exiting:
+                return False
+            elif self.mainWindow.needShowCurMultActTops:
+                self.mainWindow.needShowCurMultActTops = False
+                resultImage = self.calculator.showMultActTops(curBestSourceCoords, processedImageCount)
+                self.calculator.saveMultActTopsImage(resultImage, processedImageCount)
+            return True
 
-                for imageNum in imageNums:
-                    activations = self.getChannelsToAnalyze(batchActivations[imageNum - imageNums[0]])
-                    # self._saveBestActivationsCoords(bestSourceCoords, activations, options)
 
-                    # if layerNum <= 2:
-                    #     activations[0, 22:25, 0] = 100     #d_
-                    for chanInd in range(options.chanCount):
-                        vals = self.attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
-                        sortedVals = vals[:, vals[2, :].argsort()]
-                        valsToSave = sortedVals[:, -options.oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
-                        valsToSave[2, :] += np.mean(activations[chanInd]) / 3          # Adding influence of entire activation map
-                        valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
-                        bestSourceCoords[chanInd].append(valsToSave)
-                    if imageNum % 16 == 0:
-                        t = datetime.datetime.now()
-                        if self.lastActionStartTime:
-                            timeInfo = ', %.2f ms/image' % \
-                                ((t - self.lastActionStartTime).total_seconds() * 1000 / imageNum)
-                        else:
-                            timeInfo = ''
-                        timeInfo += ', last 16 - %.2f' % \
-                                ((t - prevT).total_seconds() * 1000 / 16)
-                        prevT = t
-                        self.showProgress('Stage 1: image %d%s, %s in cache' % \
-                                          (imageNum, timeInfo, \
-                                           self.netWrapper.getCacheStatusInfo()))
-                        if self.cancelling or self.exiting:
-                            break
-                        elif self.needShowCurMultActTops:
-                            self.needShowCurMultActTops = False
-                            resultImage = self.showMultActTops(bestSourceCoords, options.chanCount, options)
-                            self.saveMultActTopsImage(resultImage, options, layerName, options.chanCount, imageNum)
-                if self.cancelling or self.exiting:
-                    break
 
     def calcMultActTops_MultiThreaded(self):
         # My own implementation, from scratch, with images subblocks precision
@@ -732,153 +643,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                            mainWindow, options.epochNums, options)
         self.showProgress('%d threads finished' % options.threadCount)
 
-    def calcMultActTopsThreadFunc(self, threadParams, options):
-        downloadStats = threadParams.downloadStats
-        self.showProgress('%s: started for %s%s' % \
-              (threadParams.threadName, threadParams.ids[:20], \
-               '...' if len(threadParams.ids) > 20 else ''))
 
-        curThreadAdded = 0
-        for epochNum in threadParams.ids:
-            try:
-                t0 = datetime.datetime.now()
-
-
-
-            except Exception as errtxt:
-                print('Exception at %s on epoch %d: %s' % (threadParams.threadName, epochNum, errtxt))
-
-        with downloadStats.updateLock:
-            downloadStats.finishedThreadCount += 1
-
-        activations1 = self.netWrapper.getImageActivations(
-                            layerName, 1, options.epochNum)
-        activations1 = self.getChannelsToAnalyze(activations1[0])
-        chanCount = activations1.shape[0]
-        if self.checkMultActTopsInCache(chanCount, options):
-            # No need to collect activations, everything will be taken from cache
-            resultImage = self.showMultActTops(None, chanCount, options)
-            # self.saveMultActTopsImage(resultImage, options, layerName, chanCount,
-            #                           options.imageToProcessCount)
-            return
-
-        self.needShowCurMultActTops = False
-        self.multActTopsButton.setText('Save current')
-        try:
-            self.multActTopsButton.clicked.disconnect()
-        except e:
-            pass
-        self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
-
-        # activations = self.getChannelsToAnalyze(self.netWrapper.getImageActivations(
-        #           layerNum, 1, options.epochNum)[0])
-        # print(activations)
-
-        bestSourceCoords = None
-            # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
-        prevT = datetime.datetime.now()
-
-        try:
-            batchSize = 1
-        #     batchSize = options.batchSize
-            for batchNum in range((options.imageToProcessCount - 1) // batchSize + 1):
-                imageNums = range(batchNum * batchSize + 1,
-                                  min((batchNum + 1) * batchSize, options.imageToProcessCount) + 1)
-                if batchSize == 1:
-                    batchActivations = self.netWrapper.getImageActivations(
-                            layerName, batchNum + 1, options.epochNum)
-                else:
-                    print("Batch: ", ','.join(str(i) for i in imageNums))
-                    batchActivations = self.netWrapper.getImagesActivations_Batch(
-                            layerName, imageNums, options.epochNum)
-                if len(batchActivations.shape) == 2:
-                    batchActivations = np.expand_dims(np.expand_dims(batchActivations, axis=2), 2)
-
-                for imageNum in imageNums:
-                    activations = self.getChannelsToAnalyze(batchActivations[imageNum - imageNums[0]])
-                    if bestSourceCoords is None:
-                        bestSourceCoords = [[] for _ in range(activations.shape[0])]
-                    # self._saveBestActivationsCoords(bestSourceCoords, activations, options)
-
-                    # if layerNum <= 2:
-                    #     activations[0, 22:25, 0] = 100     #d_
-                    for chanInd in range(activations.shape[0]):
-                        vals = self.attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
-                        sortedVals = vals[:, vals[2, :].argsort()]
-                        valsToSave = sortedVals[:, -options.oneImageMaxTopCount : ]    # Unfortunately without respect to min. distance
-                        valsToSave[2, :] += np.mean(activations[chanInd]) / 3          # Adding influence of entire activation map
-                        valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
-                        bestSourceCoords[chanInd].append(valsToSave)
-                    if imageNum % 16 == 0:
-                        t = datetime.datetime.now()
-                        if self.lastActionStartTime:
-                            timeInfo = ', %.2f ms/image' % \
-                                ((t - self.lastActionStartTime).total_seconds() * 1000 / imageNum)
-                        else:
-                            timeInfo = ''
-                        timeInfo += ', last 16 - %.2f' % \
-                                ((t - prevT).total_seconds() * 1000 / 16)
-                        prevT = t
-                        self.showProgress('Stage 1: image %d%s, %s in cache' % \
-                                          (imageNum, timeInfo, \
-                                           self.netWrapper.getCacheStatusInfo()))
-                        if self.cancelling or self.exiting:
-                            break
-                        elif self.needShowCurMultActTops:
-                            self.needShowCurMultActTops = False
-                            resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
-                            self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0], imageNum)
-                if self.cancelling or self.exiting:
-                    break
-        finally:
-            self.multActTopsButton.setText(self.multActTopsButtonText)
-            self.multActTopsButton.clicked.disconnect()
-            self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
-
-        if not self.exiting:
-            resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
-            self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0],
-                                      options.imageToProcessCount)
-
-    def checkMultActTopsInCache(self, chanCount, options):
-        for chanInd in range(chanCount):
-            itemCacheName = 'MultAT_%s_%d_%d_%d' % \
-                    (options.layerName, options.imageToProcessCount, options.epochNum, chanInd)
-            cacheItem = self.activationCache.getObject(itemCacheName)
-            if cacheItem is None:
-                print("No %s in cache" % itemCacheName)
-                return False
-        return True
-
-    def showMultActTops(self, bestSourceCoords, chanCount, options):
-        sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(options.layerName)
-        # if not bestSourceCoords or len(bestSourceCoords[0]) == 0:
-        #     return
-        resultList = []
-        topColCount = int(math.ceil(math.sqrt(options.topCount)))
-        imageBorderValue = 0
-        t0 = datetime.datetime.now()
-        for chanInd in range(chanCount):
-            itemCacheName = 'MultAT_%s_%d_%d_%d' % \
-                    (options.layerName, options.imageToProcessCount, options.epochNum, chanInd)
-            cacheItem = self.activationCache.getObject(itemCacheName)
-            if not cacheItem is None:
-                chanImageData = cacheItem
-            else:
-                chanImageData = self.buildChannelMultActTopImage(bestSourceCoords, chanInd,
-                        options, sourceBlockCalcFunc, topColCount)
-                self.activationCache.saveObject(itemCacheName, chanImageData)
-
-                if (chanInd + 1) % 4 == 0:
-                    t = datetime.datetime.now()
-                    if (t - t0).total_seconds() >= 1:
-                        self.showProgress('Stage 2: %d channels, %s in cache' % \
-                                      (chanInd + 1, \
-                                       self.netWrapper.getCacheStatusInfo()))
-                        t0 = t
-                    if self.cancelling or self.exiting:
-                        break
-            resultList.append(chanImageData)
 
         resultList = padImagesToMax(resultList, imageBorderValue)
         data = np.stack(resultList, axis=0)
@@ -908,97 +673,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #     pickle.dump(bestSourceCoords, file)
         return data
 
-    def buildChannelMultActTopImage(self, bestSourceCoords, chanInd,
-                                    options, sourceBlockCalcFunc, topColCount):
-        vals = np.concatenate(bestSourceCoords[chanInd], axis=1)       # E.g. 4 * 100
-        if chanInd == 0:
-            maxImageNum = np.max(vals[0, :])
-        sortedVals = vals[:, vals[3, :].argsort()]
-
-        selectedImageList = []
-        selectedList = []                   # Will be e.g. 9 * 4
-        i = sortedVals.shape[1] - 1
-        while len(selectedList) < options.topCount and i >= 0:
-            curVal = sortedVals[:, i]
-            isOk = True
-            for prevVal in selectedList:
-                if curVal[0] == prevVal[0] and abs(curVal[1] - prevVal[1]) < options.minDist and \
-                        abs(curVal[2] - prevVal[2]) < options.minDist:
-                    isOk = False
-                    break
-            if isOk:
-                sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
-                curImageNum = int(curVal[0])
-                imageData = self.imageDataset.getImage(curImageNum, 'cropped')
-                blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
-                if options.embedImageNums and curImageNum <= 255 and imageData.max() > 1.01:
-                    blockData[-1][-1] = curImageNum
-                selectedImageList.append(blockData)
-                selectedList.append(curVal)
-            i -= 1
-        imageBorderValue = 0  # 1 if selectedImageList[0].dtype == np.float32 else 255
-        selectedImageList = padImagesToMax(selectedImageList, imageBorderValue)
-        chanData = np.stack(selectedImageList, axis=0)
-        chanImageData = layoutLayersToOneImage(chanData, topColCount, 1, imageBorderValue)
-        bestSourceCoords[chanInd] = [np.stack(selectedList).transpose()]
-        return chanImageData
-
-    def saveMultActTopsImage(self, imageData, options, layerName, chanCount, imageCount):
-        from scipy.misc import imsave
-
-        if len(imageData.shape) == 3 and imageData.shape[2] == 1:
-            imageData = np.squeeze(imageData, 2)
-        fileName = 'Data/top%d_%s_epoch%d_%dChan_%dImages.png' % \
-                    (options.topCount, layerName, options.epochNum, \
-                     chanCount, imageCount)
-        imsave(fileName, imageData, format='png')
-
-        # self.figure.savefig('Results/top%d_%s_%dChannels_%dImages.png' %
-        #                         (options.topCount, layerName, activations.shape[0], imageCount),
-        #                     format='png', dpi=resultImageShape[0] / 3)
-
-    def showActTops_FromCsv(self, options):
-        actMatrix = self.netWrapper.getImagesActivationMatrix(options.layerNum)
-        chanCount = actMatrix.shape[1]
-        if self.maxAnalyzeChanCount and chanCount > self.maxAnalyzeChanCount:
-            chanCount = self.maxAnalyzeChanCount
-        sortedValsList = []
-        for chanInd in range(chanCount):
-            sortedImageNums = np.flip(actMatrix[:, chanInd].argsort())[:options.topCount] + 1
-            sortedValsList.append(sortedImageNums)
-        imageNums = np.stack(sortedValsList, axis=0)
-        self.showTopImages(imageNums, options)
-
-    def showTopImages(self, imageNums, options):
-        topColCount = int(math.ceil(math.sqrt(options.topCount)))
-        chanCount = imageNums.shape[0]
-        resultList = []
-        t0 = datetime.datetime.now()
-        for chanInd in range(chanCount):
-            selectedImageList = []
-            for imageNum in imageNums[chanInd][:options.topCount]:
-                selectedImageList.append(self.imageDataset.getImage(imageNum, 'cropped'))
-            chanData = np.stack(selectedImageList, axis=0)
-            chanImageData = layoutLayersToOneImage(chanData, topColCount, 1)
-            resultList.append(chanImageData)
-            if (chanInd + 1) % 4 == 0:
-                t = datetime.datetime.now()
-                if (t - t0).total_seconds() >= 1:
-                    self.showProgress('%d channels, %s in cache' % \
-                                      (chanInd + 1, \
-                                       self.netWrapper.getCacheStatusInfo()))
-                    t0 = t
-
-        data = np.stack(resultList, axis=0)
-        colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin_Top)
-
-        ax = self.getMainSubplot()
-        ax.clear()
-        self.showImage(ax, data)
-        self.canvas.draw()
-        return data.shape[0:2]
-
 
     def onShowCurMultActTopsPressed(self):
         self.needShowCurMultActTops = True
@@ -1021,7 +695,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 ax.clear()
                 ax.imshow(imageData, cmap='plasma')
 
-            vals = self.attachCoordinates(activations)        # Getting list of (x, y, value)
+            vals = attachCoordinates(activations)        # Getting list of (x, y, value)
             sortedVals = vals[:, vals[2, :].argsort()]
             curLayerMaxCoords = (int(sortedVals[0, -1]), int(sortedVals[1, -1]))
 
@@ -1083,7 +757,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 ax.clear()
                 ax.imshow(imageData, cmap='plasma')
 
-            vals = self.attachCoordinates(activations)        # Getting list of (x, y, value)
+            vals = attachCoordinates(activations)        # Getting list of (x, y, value)
             sortedVals = vals[:, vals[2, :].argsort()]
             curLayerMaxCoords = (int(sortedVals[0, -1]), int(sortedVals[1, -1]))
 
@@ -2270,7 +1944,7 @@ if __name__ == "__main__":
     setProcessPriorityLow()
     if 1:
         mainWindow.init()
-        mainWindow.loadCacheState()
+        # mainWindow.loadCacheState()
 
         # mainWindow.loadState(mainWindow.getSelectedEpochNum())
         # mainWindow.netWrapper.getGradients()
@@ -2282,10 +1956,10 @@ if __name__ == "__main__":
         # mainWindow.onDisplayPressed()
         # mainWindow.onShowActivationsPressed()
         # mainWindow.onDoItersPressed(1)
-        # mainWindow.onShowMultActTopsPressed()
+        mainWindow.onShowMultActTopsPressed()
         # mainWindow.onShowSortedChanActivationsPressed()
         # mainWindow.onSpinBoxValueChanged()
-        mainWindow.calcMultActTops_MultiThreaded()
+        # mainWindow.calcMultActTops_MultiThreaded()
     else:
         mainWindow.fastInit()
     # mainWindow.paintRect()
