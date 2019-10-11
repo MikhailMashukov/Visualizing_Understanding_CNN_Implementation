@@ -30,33 +30,13 @@ class DownloadStats:
 
         self.finishedThreadCount = 0
 
-def calcMultActTopsThreadFunc(params):
-    downloadStats = params.downloadStats
-    mainWindow = params.mainWindow
-    mainWindow.showProgress('%s: started for %s%s' % \
-          (params.threadName, params.ids[:50], \
-           '...' if len(params.ids) > 50 else ''))
-
-    curThreadAdded = 0
-    for epochNum in params.ids:
-        try:
-            t0 = datetime.datetime.now()
-
-
-        except Exception as errtxt:
-            print('Exception at %s on epoch %d: %s' % (params.threadName, epochNum, errtxt))
-
-    with downloadStats.updateLock:
-        downloadStats.finishedThreadCount += 1
-
-def calc_MultiThreaded(threadCount, threadFunc, mainWindow, ids,
+def calc_MultiThreaded(threadCount, threadFunc, ids, options,
                           printMessTempl = 'Calculating activation tops for %d epoch(s)'):
     if not ids:
         return
     print(printMessTempl % len(ids))
     # sys.stdout.flush()
     params = DownloadThreadParams()
-    params.mainWindow = mainWindow
     # params.pageStep = threadCount
     params.downloadStats = DownloadStats()
 
@@ -72,7 +52,7 @@ def calc_MultiThreaded(threadCount, threadFunc, mainWindow, ids,
                 l = len(ids)
                 params.ids = [ids[j] for j in range(i, l, threadCount)]
             t = threading.Thread(None, threadFunc,
-                                 params.threadName, [params])
+                                 params.threadName, [params, options])
             params = copy.copy(params)
             # Params for threads must be different but downloadStats in them - the same object
 
@@ -92,6 +72,13 @@ def calc_MultiThreaded(threadCount, threadFunc, mainWindow, ids,
         print(errtxt)
 
 
+def attachCoordinates(data):
+    shape = data.shape
+    arr = np.arange(0, shape[0])
+    grid = np.meshgrid(arr, np.arange(0, shape[1]))
+        # np.vstack(np.meshgrid(x_p,y_p,z_p)).reshape(3,-1).T
+    coords = np.vstack([grid[0].flatten(), grid[1].flatten(), data.flatten()])
+    return coords
 
 def padImagesToMax(imageList, padValue=255):
     maxSize = 0
