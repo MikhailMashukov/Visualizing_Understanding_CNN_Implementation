@@ -66,7 +66,7 @@ class CMnistVisWrapper:
         self.isLearning = False
         self.curModelLearnRate = None
         self.cancelling = False
-        self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
+        self.activationCache = DataCache.CDataCache(256 * getCpuCoreCount())
         self.netsCache = None
         self.gradientTensors = None
         self.gradientKerasFunc = None
@@ -136,9 +136,12 @@ class CMnistVisWrapper:
         #         return
         # raise Exception('No weights found for layer %s' % layerName)
 
-    def getGradients(self, layerName, firstImageCount, epochNum):
+    def getGradients(self, layerName, firstImageCount, epochNum=None):
         import tensorflow as tf
         import keras.backend as K
+
+        if epochNum is None:
+            epochNum = self.curEpochNum
 
         model = self._getNet()
         if epochNum != self.curEpochNum:

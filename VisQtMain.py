@@ -114,6 +114,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
         self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
+        self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
         # self.savedNetEpochs = None
         # self.curEpochNum = 0
@@ -126,7 +127,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.showControlWindow()
 
         self.iterNumLabel.setText('Epoch 0')
-        self.maxAnalyzeChanCount = 130
+        self.maxAnalyzeChanCount = 64
 
     def init(self):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
@@ -438,6 +439,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     #     self.cancelling = False
 
     def getSelectedEpochNum(self):
+        if self.netWrapper.isLearning:
+            return None         # Ok to take the current epoch, tracked not by this object, but by the net wrapper
         epochNum = None
         epochText = self.epochComboBox.currentText().lower()
         if epochText.find('all') >= 0:
@@ -606,7 +609,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.canvas.draw()
 
     class TMultActOpsOptions:
-        topCount = 25
+        topCount = 16
         oneImageMaxTopCount = 6
         minDist = 3
         batchSize = 16 * getCpuCoreCount()
@@ -628,6 +631,18 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         layerName = self.blockComboBox.currentText()
         options.layerName = layerName
         options.embedImageNums = True
+        options.imageToProcessCount = max(100 if self.netWrapper.name == 'mnist' else 20, \
+                    self.getSelectedImageNum())
+
+        activations1 = self.netWrapper.getImageActivations(
+                            layerName, 1, options.epochNum)
+        chanCount = activations1.shape[1]
+        if self.checkMultActTopsInCache(chanCount, options):
+            # No need to collect activations, everything will be taken from cache
+            resultImage = self.showMultActTops(None, chanCount, options)
+            # self.saveMultActTopsImage(resultImage, options, layerName, chanCount,
+            #                           options.imageToProcessCount)
+            return
 
         self.needShowCurMultActTops = False
         self.multActTopsButton.setText('Save current')
@@ -643,8 +658,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         bestSourceCoords = None
             # [layerNum][resultNum (the last - the best)] -> (imageNum, x at channel, y, value)
-        imageToProcessCount = max(100 if self.netWrapper.name == 'mnist' else 20, \
-                    self.getSelectedImageNum())
         prevT = datetime.datetime.now()
 
         # if 0:     # Image-by-image
@@ -659,8 +672,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         try:
             batchSize = 1
         #     batchSize = options.batchSize
-            for batchNum in range((imageToProcessCount - 1) // batchSize + 1):
-                imageNums = range(batchNum * batchSize + 1, min((batchNum + 1) * batchSize, imageToProcessCount) + 1)
+            for batchNum in range((options.imageToProcessCount - 1) // batchSize + 1):
+                imageNums = range(batchNum * batchSize + 1,
+                                  min((batchNum + 1) * batchSize, options.imageToProcessCount) + 1)
                 if batchSize == 1:
                     batchActivations = self.netWrapper.getImageActivations(
                             layerName, batchNum + 1, options.epochNum)
@@ -714,62 +728,54 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         if not self.exiting:
             resultImage = self.showMultActTops(bestSourceCoords, activations.shape[0], options)
-            self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0], imageToProcessCount)
+            self.saveMultActTopsImage(resultImage, options, layerName, activations.shape[0],
+                                      options.imageToProcessCount)
+
+    def checkMultActTopsInCache(self, chanCount,options):
+        for chanInd in range(chanCount):
+            itemCacheName = 'MultAT_%s_%d_%d_%d' % \
+                    (options.layerName, options.imageToProcessCount, options.epochNum, chanInd)
+            cacheItem = self.activationCache.getObject(itemCacheName)
+            if cacheItem is None:
+                return False
+        return True
 
     def showMultActTops(self, bestSourceCoords, chanCount, options):
         sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(options.layerName)
-        if not bestSourceCoords or len(bestSourceCoords[0]) == 0:
-            return
+        # if not bestSourceCoords or len(bestSourceCoords[0]) == 0:
+        #     return
         resultList = []
         topColCount = int(math.ceil(math.sqrt(options.topCount)))
+        imageBorderValue = 0
         t0 = datetime.datetime.now()
         for chanInd in range(chanCount):
-            vals = np.concatenate(bestSourceCoords[chanInd], axis=1)       # E.g. 4 * 100
-            if chanInd == 0:
-                maxImageNum = np.max(vals[0, :])
-            sortedVals = vals[:, vals[3, :].argsort()]
+            itemCacheName = 'MultAT_%s_%d_%d_%d' % \
+                    (options.layerName, options.imageToProcessCount, options.epochNum, chanInd)
+            cacheItem = self.activationCache.getObject(itemCacheName)
+            if not cacheItem is None:
+                chanImageData = cacheItem
+            else:
+                chanImageData = self.buildChannelMultActTopImage(bestSourceCoords, chanInd,
+                        options, sourceBlockCalcFunc, topColCount)
+                self.activationCache.saveObject(itemCacheName, chanImageData)
 
-            selectedImageList = []
-            selectedList = []                   # Will be e.g. 9 * 4
-            i = sortedVals.shape[1] - 1
-            while len(selectedList) < options.topCount and i >= 0:
-                curVal = sortedVals[:, i]
-                isOk = True
-                for prevVal in selectedList:
-                    if curVal[0] == prevVal[0] and abs(curVal[1] - prevVal[1]) < options.minDist and \
-                            abs(curVal[2] - prevVal[2]) < options.minDist:
-                        isOk = False
+                if (chanInd + 1) % 4 == 0:
+                    t = datetime.datetime.now()
+                    if (t - t0).total_seconds() >= 1:
+                        self.showProgress('Stage 2: %d channels, %s in cache' % \
+                                      (chanInd + 1, \
+                                       self.netWrapper.getCacheStatusInfo()))
+                        t0 = t
+                    if self.cancelling or self.exiting:
                         break
-                if isOk:
-                    sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
-                    curImageNum = int(curVal[0])
-                    imageData = self.imageDataset.getImage(curImageNum, 'cropped')
-                    blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
-                    if options.embedImageNums and curImageNum <= 255 and imageData.max() > 1.01:
-                        blockData[-1][-1] = curImageNum
-                    selectedImageList.append(blockData)
-                    selectedList.append(curVal)
-                i -= 1
-            imageBorderValue = 0  # 1 if selectedImageList[0].dtype == np.float32 else 255
-            selectedImageList = padImagesToMax(selectedImageList, imageBorderValue)
-            chanData = np.stack(selectedImageList, axis=0)
-            chanImageData = layoutLayersToOneImage(chanData, topColCount, 1, imageBorderValue)
             resultList.append(chanImageData)
-            bestSourceCoords[chanInd] = [np.stack(selectedList).transpose()]
-            if (chanInd + 1) % 4 == 0:
-                t = datetime.datetime.now()
-                if (t - t0).total_seconds() >= 1:
-                    self.showProgress('Stage 2: %d channels' % \
-                                      (chanInd + 1))
-                    t0 = t
-                if self.cancelling or self.exiting:
-                    break
 
         resultList = padImagesToMax(resultList, imageBorderValue)
         data = np.stack(resultList, axis=0)
         colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        chanBorderValue = 1 if selectedImageList[0].dtype == np.float32 else 255
+        chanBorderValue = 1 if data.dtype == np.float32 else 255
         data = layoutLayersToOneImage(data, colCount, self.c_channelMargin_Top, chanBorderValue)
+        print("Top activations image built")
 
         # try:
         #     figure, axes = plt.subplots(223)
@@ -782,6 +788,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         ax.clear()
         self.showImage(ax, data)
         self.canvas.draw()
+        print("Canvas drawn")
 
         # import pickle
 
@@ -791,18 +798,53 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #     pickle.dump(bestSourceCoords, file)
         return data
 
-    def saveMultActTopsImage(self, imageData, options, layerName, chanCount, imageNum):
+    def buildChannelMultActTopImage(self, bestSourceCoords, chanInd,
+                                    options, sourceBlockCalcFunc, topColCount):
+        vals = np.concatenate(bestSourceCoords[chanInd], axis=1)       # E.g. 4 * 100
+        if chanInd == 0:
+            maxImageNum = np.max(vals[0, :])
+        sortedVals = vals[:, vals[3, :].argsort()]
+
+        selectedImageList = []
+        selectedList = []                   # Will be e.g. 9 * 4
+        i = sortedVals.shape[1] - 1
+        while len(selectedList) < options.topCount and i >= 0:
+            curVal = sortedVals[:, i]
+            isOk = True
+            for prevVal in selectedList:
+                if curVal[0] == prevVal[0] and abs(curVal[1] - prevVal[1]) < options.minDist and \
+                        abs(curVal[2] - prevVal[2]) < options.minDist:
+                    isOk = False
+                    break
+            if isOk:
+                sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
+                curImageNum = int(curVal[0])
+                imageData = self.imageDataset.getImage(curImageNum, 'cropped')
+                blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
+                if options.embedImageNums and curImageNum <= 255 and imageData.max() > 1.01:
+                    blockData[-1][-1] = curImageNum
+                selectedImageList.append(blockData)
+                selectedList.append(curVal)
+            i -= 1
+        imageBorderValue = 0  # 1 if selectedImageList[0].dtype == np.float32 else 255
+        selectedImageList = padImagesToMax(selectedImageList, imageBorderValue)
+        chanData = np.stack(selectedImageList, axis=0)
+        chanImageData = layoutLayersToOneImage(chanData, topColCount, 1, imageBorderValue)
+        bestSourceCoords[chanInd] = [np.stack(selectedList).transpose()]
+        return chanImageData
+
+    def saveMultActTopsImage(self, imageData, options, layerName, chanCount, imageCount):
         from scipy.misc import imsave
 
         if len(imageData.shape) == 3 and imageData.shape[2] == 1:
             imageData = np.squeeze(imageData, 2)
         fileName = 'Data/top%d_%s_epoch%d_%dChan_%dImages.png' % \
                     (options.topCount, layerName, options.epochNum, \
-                     chanCount, imageNum)
+                     chanCount, imageCount)
         imsave(fileName, imageData, format='png')
 
         # self.figure.savefig('Results/top%d_%s_%dChannels_%dImages.png' %
-        #                         (options.topCount, layerName, activations.shape[0], imageNum),
+        #                         (options.topCount, layerName, activations.shape[0], imageCount),
         #                     format='png', dpi=resultImageShape[0] / 3)
 
     def showActTops_FromCsv(self, options):
@@ -1226,9 +1268,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
 
     def onEpochComboBoxChanged(self):
-        # if self.lastAction in [self.onShowMultActTopsPressed]:
-        #     self.lastAction()
-        # else:
+        # if getCpuCoreCount() > 4 and 
+        if self.lastAction in [self.onShowMultActTopsPressed]:
+            self.lastAction()
+        else:
             self.onSpinBoxValueChanged()   # onDisplayPressed()
 
     def onTestPress(self):
