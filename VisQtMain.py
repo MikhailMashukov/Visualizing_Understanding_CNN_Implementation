@@ -25,6 +25,7 @@ import os
 # import random
 # import sys
 # import time
+import _thread
 
 # sys.path.append(r"../Qt_TradeSim")
 import AlexNetVisWrapper
@@ -56,6 +57,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
+        self.tensorFlowLock = _thread.allocate_lock()
         # self.savedNetEpochs = None
         # self.curEpochNum = 0
         self.weightsBeforeReinit = None
@@ -408,6 +410,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         if self.maxAnalyzeChanCount and chanCount > self.maxAnalyzeChanCount:
             chanCount = self.maxAnalyzeChanCount
         colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
+        if colCount in [4, 6] and chanCount % (colCount - 1) == 0:
+            colCount -= 1
         chanCount = chanCount // colCount * colCount
         return (chanCount, colCount)
 
@@ -490,9 +494,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             ax.plot(activations)
         self.canvas.draw()
 
-    def onShowActTopsPressed(self):
-        # import alexnet
-
+    def onShowActTopsPressed(self):       # It would be desirable to move into MultActTops, but this requires time and the code is not necessary
         self.startAction(self.onShowActTopsPressed)
         imageNum = self.getSelectedImageNum()
         sourceImageData = self.imageDataset.getImage(imageNum, 'cropped')
@@ -548,20 +550,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.showImage(ax, data)
         self.canvas.draw()
 
-    class TMultActOpsOptions:
-        topCount = 16
-        oneImageMaxTopCount = 6
-        minDist = 3
-        batchSize = 16 * getCpuCoreCount()
-        embedImageNums = False
-
     def onShowActTopsFromCsvPressed(self):
         # Fast, based on data produced by activations.py
         self.startAction(self.onShowActTopsFromCsvPressed)
-        options = QtMainWindow.TMultActOpsOptions()
-        layerNum = self.blockComboBox.currentIndex() + 1
-        options.layerNum = layerNum
-        self.showActTops_FromCsv(options)
+        calculator = MultActTops.CMultActTopsCalculator(self, self.activationCache, self.netWrapper)
+        options = calculator
+        options.layerNum = self.blockComboBox.currentIndex() + 1
+        calculator.showActTops_FromCsv()
 
     def onShowMultActTopsPressed(self):
         # My own implementation, from scratch, with images subblocks precision
@@ -598,7 +593,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # print(activations)
 
         try:
-            calculator.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
+            options.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
             (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
         finally:
             self.multActTopsButton.setText(self.multActTopsButtonText)
@@ -610,68 +605,118 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             calculator.saveMultActTopsImage(resultImage)
 
     class TProgressIndicator:
-        def __init__(self, mainWindow, calculator):
+        def __init__(self, mainWindow, calculator, threadInfo=None):
             self.mainWindow = mainWindow
             self.calculator = calculator
+            self.threadInfo = threadInfo
 
-        # Returns false if the process should be stopped
-        def onMultActTopsProgress(self, infoStr, processedImageCount, curBestSourceCoords):
+        # Returns false if the process should be stopped.
+        # Can show and save intermediate results. When called from showMultActTops this is not necessary
+        # since they already were called and the image is about to be prepared, showed and/or saved
+        def onMultActTopsProgress(self, infoStr, processedImageCount=None, curBestSourceCoords=None):
+            if not self.threadInfo is None:
+                infoStr = '%s: %s' % (self.threadInfo, infoStr)
             self.mainWindow.showProgress(infoStr)
+
             if self.mainWindow.cancelling or self.mainWindow.exiting:
                 return False
-            elif self.mainWindow.needShowCurMultActTops:
+            elif self.mainWindow.needShowCurMultActTops and not curBestSourceCoords is None:
                 self.mainWindow.needShowCurMultActTops = False
                 resultImage = self.calculator.showMultActTops(curBestSourceCoords, processedImageCount)
                 self.calculator.saveMultActTopsImage(resultImage, processedImageCount)
             return True
 
 
-
     def calcMultActTops_MultiThreaded(self):
-        # My own implementation, from scratch, with images subblocks precision
         self.startAction(self.calcMultActTops_MultiThreaded)
-        options = QtMainWindow.TMultActOpsOptions()
+        calculator = MultActTops.CMultActTopsCalculator(self, self.activationCache, self.netWrapper)
+        options = calculator
         # options.epochNum = self.getSelectedEpochNum()
-        options.layerName = self.blockComboBox.currentText()
+        layerName = self.blockComboBox.currentText()
+        options.layerName = layerName
         options.embedImageNums = True
         options.imageToProcessCount = max(200 if self.netWrapper.name == 'mnist' else 20, \
                     self.getSelectedImageNum())
-        options.epochNums = self.netWrapper.getSavedNetEpochs()
-        options.threadCount = 4
+
+        epochNums = self.netWrapper.getSavedNetEpochs()
+        activations1 = self.netWrapper.getImageActivations(
+                            layerName, 1, epochNums[-1])
+        activations1 = self.getChannelsToAnalyze(activations1[0])
+        (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
+        options.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
+
+        import tensorflow as tf
+
+        # All these graph tricks don't help - it throws exception from model.predict
+        # "'_thread._local' object has no attribute 'value'.
+        # And they consume a lot of memory for some reason (4 GB for 4 wrappers in total)
+        self.netWrappers = []
+        for _ in range(3):
+            threadGraph = tf.Graph()
+
+            with threadGraph.as_default():
+                threadSession = tf.compat.v1.Session()  #  tf.Session()
+                with threadSession.as_default():
+                    netWrapper = MnistNetVisWrapper.CMnistVisWrapper( \
+                           self.imageDataset, self.activationCache)
+                    netWrapper._getNet(options.layerName)
+                    netWrapper.threadGraph = threadGraph
+                    netWrapper.threadSession = threadSession
+                    # netWrapper.net.model._make_predict_function()
+            # threadGraph.finalize()
+            threadGraph.switch_to_thread_local()
+            self.netWrappers.append(netWrapper)
+        # tf.compat.v1.get_default_graph().finalize()
+
+        options.threadCount = 3
         # threads = []
         calc_MultiThreaded(options.threadCount, self.calcMultActTopsThreadFunc,
-                           mainWindow, options.epochNums, options)
+                           epochNums, calculator)
         self.showProgress('%d threads finished' % options.threadCount)
 
+    def calcMultActTopsThreadFunc(self, threadParams, options):
+        downloadStats = threadParams.downloadStats
+        self.showProgress('%s: started for %s%s' % \
+              (threadParams.threadName, threadParams.ids[:20], \
+               '...' if len(threadParams.ids) > 20 else ''))
 
+        curThreadAdded = 0
+        try:
+            # t0 = datetime.datetime.now()
+            # calculator = MultActTops.CMultActTopsCalculator(self, self.activationCache, self.netWrapper)
+            epochNum = -1
 
-        resultList = padImagesToMax(resultList, imageBorderValue)
-        data = np.stack(resultList, axis=0)
-        colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        chanBorderValue = 1 if data.dtype == np.float32 else 255
-        data = layoutLayersToOneImage(data, colCount, self.c_channelMargin_Top, chanBorderValue)
-        print("Top activations image built")
+            # import tensorflow as tf
 
-        # try:
-        #     figure, axes = plt.subplots(223)
-        #     figure.delaxes(axes)
-        #     figure, axes = plt.subplots(224)
-        #     figure.delaxes(axes)
-        # except Exception as ex:
-        #     print('Exception on subplot deletion: %s' % str(ex))
-        ax = self.getMainSubplot()
-        ax.clear()
-        self.showImage(ax, data)
-        self.canvas.draw()
-        print("Canvas drawn")
+            calculator = copy.copy(options)
+            # with self.tensorFlowLock:
+            #     g = tf.Graph()
+            #     with g.as_default():
+            #         calculator.netWrapper = MnistNetVisWrapper.CMnistVisWrapper(
+            #                 self.imageDataset, self.activationCache)
+            #         net = calculator.netWrapper._getNet()
+            #         calculator.netWrapper.model._make_predict_function()
+            #     g.finalize()
+            #     print('%s: net inited' % threadParams.threadName)
 
-        # import pickle
+            calculator.netWrapper = self.netWrappers[threadParams.ids[0] % 3]
+            calculator.progressCallback = QtMainWindow.TProgressIndicator(
+                    self, calculator, threadParams.threadName)
+            with calculator.netWrapper.threadGraph.as_default():
+                with calculator.netWrapper.threadSession.as_default():
+                    for epochNum in threadParams.ids:
+                        calculator.epochNum = epochNum
+                        (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
+                        if self.cancelling or self.exiting:
+                            break
+                        resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
+                        calculator.saveMultActTopsImage(resultImage)
+                        self.showProgress('%s: epoch %d done' % (threadParams.threadName, epochNum))
+        except Exception as errtxt:
+            print('Exception at %s on epoch %d: %s' % (threadParams.threadName, epochNum, errtxt))
 
-        # fileName = 'Data/BestActs/BestActs%d_%s_%dImages.dat' % \
-        #         (options.topCount, options.layerName, int(maxImageNum))
-        # with open(fileName, 'wb') as file:
-        #     pickle.dump(bestSourceCoords, file)
-        return data
+        with downloadStats.updateLock:
+            downloadStats.finishedThreadCount += 1
 
 
     def onShowCurMultActTopsPressed(self):

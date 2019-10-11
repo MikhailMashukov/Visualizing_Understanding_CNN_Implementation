@@ -56,17 +56,18 @@ def getGradientTensors(model):
 
 
 class CMnistVisWrapper:
-    def __init__(self):
+    def __init__(self, mnistDataset=None, activationCache=None):
         self.name = 'mnist'
         self.weightsFileNameTempl = 'QtLogs/MnistWeights_Epoch%d.h5'
         self.gradientsFileNameTempl = 'QtLogs/MnistGrads_Epoch%d.dat'
-        self.mnistDataset = CMnistDataset()
+        self.mnistDataset = CMnistDataset() if mnistDataset is None else mnistDataset
         self.net = None
         self.curEpochNum = 0
         self.isLearning = False
         self.curModelLearnRate = None
         self.cancelling = False
-        self.activationCache = DataCache.CDataCache(256 * getCpuCoreCount())
+        self.activationCache = DataCache.CDataCache(256 * getCpuCoreCount()) \
+                if activationCache is None else activationCache
         self.netsCache = None
         self.gradientTensors = None
         self.gradientKerasFunc = None
@@ -99,6 +100,53 @@ class CMnistVisWrapper:
             activations = activations.transpose((0, -1, 1))
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
+
+    def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None):
+        if epochNum is None:
+            epochNum = self.curEpochNum
+
+        batchActs = [None] * len(imageNums)
+        images = []
+        for i in range(len(imageNums)):
+            imageNum = imageNums[i]
+            itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
+            cacheItem = self.activationCache.getObject(itemCacheName)
+            if not cacheItem is None:
+                batchActs[i] = cacheItem[0]
+            else:
+                imageData = self.mnistDataset.getImage(imageNum)
+                images.append(imageData)
+        if not images:
+            print("Activations for batch taken from cache")
+            return np.stack(batchActs, axis=0)
+
+        model = self._getNet(layerName)
+        if epochNum != self.curEpochNum:
+            self.loadState(epochNum)
+        imageData = np.stack(images, axis=0)
+        print("Predict data prepared")
+        activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
+        print("Predicted")
+
+        # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
+        if len(activations.shape) == 4:
+            activations = activations.transpose((0, -1, 1, 2))
+        elif len(activations.shape) == 3:
+            activations = activations.transpose((0, -1, 1))
+
+        predictedI = 0
+        for i in range(len(imageNums)):
+            if batchActs[i] is None:
+                batchActs[i] = activations[predictedI]
+                imageNum = imageNums[i]
+                itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
+                self.activationCache.saveObject(itemCacheName, batchActs[i : i + 1])
+                predictedI += 1
+        assert predictedI == activations.shape[0]
+        if len(images) == len(imageNums):
+            return activations
+        print('Output prepared')
+        return np.stack(batchActs, axis=0)
 
     # Returns convolutions' multiplication weights (not bias) or similar for other layers
     def getMultWeights(self, layerName):  # , epochNum):
@@ -314,6 +362,7 @@ class CMnistVisWrapper:
         self.net.init(dataset, 'QtLogs')
         # if os.path.exists(self.weightsFileNameTempl):
         #     self.net.model.load_weights(self.weightsFileNameTempl)
+        # self.net.model._make_predict_function()
 
         self.netsCache = dict()
 
@@ -328,6 +377,7 @@ class CMnistVisWrapper:
                 import MnistNet
 
                 self.netsCache[highestLayer] = MnistNet.CMnistRecognitionNet2(highestLayer, base_model=self.net.model)
+                # self.netsCache[highestLayer].model._make_predict_function()
             return self.netsCache[highestLayer]
 
 
