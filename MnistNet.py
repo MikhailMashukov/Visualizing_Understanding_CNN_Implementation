@@ -220,7 +220,8 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
     #     return self.model.predict(img)
     #
 
-    def doLearning(self, epochCount, startTrainImageNum=0, endTrainImageNum=None, initialEpochNum=0):
+    def doLearning(self, epochCount, learningCallback,
+                   startTrainImageNum=0, endTrainImageNum=None, initialEpochNum=0):
         from keras.callbacks import TensorBoard
 
         # epochCount = int(math.ceil(iterCount / 100))
@@ -228,14 +229,14 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         fullTestDataset = self.mnist.getNetSource('test')
         if endTrainImageNum is None:
             endTrainImageNum = fullDataset[0].shape[0]
-        batchSize = 32
+        batchSize = 128
         print("Running %d epoch(s) from %d, %d images each" % \
                 (epochCount, initialEpochNum, endTrainImageNum - startTrainImageNum))
         groupStartTime = datetime.datetime.now()
 
         dataset = (fullDataset[0][startTrainImageNum : endTrainImageNum],
                    tf.keras.utils.to_categorical(fullDataset[1][startTrainImageNum : endTrainImageNum]))
-        testDatasetSize = min(2000, (endTrainImageNum - startTrainImageNum) // 2)
+        testDatasetSize = min(len(fullTestDataset[0]), (endTrainImageNum - startTrainImageNum) // 2)
         testDataset = (fullTestDataset[0][:testDatasetSize],
                    tf.keras.utils.to_categorical(fullTestDataset[1][:testDatasetSize]))
         tensorBoardCallback = TensorBoard(log_dir='QtLogs', histogram_freq=0,
@@ -243,8 +244,10 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
                 embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=None, embeddings_data=None,
                 update_freq='epoch')
         summaryCallback = MnistModel2.CSummaryWriteCallback(self.mnist,
-                self.train_writer, self.test_writer, int(initialEpochNum * fullDataset[0].shape[0] / batchSize))
+                self.train_writer, self.test_writer, int(initialEpochNum * fullDataset[0].shape[0] / batchSize),
+                learningCallback)
         # tensorBoardCallback.set_model(self.model)
+
         history = self.model.fit(x=dataset[0], y=dataset[1], validation_data=testDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  batch_size=batchSize, verbose=2, callbacks=[tensorBoardCallback, summaryCallback])

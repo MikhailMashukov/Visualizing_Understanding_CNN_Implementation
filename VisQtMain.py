@@ -117,6 +117,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.imageDataset = self.netWrapper.getImageDataset()
         # self.savedNetEpochs = None
         # self.curEpochNum = 0
+        self.weightsBeforeReinit = None
+        self.weightsReinitInds = None
+        self.weightsReinitEpochNum = None
         self.initUI()
         # self.initAlexNetUI()
 
@@ -215,24 +218,31 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         curHorizWidget = QtGui.QHBoxLayout()
         self.infoLabel = QtGui.QLabel(self)
         # self.infoLabel.setGeometry(x, y, self.width() - c_margin * 2, c_buttonHeight)
+        # self.infoLabel.setGeometry(x, y, 550, c_buttonHeight * 3)
+        self.infoLabel.setMinimumWidth(350)
+            # controlsRestrictorWidget = QtGui.QWidget();  # Example how to restrict width, but it doesn't work, parent already set
+            # controlsRestrictorWidget.setLayout(curHorizWidget);
+            # controlsRestrictorWidget.setMaximumWidth(800);
         curHorizWidget.addWidget(self.infoLabel)
 
         # x += 200 + c_margin
         self.datasetComboBox = QtGui.QComboBox(self)
         # self.datasetComboBox.setGeometry(x, y, 200, c_buttonHeight)
+        self.datasetComboBox.setMaximumWidth(60)
         self.datasetComboBox.currentIndexChanged.connect(self.onDatasetChanged)
         curHorizWidget.addWidget(self.datasetComboBox)
 
         x += 150 + c_margin
         self.blockComboBox = QtGui.QComboBox(self)
         # self.blockComboBox.setGeometry(x, y, 300, c_buttonHeight)
-        # curHorizWidget.addWidget(self.blockComboBox)
+        self.blockComboBox.setMaximumWidth(100)
         # frame = QtGui.QFrame()
         # frame.add
         self.blockComboBox.currentIndexChanged.connect(self.onBlockChanged)
         curHorizWidget.addWidget(self.blockComboBox)
 
         spinBox = QtGui.QSpinBox(self)
+        spinBox.setMaximumWidth(100)
         spinBox.setRange(0, 1023)
         spinBox.setValue(0)
         spinBox.valueChanged.connect(lambda: self.onChanSpinBoxValueChanged())
@@ -252,10 +262,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         y += c_buttonHeight + c_margin
         x = c_margin
         curHorizWidget = QtGui.QHBoxLayout()
-        button = QtGui.QPushButton('test', self)
-        button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(lambda: self.onTestPress())
-        curHorizWidget.addWidget(button)
+        # button = QtGui.QPushButton('test', self)
+        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+        # button.clicked.connect(lambda: self.onTestPress())
+        # curHorizWidget.addWidget(button)
 
         # lineEdit = QtGui.QLineEdit(self)
         # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
@@ -295,9 +305,15 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(self.onShowGradientsPressed)
         curHorizWidget.addWidget(button)
 
+        lineEdit = QtGui.QLineEdit(self)
+        # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
+        lineEdit.setText('0.001')
+        curHorizWidget.addWidget(lineEdit)
+        self.learnRateEdit = lineEdit
+
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 1000000)
-        spinBox.setValue(1000)
+        spinBox.setValue(1500)
         spinBox.setSingleStep(100)
         curHorizWidget.addWidget(spinBox)
         self.iterCountEdit = spinBox
@@ -312,7 +328,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # curHorizWidget.addWidget(button)
         #
         button = QtGui.QPushButton('Reinit. worst neirons', self)
-        button.clicked.connect(lambda: self.onResetWorstNeironsPressed())
+        button.clicked.connect(lambda: self.onReinitWorstNeironsPressed())
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('&Cancel', self)
@@ -416,6 +432,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastActionStartTime = datetime.datetime.now()
         self.cancelling = False
 
+    # TODO def startVisualizationAction(self, actionFunc):
+    #     self.lastAction = actionFunc
+    #     self.lastActionStartTime = datetime.datetime.now()
+    #     self.cancelling = False
+
     def getSelectedEpochNum(self):
         epochNum = None
         epochText = self.epochComboBox.currentText().lower()
@@ -442,6 +463,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def closeEvent(self, event):
         self.exiting = True
         self.netWrapper.cancelling = True
+        print("Close event")
 
     def onCancelPressed(self):
         # self.lastAction = None
@@ -984,8 +1006,17 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         print("Getting data")
         if epochNum == self.AllEpochs:
             dataList = []
+            t0 = datetime.datetime.now()
             for curEpochNum in self.netWrapper.getSavedNetEpochs():
                 dataList.append(self.netWrapper.getGradients(layerName, firstImageCount, curEpochNum))
+                t = datetime.datetime.now()
+                if (t - t0).total_seconds() >= 1:
+                    self.showProgress('Analyzed epoch %d' % curEpochNum)
+                    t0 = t
+                    if self.cancelling or self.exiting:
+                        self.showProgress('Cancelled')
+                        break
+
             data = np.abs(np.stack(dataList, axis=0))
             if len(data.shape) == 5:
                 data2 = np.mean(data, axis=(2))    # Averaging by other convolution channels dimension out of 2
@@ -1108,6 +1139,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # epochIterCount = DeepOptions.trainSetSize / DeepOptions.batchSize
         # c_callIterCount = int(epochIterCount)  # 400
 
+        self.cancelling = False
         curEpochNum = self.getSelectedEpochNum()
         if curEpochNum < 0:
             savedEpochNums = self.netWrapper.getSavedNetEpochs()
@@ -1116,10 +1148,21 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         if curEpochNum >= 0:
             self.netWrapper.loadState(curEpochNum)
 
-        infoStr = self.netWrapper.doLearning(iterCount)
+        if self.weightsReinitEpochNum is None:
+            restoreRestEpochCount = 0
+        else:
+            restoreRestEpochCount = 10 - (curEpochNum - self.weightsReinitEpochNum)
+        callback = QtMainWindow.TLearningCallback(self, restoreRestEpochCount)
+        # callback.learnRate = float(self.learnRateEdit.text())
+
+        class TOptions:
+            learnRate = float(self.learnRateEdit.text())
+
+        infoStr = self.netWrapper.doLearning(iterCount, TOptions(), callback)
+
         self.loadNetStateList()
         self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
-        self.iterNumLabel.setText('Epoch %d' % self.netWrapper.curEpochNum)
+        self.iterNumLabel.setText('Epoch %d finished' % self.netWrapper.curEpochNum)
 
         # restIterCount = iterCount
         # while restIterCount > 0:
@@ -1145,6 +1188,43 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.onSpinBoxValueChanged()   # onDisplayPressed()
         self.showProgress(infoStr, False)
 
+
+    class TLearningCallback(MnistNetVisWrapper.CBaseLearningCallback):
+        def __init__(self, parent, restoreRestEpochCount):
+            super(QtMainWindow.TLearningCallback, self).__init__()
+            self.parent = parent
+            self.restoreRestEpochCount = restoreRestEpochCount
+            self.passedEpochCount = 0
+            self.trainIterNum = -1
+
+        # def __call__(self, infoStr):
+
+        def onBatchEnd(self, trainIterNum, logs):
+            self.logs = logs
+            self.trainIterNum = trainIterNum
+            super(QtMainWindow.TLearningCallback, self).onBatchEnd(logs, trainIterNum)
+
+        def onSecondPassed(self):
+            self.logs.pop('batch', None)
+            self.logs.pop('size', None)
+            self.parent.showProgress('Iter %d: %s' %
+                    (self.trainIterNum, str(self.logs)))
+            if self.parent.cancelling or self.parent.exiting:
+                self.parent.netWrapper.cancelling = True
+
+            if self.restoreRestEpochCount > 0:
+                self.parent.restoreReinitedNeirons()
+                # self.parent.restoreNeironsAfterReinit()
+
+        def onEpochEnd(self, infoStr):
+            self.parent.showProgress(infoStr)
+            self.restoreRestEpochCount -= 1
+            self.passedEpochCount += 1
+
+            self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=2)
+                # A hacking of super-class in order to make epoch info visible longer
+
+
     def onEpochComboBoxChanged(self):
         # if self.lastAction in [self.onShowMultActTopsPressed]:
         #     self.lastAction()
@@ -1158,46 +1238,72 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onLoadStatePressed(self):
         self.loadState(self.getSelectedEpochNum())
 
-    def onResetWorstNeironsPressed(self):
-        self.startAction(self.onResetWorstNeironsPressed)
+    def onReinitWorstNeironsPressed(self):
+        self.startAction(self.onReinitWorstNeironsPressed)
         curEpochNum = self.getSelectedEpochNum()
         if curEpochNum < 0:
             curEpochNum = self.netWrapper.getSavedNetEpochs()[-1]
+        self.weightsBeforeReinit = dict()
+        self.weightsReinitInds = dict()
         for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
             gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
             weights = self.netWrapper.getMultWeights(layerName)
+
+            std0 = np.std(weights)
+            absGradients = np.abs(gradients)
+            resetShape = list(gradients.shape)
+            self.weightsBeforeReinit[layerName] = weights
             if layerName[:4] == 'conv':
-                std0 = np.std(weights)
-                absGradients = np.abs(gradients)
                 meanGradients = np.mean(absGradients, axis=(0, 2, 3))
                 sortedInds = meanGradients.argsort()
                 # mask = np.zeros((gradients.shape)) ...
                 # mask[:, sortedInds[len(sortedInds) // 2 : ], :, :] = 1
                 # otherWeights = np.ma.array(gradients, mask=1-mask)
-                others = weights[:, sortedInds[ : len(sortedInds) // 2], :, :]
+                indsToChange = sortedInds[3 : ]
+                others = weights[:, sortedInds[ : gradients.shape[1] - len(indsToChange)], :, :]
                 othersStdDev = np.std(others)
-                resetShape = list(gradients.shape)
-                resetShape[1] = len(sortedInds) - len(sortedInds) // 2
-                weights[:, sortedInds[len(sortedInds) // 2 : ], :, :] = \
-                    np.random.normal(scale=othersStdDev, size=resetShape)   # np.std(weights)
-                self.netWrapper.setMultWeights(layerName, weights)
-                print("Std: %.9f - %.9f" % (std0, np.std(weights)))
+                resetShape[1] = len(indsToChange)
+                weights[:, indsToChange, :, :] = \
+                    np.random.normal(scale=othersStdDev, size=resetShape)
             elif layerName[:5] == 'dense':
-                std0 = np.std(weights)
-                absGradients = np.abs(gradients)
                 meanGradients = np.mean(absGradients, axis=(0, ))
                 sortedInds = meanGradients.argsort()
-                others = weights[:, sortedInds[ : len(sortedInds) // 2]]
+                indsToChange = sortedInds[5 : ]
+                others = weights[:, sortedInds[ : gradients.shape[1] - len(indsToChange)]]
                 othersStdDev = np.std(others)
-                resetShape = list(gradients.shape)
-                resetShape[1] = len(sortedInds) - len(sortedInds) // 2
-                weights[:, sortedInds[len(sortedInds) // 2 : ]] = \
+                resetShape[1] = len(indsToChange)
+                weights[:, indsToChange] = \
                     np.random.normal(scale=othersStdDev, size=resetShape)
+            else:
+                indsToChange = None
+                del self.weightsBeforeReinit[layerName]
+
+            if not indsToChange is None:
                 self.netWrapper.setMultWeights(layerName, weights)
-                print("Std: %.9f - %.9f" % (std0, np.std(weights)))
-
-
+                self.weightsReinitInds[layerName] = indsToChange
+                print("%s reinit: std. %.9f - %.9f, neirons %s" % \
+                      (layerName, std0, np.std(weights),
+                       ', '.join(sorted([str(i) for i in indsToChange]))))
+        self.weightsReinitEpochNum = curEpochNum
         self.infoLabel.setText('Worst neirons reinitialized')
+
+
+    def restoreReinitedNeirons(self):
+        for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
+            if layerName in self.weightsBeforeReinit:
+                weights = self.netWrapper.getMultWeights(layerName)
+                indsToChange = self.weightsReinitInds[layerName]
+                indsToPreserve = set(range(len(indsToChange)))
+                indsToPreserve = list(indsToPreserve.difference(indsToChange))
+
+                if layerName[:4] == 'conv':
+                    weights[:, indsToPreserve, :, :] = \
+                        self.weightsBeforeReinit[layerName][:, indsToPreserve, :, :]
+                    self.netWrapper.setMultWeights(layerName, weights)
+                elif layerName[:5] == 'dense':
+                    weights[:, indsToPreserve] = \
+                        self.weightsBeforeReinit[layerName][:, indsToPreserve]
+                    self.netWrapper.setMultWeights(layerName, weights)
 
 
     def saveState(self):
@@ -2017,7 +2123,7 @@ if __name__ == "__main__":
         # mainWindow.netWrapper.getGradients()
         # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
         # mainWindow.onDoItersPressed(1)
-        # mainWindow.onResetWorstNeironsPressed()
+        # mainWindow.onReinitWorstNeironsPressed()
 
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()

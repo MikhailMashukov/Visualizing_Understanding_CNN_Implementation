@@ -2,7 +2,7 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
 # import argparse
-# import datetime
+import datetime
 import math
 # import subprocess
 import os
@@ -15,6 +15,9 @@ import DataCache
 from MyUtils import *
 
 # FLAGS = None
+
+class CBaseLearningCallback:   # Predeclaration. Without it doLearning(..., callback=CBaseLearningCallback() doesn't see this class
+    pass
 
 def getSavedNetEpochs(fileMask):     # E.g. QtLogs/MNISTWeights_epoch*.h5
     import glob
@@ -60,6 +63,8 @@ class CMnistVisWrapper:
         self.mnistDataset = CMnistDataset()
         self.net = None
         self.curEpochNum = 0
+        self.isLearning = False
+        self.curModelLearnRate = None
         self.cancelling = False
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
         self.netsCache = None
@@ -174,31 +179,48 @@ class CMnistVisWrapper:
         # return gradientDict
 
 
-    def doLearning(self, iterCount):
+    # Some epochs that will be run can be cut, not on entire dataset
+    def doLearning(self, iterCount, options, callback=CBaseLearningCallback()):
+        from keras.optimizers import Adam, SGD
+
         self.cancelling = False
         if self.net is None:
             self._initMainNet()
-        epochNum = 0    # Number for starting from small epochs each time
-        for _ in range(int(math.ceil(iterCount / 100))):
-            if iterCount > 500:
-                if epochNum < 4:
-                    (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
-                elif 4 << (epochNum - 4) <= 55:
-                    (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+        self.isLearning = True
+        try:
+            epochNum = 0    # Number for starting from small epochs each time
+            for _ in range(int(math.ceil(iterCount / 100))):
+                if iterCount > 500:
+                    if epochNum < 4:
+                        (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
+                    elif 4 << (epochNum - 4) <= 55:
+                        (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+                    else:
+                        (start, end) = (0, None)
                 else:
                     (start, end) = (0, None)
-            else:
-                (start, end) = (0, None)
-            infoStr = self.net.doLearning(1, start, end, self.curEpochNum)
-            self.curEpochNum += 1
-            epochNum += 1
-            self.saveState()
-            # self.saveCurGradients()
-            if self.cancelling:
-                break
+
+                if self.curModelLearnRate != options.learnRate:
+                    optimizer = Adam(learning_rate=options.learnRate, decay=1e-5)
+                    self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+                    self.curModelLearnRate = options.learnRate
+                    print('Learning rate switched to %f' % options.learnRate)
+
+                infoStr = self.net.doLearning(1, callback,
+                                              start, end, self.curEpochNum)
+                self.curEpochNum += 1
+                epochNum += 1
+                infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
+                self.saveState()
+                # self.saveCurGradients()
+                callback.onEpochEnd(infoStr)
+                if self.cancelling:
+                    break
+        finally:
+            self.isLearning = False
 
         # self.activationCache.clear()
-        return 'Epoch %d: %s' % (self.curEpochNum, infoStr)
+        return infoStr
 
 
     def getSavedNetEpochs(self):
@@ -235,6 +257,8 @@ class CMnistVisWrapper:
             # self.loadCacheState()
             if self.net is None:
                 self._initMainNet()
+            if self.isLearning:
+                raise Exception('Learning is in progress')
             self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             self.curEpochNum = epochNum
         except Exception as ex:
@@ -359,3 +383,23 @@ class CMnistDataset:
                 (self.test.images, self.test.labels) = mnist.load_data()
         self.train.images = self.train.images / np.float32(255.0)
         self.test.images  = self.test.images  / np.float32(255.0)
+
+
+class CBaseLearningCallback:
+    def __init__(self):
+        self.lastUpdateTime = datetime.datetime.now()
+
+    # Logs from CSummaryWriteCallback.on_batch_end and approximate iteration number
+    def onBatchEnd(self, trainIterNum, logs):
+        t = datetime.datetime.now()
+        if (t - self.lastUpdateTime).total_seconds() >= 1:
+            self.onSecondPassed()
+            self.lastUpdateTime = t
+
+    # Less frequent update callback
+    def onSecondPassed(self):
+        pass
+
+    def onEpochEnd(self, infoStr):
+        pass
+
