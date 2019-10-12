@@ -1,3 +1,4 @@
+import concurrent.futures
 import copy
 import datetime
 import matplotlib
@@ -19,6 +20,8 @@ import os
 # import random
 # import sys
 # import time
+import queue
+import _thread
 
 # sys.path.append(r"../Qt_TradeSim")
 # import AlexNetVisWrapper
@@ -27,7 +30,7 @@ from MyUtils import *
 from VisUtils import *
 
 class TMultActOpsOptions:
-    topCount = 16
+    topCount = 25
     oneImageMaxTopCount = 6
     minDist = 3
     batchSize = 16 * getCpuCoreCount()
@@ -60,10 +63,14 @@ class CMultActTopsCalculator(TMultActOpsOptions):
             imageNums = range(batchNum * batchSize + 1,
                               min((batchNum + 1) * batchSize, self.imageToProcessCount) + 1)
             if batchSize == 1:
-                batchActivations = self.netWrapper.getImageActivations(
-                        self.layerName, batchNum + 1, self.epochNum)
+                try:
+                    batchActivations = self.netWrapper.getImageActivations(
+                            self.layerName, batchNum + 1, self.epochNum)
+                except Exception as ex:
+                    print("Error on batchActivations: %s" % (str(ex)))
+
             else:
-                print("Batch: ", ','.join(str(i) for i in imageNums))
+                # print("Batch: ", ','.join(str(i) for i in imageNums))
                 batchActivations = self.netWrapper.getImagesActivations_Batch(
                         self.layerName, imageNums, self.epochNum)
             if len(batchActivations.shape) == 2:
@@ -75,7 +82,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
 
                 # if layerNum <= 2:
                 #     activations[0, 22:25, 0] = 100     #d_
-                print('1')
+                # print('1')
                 means = np.mean(activations, axis=(1, 2)) / 3
                 for chanInd in range(self.chanCount):
                     vals = attachCoordinates(activations[chanInd])    # Getting list of (x, y, value)
@@ -84,7 +91,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                     valsToSave[2, :] += means[chanInd]                # Adding influence of entire activation map
                     valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
                     bestSourceCoords[chanInd].append(valsToSave)
-                print('-ch-')
+                    print('-ch-')
                 if imageNum % 16 == 0:
                     t = datetime.datetime.now()
                     if lastActionStartTime:
@@ -188,9 +195,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                 return False
         return True
 
-    # Takes prepared bestSourceCoords and/or data from cache and shows images
-    # returns prepared image data (that it showed)
-    def showMultActTops(self, bestSourceCoords, processedImageCount=None):
+    def buildMultActTopsImage(self, bestSourceCoords, processedImageCount=None):
         if processedImageCount is None:
             processedImageCount = self.imageToProcessCount
         sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(self.layerName)
@@ -223,10 +228,15 @@ class CMultActTopsCalculator(TMultActOpsOptions):
 
         resultList = padImagesToMax(resultList, imageBorderValue)
         data = np.stack(resultList, axis=0)
-        colCount = math.ceil(math.sqrt(self.chanCount) * 1.15 / 2) * 2
         chanBorderValue = 1 if data.dtype == np.float32 else 255
-        data = layoutLayersToOneImage(data, colCount, self.mainWindow.c_channelMargin_Top, chanBorderValue)
+        data = layoutLayersToOneImage(data, self.colCount, self.mainWindow.c_channelMargin_Top, chanBorderValue)
         print("Top activations image built")
+        return data
+
+    # Takes prepared bestSourceCoords and/or data from cache and shows images
+    # returns prepared image data (that it showed)
+    def showMultActTops(self, bestSourceCoords, processedImageCount=None):
+        imageData = self.buildMultActTopsImage(bestSourceCoords, processedImageCount)
 
         # try:
         #     figure, axes = plt.subplots(223)
@@ -237,7 +247,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         #     print('Exception on subplot deletion: %s' % str(ex))
         ax = self.mainWindow.getMainSubplot()
         ax.clear()
-        self.mainWindow.showImage(ax, data)
+        self.mainWindow.showImage(ax, imageData)
         self.mainWindow.canvas.draw()
         print("Canvas drawn")
 
@@ -247,7 +257,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         #         (self.topCount, self.layerName, int(maxImageNum))
         # with open(fileName, 'wb') as file:
         #     pickle.dump(bestSourceCoords, file)
-        return data
+        return imageData
 
     def buildChannelMultActTopImage(self, bestSourceCoords, chanInd,
                                     sourceBlockCalcFunc, topColCount):
@@ -340,8 +350,8 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                     t0 = t
 
         data = np.stack(resultList, axis=0)
-        colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        data = layoutLayersToOneImage(data, colCount, self.mainWindow.c_channelMargin_Top)
+        # colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
+        data = layoutLayersToOneImage(data, self.colCount, self.mainWindow.c_channelMargin_Top)
 
         ax = self.getMainSubplot()
         ax.clear()
@@ -350,3 +360,132 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         return data.shape[0:2]
 
 
+
+class CMultiThreadedCalculator:
+    def run(self, calculator, epochNums):
+        self.mainCalculator = calculator
+        self.activationsQueue = queue.Queue(maxsize=calculator.threadCount * 5)
+        self.stopEvent = threading.Event()
+        self.mainWindowLock = _thread.allocate_lock()
+        self.threadCrashed = False
+
+        options = self.mainCalculator
+        assert options.threadCount > 1
+        with concurrent.futures.ThreadPoolExecutor(max_workers=options.threadCount - 1) as executor:
+            # executor.submit(producer, pipeline, event)
+            for i in range(options.threadCount - 1):
+                executor.submit(CMultiThreadedCalculator.workerThreadFunc, self, 'Thread %d' % i)
+
+            batchSize = calculator.batchSize
+            for epochNum in epochNums:
+                # for batchNum in range((calculator.imageToProcessCount - 1) // batchSize + 1):
+                #     imageNums = range(batchNum * batchSize + 1,
+                #                       min((batchNum + 1) * batchSize, calculator.imageToProcessCount) + 1)
+                #     # if batchSize == 1:
+                #     #     batchActivations = calculator.netWrapper.getImageActivations(
+                #     #             calculator.layerName, batchNum + 1, calculator.epochNum)
+                #     # else:
+                #     #     print("Batch: ", ','.join(str(i) for i in imageNums))
+                #     batchActivations = calculator.netWrapper.getImagesActivations_Batch(
+                #                 calculator.layerName, imageNums, calculator.epochNum)
+                epochActivations = calculator.netWrapper.getImagesActivations_Batch(
+                                calculator.layerName, range(1, calculator.imageToProcessCount + 1),
+                                epochNum)
+                print("Epoch %d activations prepared" % epochNum)
+                if self.threadCrashed:
+                    print("Crashing detected")
+                    break
+                self.activationsQueue.put((epochNum, epochActivations))
+            self.stopEvent.set()
+
+        print("Finished")
+
+    @staticmethod
+    def workerThreadFunc(mainObj, threadName):
+        print("%s: started" % threadName)
+        try:
+            calculator = copy.copy(mainObj.mainCalculator)
+            cancelling = False
+            while (not mainObj.stopEvent.is_set() or not mainObj.activationsQueue.empty()) and \
+                    not cancelling:
+                (epochNum, epochActivations) = mainObj.activationsQueue.get()
+                print("%s: processing epoch %d, queue size %s" %
+                      (threadName, epochNum, '*' * mainObj.activationsQueue.qsize()))
+
+                calculator.epochNum = epochNum
+                (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
+                    # Dangerous - we use method that can call model. But the cache is big so this should not happen
+                resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+                calculator.saveMultActTopsImage(resultImage)
+
+                infoStr = '%s: epoch %d ready, %s in cache, queue %d' % \
+                            (threadName, epochNum, mainObj.mainCalculator.netWrapper.getCacheStatusInfo(),
+                             mainObj.activationsQueue.qsize())
+                        # progressCallback - like QMainWindow.TProgressIndicator
+
+                with mainObj.mainWindowLock:
+                    cancelling = not mainObj.mainCalculator.progressCallback.onEpochProcessed(infoStr)
+
+        except Exception as ex:
+            print("Error in %s workerThreadFunc: %s" % (threadName, str(ex)))
+            mainObj.threadCrashed = True
+            mainObj.stopEvent.set()
+
+        print("%s: finished" % threadName)
+
+
+
+# Multithreaded producer-consumer example from https://realpython.com/intro-to-python-threading/#producer-consumer-threading
+import concurrent.futures
+import logging
+import queue
+import random
+
+def producer(queue, event):
+    """Pretend we're getting a number from the network."""
+    pauseSum = 0
+    pauseCount = 0
+    if 0:
+        x = np.random.normal(0.1, 0.05, size=(1000, 100))
+        m = np.mean(x)
+        m2 = np.mean(x[x >= 0])
+    while not event.is_set():
+        message = random.randint(1, 101)
+        pause = np.random.normal(0.1, 0.05)
+        while pause < 0:
+            pause = np.random.normal(0.1, 0.05)
+        pauseSum += pause
+        pauseCount += 1
+        logging.info("Producer message: %s, average pause %.5f s, next %.3f s",
+                     message, pauseSum / pauseCount, pause)
+        queue.put(message)
+        time.sleep(pause)
+
+    logging.info("Producer received event. Exiting")
+
+def consumer(queue, event):
+    """Pretend we're saving a number in the database."""
+    while not event.is_set() or not queue.empty():
+        message = queue.get()
+        logging.info(
+            "Consumer storing message: %2s, size %s", message, '*' * queue.qsize()
+        )
+        time.sleep(0.3)
+
+    logging.info("Consumer received event. Exiting")
+
+if __name__ == "__main__":
+    format = "%(asctime)s [%(thread)d]: %(message)s"
+    logging.basicConfig(format=format, level=logging.INFO,
+                        datefmt="%H:%M:%S")
+
+    pipeline = queue.Queue(maxsize=20)
+    event = threading.Event()
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+        executor.submit(producer, pipeline, event)
+        for _ in range(3):
+            executor.submit(consumer, pipeline, event)
+
+        # time.sleep(0.6)
+        # logging.info("Main: about to set event")
+        # event.set()

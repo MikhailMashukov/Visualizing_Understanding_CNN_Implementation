@@ -240,6 +240,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(self.onShowMultActTopsPressed)
         curHorizWidget.addWidget(button)
 
+        button = QtGui.QPushButton('Multith. my &mult. act. tops', self)
+        button.clicked.connect(self.calcMultActTops_MultiThreaded)
+        curHorizWidget.addWidget(button)
+
         button = QtGui.QPushButton('Show all images tops', self)
         button.clicked.connect(self.onShowActTopsFromCsvPressed)
         curHorizWidget.addWidget(button)
@@ -558,12 +562,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         options.layerNum = self.blockComboBox.currentIndex() + 1
         calculator.showActTops_FromCsv()
 
-    def onShowMultActTopsPressed(self):
-        # My own implementation, from scratch, with images subblocks precision
-        self.startAction(self.onShowMultActTopsPressed)
+
+    def fillMainMultActTopsOptions(self):
         calculator = MultActTops.CMultActTopsCalculator(self, self.activationCache, self.netWrapper)
         options = calculator
         options.epochNum = self.getSelectedEpochNum()
+        if options.epochNum is None:
+            epochNums = self.netWrapper.getSavedNetEpochs()
+            options.epochNum = epochNums[-1]
         layerName = self.blockComboBox.currentText()
         options.layerName = layerName
         options.embedImageNums = True
@@ -574,6 +580,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                             layerName, 1, options.epochNum)
         activations1 = self.getChannelsToAnalyze(activations1[0])
         (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
+        calculator.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
+        return calculator
+
+    def onShowMultActTopsPressed(self):
+        # My own implementation, from scratch, with images subblocks precision
+        self.startAction(self.onShowMultActTopsPressed)
+        calculator = self.fillMainMultActTopsOptions()
         if calculator.checkMultActTopsInCache():
             # No need to collect activations, everything will be taken from cache
             resultImage = calculator.showMultActTops(None)
@@ -593,7 +606,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # print(activations)
 
         try:
-            options.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
             (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
         finally:
             self.multActTopsButton.setText(self.multActTopsButtonText)
@@ -609,6 +621,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.mainWindow = mainWindow
             self.calculator = calculator
             self.threadInfo = threadInfo
+            # self.mainWindowLock = _thread.allocate_lock()
 
         # Returns false if the process should be stopped.
         # Can show and save intermediate results. When called from showMultActTops this is not necessary
@@ -616,7 +629,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         def onMultActTopsProgress(self, infoStr, processedImageCount=None, curBestSourceCoords=None):
             if not self.threadInfo is None:
                 infoStr = '%s: %s' % (self.threadInfo, infoStr)
+           # with self.mainWindowLock:
             self.mainWindow.showProgress(infoStr)
+                # Usually doesn't display anything from other threads
 
             if self.mainWindow.cancelling or self.mainWindow.exiting:
                 return False
@@ -626,24 +641,29 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 self.calculator.saveMultActTopsImage(resultImage, processedImageCount)
             return True
 
+        def onEpochProcessed(self, infoStr):
+            self.mainWindow.showProgress(infoStr)
+            if self.mainWindow.cancelling or self.mainWindow.exiting:
+                return False
+            return True
+
 
     def calcMultActTops_MultiThreaded(self):
         self.startAction(self.calcMultActTops_MultiThreaded)
-        calculator = MultActTops.CMultActTopsCalculator(self, self.activationCache, self.netWrapper)
-        options = calculator
-        # options.epochNum = self.getSelectedEpochNum()
-        layerName = self.blockComboBox.currentText()
-        options.layerName = layerName
-        options.embedImageNums = True
-        options.imageToProcessCount = max(200 if self.netWrapper.name == 'mnist' else 20, \
-                    self.getSelectedImageNum())
-
+        calculator = self.fillMainMultActTopsOptions()
+        self.needShowCurMultActTops = False
         epochNums = self.netWrapper.getSavedNetEpochs()
-        activations1 = self.netWrapper.getImageActivations(
-                            layerName, 1, epochNums[-1])
-        activations1 = self.getChannelsToAnalyze(activations1[0])
-        (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
-        options.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
+        calculator.epochNum = None
+        calculator.threadCount = getCpuCoreCount() * 2
+        mtCalculator = MultActTops.CMultiThreadedCalculator()
+
+        mtCalculator.run(calculator, epochNums)
+
+    def calcMultActTops_MultipleTfThreaded(self):
+        self.startAction(self.calcMultActTops_MultiThreaded)
+        calculator = self.fillMainMultActTopsOptions()
+        epochNums = self.netWrapper.getSavedNetEpochs()
+        calculator.epochNum = None
 
         import tensorflow as tf
 
@@ -670,11 +690,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         options.threadCount = 3
         # threads = []
-        calc_MultiThreaded(options.threadCount, self.calcMultActTopsThreadFunc,
+        calc_MultiThreaded(options.threadCount, self.calcMultActTops_MultipleTfThreadFunc,
                            epochNums, calculator)
         self.showProgress('%d threads finished' % options.threadCount)
 
-    def calcMultActTopsThreadFunc(self, threadParams, options):
+    def calcMultActTops_MultipleTfThreadFunc(self, threadParams, options):
         downloadStats = threadParams.downloadStats
         self.showProgress('%s: started for %s%s' % \
               (threadParams.threadName, threadParams.ids[:20], \
@@ -1989,7 +2009,7 @@ if __name__ == "__main__":
     setProcessPriorityLow()
     if 1:
         mainWindow.init()
-        # mainWindow.loadCacheState()
+        mainWindow.loadCacheState()
 
         # mainWindow.loadState(mainWindow.getSelectedEpochNum())
         # mainWindow.netWrapper.getGradients()
@@ -2001,7 +2021,7 @@ if __name__ == "__main__":
         # mainWindow.onDisplayPressed()
         # mainWindow.onShowActivationsPressed()
         # mainWindow.onDoItersPressed(1)
-        mainWindow.onShowMultActTopsPressed()
+        # mainWindow.onShowMultActTopsPressed()
         # mainWindow.onShowSortedChanActivationsPressed()
         # mainWindow.onSpinBoxValueChanged()
         # mainWindow.calcMultActTops_MultiThreaded()
