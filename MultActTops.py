@@ -31,10 +31,12 @@ from VisUtils import *
 
 class TMultActOpsOptions:
     topCount = 25
-    oneImageMaxTopCount = 6
+    oneImageMaxTopCount = 4
     minDist = 3
     batchSize = 16 * getCpuCoreCount()
     embedImageNums = False
+    c_channelMargin = 2
+    c_channelMargin_Top = 5
 
 class CMultActTopsCalculator(TMultActOpsOptions):
     # c_channelMargin = 2
@@ -68,7 +70,6 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                             self.layerName, batchNum + 1, self.epochNum)
                 except Exception as ex:
                     print("Error on batchActivations: %s" % (str(ex)))
-
             else:
                 # print("Batch: ", ','.join(str(i) for i in imageNums))
                 batchActivations = self.netWrapper.getImagesActivations_Batch(
@@ -91,7 +92,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                     valsToSave[2, :] += means[chanInd]                # Adding influence of entire activation map
                     valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
                     bestSourceCoords[chanInd].append(valsToSave)
-                    print('-ch-')
+                    # print('-ch-')
                 if imageNum % 16 == 0:
                     t = datetime.datetime.now()
                     if lastActionStartTime:
@@ -229,7 +230,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         resultList = padImagesToMax(resultList, imageBorderValue)
         data = np.stack(resultList, axis=0)
         chanBorderValue = 1 if data.dtype == np.float32 else 255
-        data = layoutLayersToOneImage(data, self.colCount, self.mainWindow.c_channelMargin_Top, chanBorderValue)
+        data = layoutLayersToOneImage(data, self.colCount, self.c_channelMargin_Top, chanBorderValue)
         print("Top activations image built")
         return data
 
@@ -351,7 +352,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
 
         data = np.stack(resultList, axis=0)
         # colCount = math.ceil(math.sqrt(chanCount) * 1.15 / 2) * 2
-        data = layoutLayersToOneImage(data, self.colCount, self.mainWindow.c_channelMargin_Top)
+        data = layoutLayersToOneImage(data, self.colCount, self.c_channelMargin_Top)
 
         ax = self.getMainSubplot()
         ax.clear()
@@ -366,7 +367,7 @@ class CMultiThreadedCalculator:
         self.mainCalculator = calculator
         self.activationsQueue = queue.Queue(maxsize=calculator.threadCount * 5)
         self.stopEvent = threading.Event()
-        self.mainWindowLock = _thread.allocate_lock()
+        # self.mainWindowLock = _thread.allocate_lock()
         self.threadCrashed = False
 
         options = self.mainCalculator
@@ -400,6 +401,113 @@ class CMultiThreadedCalculator:
 
         print("Finished")
 
+    # TODO: cancelling support
+    def run_MultiProcess(self, calculator, epochNums):
+        import multiprocessing
+
+        self.mainCalculator = calculator
+        self.stopEvent = threading.Event()
+        # self.mainWindowLock = _thread.allocate_lock()
+        # self.threadCrashed = False
+
+        options = self.mainCalculator
+        cleanedCalculator = copy.copy(self.mainCalculator)
+        cleanedCalculator.mainWindow = None
+        cleanedCalculator.progressCallback = None
+        cleanedCalculator.netWrapper = None
+        cleanedCalculator.activationCache = None
+        cleanedCalculator.imageDataset = None
+
+        workerProcessCount = options.threadCount - 1
+        processes = []
+        # for i in range(options.threadCount):
+        #     # processes.append(multiprocessing.Process(target=CMultiThreadedCalculator.workerThreadFunc,
+        #     #                                          args=[cleanedCalculator], name='Process %d' % i))
+        #     processes.append(multiprocessing.Process(target=workerProcessFunc2, \
+        #                                              args=[cleanedCalculator, 'Process %d' % (i)]))
+        pool = multiprocessing.Pool(workerProcessCount)
+        # runProcessCount = 0
+
+        # batchSize = calculator.batchSize
+        curDataList = []
+        for epochNum in epochNums:
+            if epochNum < 100:
+                continue
+            epochActivations = calculator.netWrapper.getImagesActivations_Batch(
+                            calculator.layerName, range(1, calculator.imageToProcessCount + 1),
+                            epochNum)
+            print('Epoch %d activations prepared' % epochNum)
+            # if self.threadCrashed:
+            #     print("Crashing detected")
+            #     break
+            # if runProcessCount < options.threadCount:
+            #     processes[runProcessCount].start()
+            #     runProcessCount += 1
+            curDataList.append((cleanedCalculator, epochNum, epochActivations))
+            if len(curDataList) == workerProcessCount:
+                strInfo = 'Running for epochs to %d, %s in cache' % \
+                            (curDataList[-1][1], self.mainCalculator.netWrapper.getCacheStatusInfo())
+                if not self.mainCalculator.progressCallback.onEpochProcessed(strInfo):
+                    curDataList = []
+                    break
+                t = threading.Thread(None, pool.map,
+                           'Epochs %d, ... map thread' % curDataList[0][1], [workerProcessFunc2, curDataList])
+                t.start()
+                curDataList = []
+            # print('Result for epoch %d received' % epochNum)
+
+            if epochNum % 4 == 0:
+                calculator.netWrapper.saveState()
+        if curDataList:
+             t = threading.Thread(None, pool.map,
+                        'Epochs %d, ... map thread' % curDataList[0][1], [workerProcessFunc2, curDataList])
+        self.stopEvent.set()
+        for p in processes:
+            p.join()
+
+        print("Finished")
+
+    @staticmethod
+    def workerProcessFunc(calculator, threadName):
+        try:
+            print("%s: started" % threadName)
+
+            import MnistNetVisWrapper
+
+            calculator.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
+            calculator.activationCache = calculator.netWrapper.activationCache
+            calculator.imageDataset = calculator.netWrapper.getImageDataset()
+            calculator.progressIndicator = CMultiThreadedCalculator.TProgressIndicator()
+            print("%s: inited" % threadName)
+
+            calculator.epochNum = 15
+            (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
+                # Dangerous - we use method that can call model. But the cache is big so this should not happen
+            resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+            calculator.saveMultActTopsImage(resultImage)
+
+            infoStr = '%s: epoch %d ready, %s in cache, queue %d' % \
+                        (threadName, calculator.epochNum, mainObj.mainCalculator.netWrapper.getCacheStatusInfo(),
+                         mainObj.activationsQueue.qsize())
+            print(infoStr)
+        except Exception as ex:
+            print("Error in %s workerThreadFunc: %s" % (threadName, str(ex)))
+            # mainObj.threadCrashed = True
+            # mainObj.stopEvent.set()
+
+        print("%s: finished" % threadName)
+
+    class TProgressIndicator:
+        def __init__(self, mainWindow, calculator, threadInfo=None):
+            self.mainWindow = mainWindow
+            self.calculator = calculator
+            self.threadInfo = threadInfo
+            # self.mainWindowLock = _thread.allocate_lock()
+
+        def onMultActTopsProgress(self, infoStr, processedImageCount=None, curBestSourceCoords=None):
+            print(infoStr)
+            return True
+
     @staticmethod
     def workerThreadFunc(mainObj, threadName):
         print("%s: started" % threadName)
@@ -423,8 +531,8 @@ class CMultiThreadedCalculator:
                              mainObj.activationsQueue.qsize())
                         # progressCallback - like QMainWindow.TProgressIndicator
 
-                with mainObj.mainWindowLock:
-                    cancelling = not mainObj.mainCalculator.progressCallback.onEpochProcessed(infoStr)
+                # with mainObj.mainWindowLock:
+                #     cancelling = not mainObj.mainCalculator.progressCallback.onEpochProcessed(infoStr)
 
         except Exception as ex:
             print("Error in %s workerThreadFunc: %s" % (threadName, str(ex)))
@@ -474,18 +582,98 @@ def consumer(queue, event):
 
     logging.info("Consumer received event. Exiting")
 
+
+import multiprocessing
+
+def workerProcessFunc2(params):
+    try:
+        threadName = 'Process %s' % str(multiprocessing.current_process())
+        print("%s: started" % threadName)
+        (calculator, epochNum, epochActivations) = params
+        setProcessPriorityLow()
+
+        # Overwriting  self.netWrapper.getImagesActivations_Batch(self.layerName, imageNums, self.epochNum),
+        # called by calcBestSourceCoords
+
+        # class TBatchDataProvider:
+        #     def __init__(self, epochActivations):
+
+        def getBatchData2(_, imageNums, callEpochNum):
+            assert callEpochNum == epochNum
+            return epochActivations[np.array(imageNums, dtype=int) - 1, :]
+
+        def getBatchData4(_, imageNums, callEpochNum):
+            assert callEpochNum == epochNum
+            return epochActivations[np.array(imageNums, dtype=int) - 1, :, :, :]
+
+        class TDummy:
+            def getObject(self, itemCacheName):
+                return None
+            def saveObject(self, name, value):
+                pass
+            def getUsedMemory(self):
+                return 0
+
+        import MnistNetVisWrapper
+
+        calculator.netWrapper = MnistNetVisWrapper.CMnistVisWrapper(activationCache=TDummy())
+        calculator.netWrapper.getImagesActivations_Batch = \
+                getBatchData2 if len(epochActivations.shape) == 2 else getBatchData4
+        calculator.activationCache = calculator.netWrapper.activationCache
+        calculator.imageDataset = calculator.netWrapper.getImageDataset()
+        # calculator.mainWindow = VisQtMain.QtMainWindow()
+        calculator.progressCallback = TProgressIndicator2(None, None)
+        # calculator.netWrapper.loadCacheState()
+        print("%s: inited" % threadName)
+
+        calculator.epochNum = epochNum
+        (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
+            # Dangerous - we use method that can call model. But the cache is big so this should not happen
+        resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+        calculator.saveMultActTopsImage(resultImage)
+
+        infoStr = '%s: epoch %d ready, %s in cache' % \
+                    (threadName, calculator.epochNum, calculator.netWrapper.getCacheStatusInfo())
+        print(infoStr)
+        return infoStr
+    except Exception as ex:
+        print("Error in %s workerProcessFunc2: %s" % (threadName, str(ex)))
+        # mainObj.threadCrashed = True
+        # mainObj.stopEvent.set()
+        return 'Error: %s' % str(ex)
+
+    print("%s: finished" % threadName)
+
+class TProgressIndicator2:
+    def __init__(self, mainWindow, calculator, threadInfo=None):
+        self.mainWindow = mainWindow
+        self.calculator = calculator
+        self.threadInfo = threadInfo
+        # self.mainWindowLock = _thread.allocate_lock()
+
+    def onMultActTopsProgress(self, infoStr, processedImageCount=None, curBestSourceCoords=None):
+        print(infoStr)
+        return True
+
 if __name__ == "__main__":
-    format = "%(asctime)s [%(thread)d]: %(message)s"
-    logging.basicConfig(format=format, level=logging.INFO,
-                        datefmt="%H:%M:%S")
+    if 0:
+        format = "%(asctime)s [%(thread)d]: %(message)s"
+        logging.basicConfig(format=format, level=logging.INFO,
+                            datefmt="%H:%M:%S")
 
-    pipeline = queue.Queue(maxsize=20)
-    event = threading.Event()
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
-        executor.submit(producer, pipeline, event)
-        for _ in range(3):
-            executor.submit(consumer, pipeline, event)
+        pipeline = queue.Queue(maxsize=20)
+        event = threading.Event()
+        with concurrent.futures.ThreadPoolExecutor(max_workers=8) as executor:
+            executor.submit(producer, pipeline, event)
+            for _ in range(3):
+                executor.submit(consumer, pipeline, event)
 
-        # time.sleep(0.6)
-        # logging.info("Main: about to set event")
-        # event.set()
+            # time.sleep(0.6)
+            # logging.info("Main: about to set event")
+            # event.set()
+
+    if 1:
+        calc = dict()
+        workerProcessFunc2(TProgressIndicator2(None, None), 'Test process')
+
+

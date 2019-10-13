@@ -31,6 +31,7 @@ class CDataCache:
 
     def saveObject(self, name, value):      # Adds or replaces the object in the cache
         # print("Awaiting lock")
+        # print('saving ', name)
         with self.lock:
             # print("Lock+")
             prevValue = self.data.get(name)
@@ -53,6 +54,7 @@ class CDataCache:
     def partialClean(self):
         newDataDict = dict()
         newUsedMemory = 0
+        print('Cleaning cache')
         with self.lock:
             for name, value in self.data.items():
                 if name in self.lrus[0] or name in self.lrus[1]:

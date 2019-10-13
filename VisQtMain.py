@@ -112,7 +112,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def initUI(self):
         self.setGeometry(100, 40, 1100, 700)
-        self.setWindowTitle('Visualization Qt Main %d' % os.getpid())
+        self.setWindowTitle(self.getTitleForWindow())
 
         c_buttonWidth = 50
         c_buttonHeight = 30
@@ -240,13 +240,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(self.onShowMultActTopsPressed)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Multith. my &mult. act. tops', self)
+        button = QtGui.QPushButton('Multith. mult. act. tops', self)
         button.clicked.connect(self.calcMultActTops_MultiThreaded)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Show all images tops', self)
-        button.clicked.connect(self.onShowActTopsFromCsvPressed)
-        curHorizWidget.addWidget(button)
+        # button = QtGui.QPushButton('Show all images tops', self)
+        # button.clicked.connect(self.onShowActTopsFromCsvPressed)
+        # curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Show &gradients', self)
         button.clicked.connect(self.onShowGradientsPressed)
@@ -274,7 +274,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
         # curHorizWidget.addWidget(button)
         #
-        button = QtGui.QPushButton('Reinit. worst neirons', self)
+        button = QtGui.QPushButton('Reinit. worst neir.', self)
         button.clicked.connect(lambda: self.onReinitWorstNeironsPressed())
         curHorizWidget.addWidget(button)
 
@@ -363,9 +363,21 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.blockComboBox.addItem(layerName)
 
         self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
+                                                 #    hspace=0.3)
 
         self.blockComboBox.setCurrentIndex(2)
         # self.lastAction = self.onShowActTopsPressed   #d_
+
+    def getTitleForWindow(self):
+        path = os.getcwd()
+        try:
+            pathBlocks = os.path.split(path)
+            pathBlocks2 = os.path.split(pathBlocks[0])
+            path = '%s/%s' % (pathBlocks2[1], pathBlocks[1])
+        except:
+            pass
+
+        return 'Visualization %s %d' % (path, os.getpid())
 
     def showProgress(self, str, processEvents=True):
         print(str)
@@ -657,7 +669,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         calculator.threadCount = getCpuCoreCount() * 2
         mtCalculator = MultActTops.CMultiThreadedCalculator()
 
-        mtCalculator.run(calculator, epochNums)
+        # mtCalculator.run(calculator, epochNums)
+        mtCalculator.run_MultiProcess(calculator, epochNums)
 
     def calcMultActTops_MultipleTfThreaded(self):
         self.startAction(self.calcMultActTops_MultiThreaded)
@@ -1019,6 +1032,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onBlockChanged(self):
         if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
             self.onSpinBoxValueChanged()
+        elif self.lastAction in [self.onShowGradientsPressed] and \
+                self.getSelectedEpochNum() and self.getSelectedEpochNum() > 0:
+            self.lastAction()
 
     def getMainSubplot(self):
         if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
