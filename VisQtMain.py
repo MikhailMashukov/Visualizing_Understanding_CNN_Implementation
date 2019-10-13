@@ -254,7 +254,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         lineEdit = QtGui.QLineEdit(self)
         # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
-        lineEdit.setText('0.001')
+        lineEdit.setText('0.1')
         curHorizWidget.addWidget(lineEdit)
         self.learnRateEdit = lineEdit
 
@@ -1052,14 +1052,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             savedEpochNums = self.netWrapper.getSavedNetEpochs()
             if savedEpochNums:
                 curEpochNum = savedEpochNums[-1]
-        if curEpochNum >= 0:
+        if curEpochNum >= 0 and self.netWrapper.curEpochNum != curEpochNum:
             self.netWrapper.loadState(curEpochNum)
 
-        if self.weightsReinitEpochNum is None:
-            restoreRestEpochCount = 0
-        else:
-            restoreRestEpochCount = 10 - (curEpochNum - self.weightsReinitEpochNum)
-        callback = QtMainWindow.TLearningCallback(self, restoreRestEpochCount)
+        # if self.weightsReinitEpochNum is None:
+        #     restoreRestEpochCount = 0
+        # else:
+        #     restoreRestEpochCount = 40 - (curEpochNum - self.weightsReinitEpochNum)
+        callback = QtMainWindow.TLearningCallback(self, curEpochNum)
         # callback.learnRate = float(self.learnRateEdit.text())
 
         class TOptions:
@@ -1097,10 +1097,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
 
     class TLearningCallback(MnistNetVisWrapper.CBaseLearningCallback):
-        def __init__(self, parent, restoreRestEpochCount):
+        def __init__(self, parent, curEpochNum):
             super(QtMainWindow.TLearningCallback, self).__init__()
             self.parent = parent
-            self.restoreRestEpochCount = restoreRestEpochCount
+            self.curEpochNum = curEpochNum
+            # self.restoreRestEpochCount = restoreRestEpochCount
             self.passedEpochCount = 0
             self.trainIterNum = -1
 
@@ -1109,6 +1110,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         def onBatchEnd(self, trainIterNum, logs):
             self.logs = logs
             self.trainIterNum = trainIterNum
+
+            reinitEpochNum = self.parent.weightsReinitEpochNum
+            if reinitEpochNum is not None and reinitEpochNum <= self.curEpochNum and \
+                    self.curEpochNum - reinitEpochNum < 10:
+                self.parent.restoreReinitedNeirons(True)
             super(QtMainWindow.TLearningCallback, self).onBatchEnd(logs, trainIterNum)
 
         def onSecondPassed(self):
@@ -1119,16 +1125,20 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             if self.parent.cancelling or self.parent.exiting:
                 self.parent.netWrapper.cancelling = True
 
-            if self.restoreRestEpochCount > 0:
+            reinitEpochNum = self.parent.weightsReinitEpochNum
+            if reinitEpochNum is not None and reinitEpochNum <= self.curEpochNum and \
+                    self.curEpochNum - reinitEpochNum >= 10 and self.curEpochNum - reinitEpochNum < 40:
                 self.parent.restoreReinitedNeirons()
-                # self.parent.restoreNeironsAfterReinit()
+            # if self.restoreRestEpochCount > 0:
+            #     self.parent.restoreReinitedNeirons()
 
-        def onEpochEnd(self, infoStr):
+        def onEpochEnd(self, curEpochNum, infoStr):
             self.parent.showProgress(infoStr)
-            self.restoreRestEpochCount -= 1
+            # self.restoreRestEpochCount -= 1
+            self.curEpochNum = curEpochNum
             self.passedEpochCount += 1
 
-            self.lastUpdateTime = datetime.datetime.now() - datetime.timedelta(seconds=2)
+            self.lastUpdateTime = datetime.datetime.now() + datetime.timedelta(seconds=2)
                 # A hacking of super-class in order to make epoch info visible longer
 
 
@@ -1152,22 +1162,20 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         if curEpochNum < 0:
             curEpochNum = self.netWrapper.getSavedNetEpochs()[-1]
         self.weightsBeforeReinit = dict()
+        self.weightsAfterReinit = dict()
         self.weightsReinitInds = dict()
         for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
             gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
             weights = self.netWrapper.getMultWeights(layerName)
 
             std0 = np.std(weights)
-            absGradients = np.abs(gradients)
+            absGradients = np.square(gradients)
             resetShape = list(gradients.shape)
             self.weightsBeforeReinit[layerName] = weights
             if layerName[:4] == 'conv':
                 meanGradients = np.mean(absGradients, axis=(0, 2, 3))
                 sortedInds = meanGradients.argsort()
-                # mask = np.zeros((gradients.shape)) ...
-                # mask[:, sortedInds[len(sortedInds) // 2 : ], :, :] = 1
-                # otherWeights = np.ma.array(gradients, mask=1-mask)
-                indsToChange = sortedInds[3 : ]
+                indsToChange = sortedInds[4 : ]
                 others = weights[:, sortedInds[ : gradients.shape[1] - len(indsToChange)], :, :]
                 othersStdDev = np.std(others)
                 resetShape[1] = len(indsToChange)
@@ -1176,8 +1184,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             elif layerName[:5] == 'dense':
                 meanGradients = np.mean(absGradients, axis=(0, ))
                 sortedInds = meanGradients.argsort()
-                indsToChange = sortedInds[5 : ]
-                others = weights[:, sortedInds[ : gradients.shape[1] - len(indsToChange)]]
+                if 0:
+                    indsToChange = sortedInds[12 if layerName == 'dense_1' else 1 : ]
+                    others = weights[:, sortedInds[ : gradients.shape[1] - len(indsToChange)]]
+                else:
+                    indsToChange = sortedInds
+                    others = weights
                 othersStdDev = np.std(others)
                 resetShape[1] = len(indsToChange)
                 weights[:, indsToChange] = \
@@ -1189,6 +1201,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             if not indsToChange is None:
                 self.netWrapper.setMultWeights(layerName, weights)
                 self.weightsReinitInds[layerName] = indsToChange
+                self.weightsAfterReinit[layerName] = weights
                 print("%s reinit: std. %.9f - %.9f, neirons %s" % \
                       (layerName, std0, np.std(weights),
                        ', '.join(sorted([str(i) for i in indsToChange]))))
@@ -1196,9 +1209,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.infoLabel.setText('Worst neirons reinitialized')
 
 
-    def restoreReinitedNeirons(self):
+    def restoreReinitedNeirons(self, veryStrong=False):
+        print('restoreReinitedNeirons %s' % ('very strong' if veryStrong else ''))
         for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
             if layerName in self.weightsBeforeReinit:
+                if veryStrong and layerName[:4] == 'conv':
+                    self.netWrapper.setMultWeights(layerName, self.weightsAfterReinit[layerName])
+                    continue
+
                 weights = self.netWrapper.getMultWeights(layerName)
                 indsToChange = self.weightsReinitInds[layerName]
                 indsToPreserve = set(range(len(indsToChange)))

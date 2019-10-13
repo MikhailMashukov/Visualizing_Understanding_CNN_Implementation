@@ -194,6 +194,7 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         # if base_model is None:
         #     print("None")
         self.base_model = base_model
+        self.batchSize = 64
         super(CMnistRecognitionNet2, self).__init__()
 
     def createModel(self):
@@ -229,7 +230,6 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         fullTestDataset = self.mnist.getNetSource('test')
         if endTrainImageNum is None:
             endTrainImageNum = fullDataset[0].shape[0]
-        batchSize = 128
         print("Running %d epoch(s) from %d, %d images each" % \
                 (epochCount, initialEpochNum, endTrainImageNum - startTrainImageNum))
         groupStartTime = datetime.datetime.now()
@@ -244,13 +244,14 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
                 embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=None, embeddings_data=None,
                 update_freq='epoch')
         summaryCallback = MnistModel2.CSummaryWriteCallback(self.mnist,
-                self.train_writer, self.test_writer, int(initialEpochNum * fullDataset[0].shape[0] / batchSize),
+                self.train_writer, self.test_writer,
+                int(initialEpochNum * fullDataset[0].shape[0] / self.batchSize),
                 learningCallback)
         # tensorBoardCallback.set_model(self.model)
 
         history = self.model.fit(x=dataset[0], y=dataset[1], validation_data=testDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
-                                 batch_size=batchSize, verbose=2, callbacks=[tensorBoardCallback, summaryCallback])
+                                 batch_size=self.batchSize, verbose=2, callbacks=[tensorBoardCallback, summaryCallback])
 
         try:
             if not history.history:

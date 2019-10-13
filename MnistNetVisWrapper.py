@@ -116,8 +116,9 @@ class CMnistVisWrapper:
             else:
                 imageData = self.mnistDataset.getImage(imageNum)
                 images.append(imageData)
+                # print('no data for ', itemCacheName)
         if not images:
-            print("Activations for batch taken from cache")
+            # print("Activations for batch taken from cache")
             return np.stack(batchActs, axis=0)
 
         model = self._getNet(layerName)
@@ -232,8 +233,6 @@ class CMnistVisWrapper:
 
     # Some epochs that will be run can be cut, not on entire dataset
     def doLearning(self, iterCount, options, callback=CBaseLearningCallback()):
-        from keras.optimizers import Adam, SGD
-
         self.cancelling = False
         if self.net is None:
             self._initMainNet()
@@ -241,20 +240,23 @@ class CMnistVisWrapper:
         try:
             epochNum = 0    # Number for starting from small epochs each time
             for _ in range(int(math.ceil(iterCount / 100))):
-                if iterCount > 500:
-                    if epochNum < 4:
-                        (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
-                    elif 4 << (epochNum - 4) <= 55:
-                        (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+                if 0:
+                    if iterCount > 500:
+                        if epochNum < 4:
+                            (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
+                        elif 4 << (epochNum - 4) <= 55:
+                            (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+                        else:
+                            (start, end) = (0, None)
                     else:
                         (start, end) = (0, None)
                 else:
-                    (start, end) = (0, None)
+                    shift = 2000 * (epochNum % 30)
+                    (start, end) = (shift, shift + 2000)
+
 
                 if self.curModelLearnRate != options.learnRate:
-                    optimizer = Adam(learning_rate=options.learnRate, decay=1e-5)
-                    self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
-                    self.curModelLearnRate = options.learnRate
+                    self.setLearnRate(options.learnRate)
                     print('Learning rate switched to %f' % options.learnRate)
 
                 infoStr = self.net.doLearning(1, callback,
@@ -264,7 +266,7 @@ class CMnistVisWrapper:
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
                 self.saveState()
                 # self.saveCurGradients()
-                callback.onEpochEnd(infoStr)
+                callback.onEpochEnd(self.curEpochNum, infoStr)
                 if self.cancelling:
                     break
         finally:
@@ -360,11 +362,21 @@ class CMnistVisWrapper:
         self.net = MnistNet.CMnistRecognitionNet2()
         dataset = CMnistDataset()
         self.net.init(dataset, 'QtLogs')
+        self.setLearnRate(0.1)
         # if os.path.exists(self.weightsFileNameTempl):
         #     self.net.model.load_weights(self.weightsFileNameTempl)
         # self.net.model._make_predict_function()
+        self.net.batchSize = min(16 * getCpuCoreCount(), 64)
 
         self.netsCache = dict()
+
+    def setLearnRate(self, learnRate):
+        from keras.optimizers import Adam, SGD
+
+        # optimizer = Adam(learning_rate=learnRate, decay=1e-5)
+        optimizer = SGD(lr=learnRate, decay=1e-6, momentum=0.9, nesterov=True)
+        self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+        self.curModelLearnRate = learnRate
 
     def _getNet(self, highestLayer = None):
         if not self.net:
@@ -453,6 +465,6 @@ class CBaseLearningCallback:
     def onSecondPassed(self):
         pass
 
-    def onEpochEnd(self, infoStr):
+    def onEpochEnd(self, curEpochNum, infoStr):
         pass
 
