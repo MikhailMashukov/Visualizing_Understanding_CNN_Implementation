@@ -25,7 +25,8 @@ def CMnistModel2(weights_path=None):
 
     conv_1 = Conv2D(80, 5, strides=(2, 2), activation='relu', name='conv_1')(inputs)
 
-    conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
+    # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
+    conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
 
     conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
     # conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)

@@ -254,7 +254,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         lineEdit = QtGui.QLineEdit(self)
         # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
-        lineEdit.setText('0.1')
+        lineEdit.setText(str(self.netWrapper.getRecommendedLearnRate()))
         curHorizWidget.addWidget(lineEdit)
         self.learnRateEdit = lineEdit
 
@@ -1164,16 +1164,24 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.weightsBeforeReinit = dict()
         self.weightsAfterReinit = dict()
         self.weightsReinitInds = dict()
+
+        # self.reinitWorstNeirons_Random(curEpochNum)
+        self.reinitWorstNeirons_Towers(curEpochNum)
+
+        self.weightsReinitEpochNum = curEpochNum
+        self.infoLabel.setText('Worst neirons reinitialized')
+
+    def reinitWorstNeirons_Random(self, curEpochNum):
         for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
             gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
             weights = self.netWrapper.getMultWeights(layerName)
 
             std0 = np.std(weights)
-            absGradients = np.square(gradients)
+            gradients2 = np.square(gradients)
             resetShape = list(gradients.shape)
             self.weightsBeforeReinit[layerName] = weights
             if layerName[:4] == 'conv':
-                meanGradients = np.mean(absGradients, axis=(0, 2, 3))
+                meanGradients = np.mean(gradients2, axis=(0, 2, 3))
                 sortedInds = meanGradients.argsort()
                 indsToChange = sortedInds[4 : ]
                 others = weights[:, sortedInds[ : gradients.shape[1] - len(indsToChange)], :, :]
@@ -1182,7 +1190,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 weights[:, indsToChange, :, :] = \
                     np.random.normal(scale=othersStdDev, size=resetShape)
             elif layerName[:5] == 'dense':
-                meanGradients = np.mean(absGradients, axis=(0, ))
+                meanGradients = np.mean(gradients2, axis=(0, ))
                 sortedInds = meanGradients.argsort()
                 if 0:
                     indsToChange = sortedInds[12 if layerName == 'dense_1' else 1 : ]
@@ -1205,9 +1213,65 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 print("%s reinit: std. %.9f - %.9f, neirons %s" % \
                       (layerName, std0, np.std(weights),
                        ', '.join(sorted([str(i) for i in indsToChange]))))
-        self.weightsReinitEpochNum = curEpochNum
-        self.infoLabel.setText('Worst neirons reinitialized')
 
+    def reinitWorstNeirons_Towers(self, curEpochNum):
+        towerCount = self.netWrapper.getMultWeights('conv_1').shape[1]          # E.g., 80, weights - 1 * 80 * 5 * 5
+        gradients = self.netWrapper.getGradients('conv_3', 500, curEpochNum)    # E.g. (80 * 4) * 2 * 3 * 3
+        gradients2 = np.reshape(np.square(gradients), (towerCount, -1, gradients.shape[2], gradients.shape[3]))
+        meanGradients = np.mean(gradients2, axis=(1, 2, 3))
+        sortedInds = meanGradients.argsort()
+        towerIndsToChange = sortedInds[8 : ]
+        for layerName in self.netWrapper.getNetLayersToVisualize():
+            gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
+            weights = self.netWrapper.getMultWeights(layerName)
+
+            std0 = np.std(weights)
+            resetShape = list(gradients.shape)
+            self.weightsBeforeReinit[layerName] = weights
+            if layerName == 'conv_1':
+                indsToChange = towerIndsToChange
+                others = weights[:, sortedInds[: gradients.shape[1] - len(indsToChange)], :, :]
+                othersStdDev = np.std(others)
+                resetShape[1] = len(indsToChange)
+                weights[:, indsToChange, :, :] = \
+                    np.random.normal(scale=othersStdDev, size=resetShape)
+            elif layerName[:4] == 'conv':
+                towerWidth = weights.shape[0] // towerCount
+                indsToChange = []
+                for i in range(towerWidth):
+                    indsToChange.append(towerIndsToChange * towerWidth + i)
+                indsToChange = np.concatenate(indsToChange, axis=0)
+
+                others = weights[sortedInds[ : gradients.shape[0] - len(indsToChange)], :, :, :]
+                othersStdDev = np.std(others)
+                resetShape[0] = len(indsToChange)
+                weights[indsToChange, :, :, :] = \
+                    np.random.normal(scale=othersStdDev, size=resetShape)
+            elif layerName[:5] == 'dense':
+                gradients2 = np.square(gradients)
+                meanGradients = np.mean(gradients2, axis=(0, ))
+                sortedInds = meanGradients.argsort()
+                if 0:
+                    indsToChange = sortedInds[12 if layerName == 'dense_1' else 1 : ]
+                    others = weights[:, sortedInds[ : gradients.shape[1] - len(indsToChange)]]
+                else:
+                    indsToChange = sortedInds
+                    others = weights
+                othersStdDev = np.std(others)
+                resetShape[1] = len(indsToChange)
+                weights[:, indsToChange] = \
+                    np.random.normal(scale=othersStdDev, size=resetShape)
+            else:
+                indsToChange = None
+                del self.weightsBeforeReinit[layerName]
+
+            if not indsToChange is None:
+                self.netWrapper.setMultWeights(layerName, weights)
+                self.weightsReinitInds[layerName] = indsToChange
+                self.weightsAfterReinit[layerName] = weights
+                print("%s reinit: std. %.9f - %.9f, neirons %s" % \
+                      (layerName, std0, np.std(weights),
+                       ', '.join(sorted([str(i) for i in indsToChange]))))
 
     def restoreReinitedNeirons(self, veryStrong=False):
         print('restoreReinitedNeirons %s' % ('very strong' if veryStrong else ''))
@@ -1223,8 +1287,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 indsToPreserve = list(indsToPreserve.difference(indsToChange))
 
                 if layerName[:4] == 'conv':
-                    weights[:, indsToPreserve, :, :] = \
-                        self.weightsBeforeReinit[layerName][:, indsToPreserve, :, :]
+                    if 0 or layerName == 'conv_1':     # Restoring after reinitWorstNeirons_Random
+                                                       # or conv_1 after reinitWorstNeirons_Towers
+                        weights[:, indsToPreserve, :, :] = \
+                            self.weightsBeforeReinit[layerName][:, indsToPreserve, :, :]
+                    else:                              # Restoring after reinitWorstNeirons_Towers
+                        weights[indsToPreserve, :, :, :] = \
+                            self.weightsBeforeReinit[layerName][indsToPreserve, :, :, :]
                     self.netWrapper.setMultWeights(layerName, weights)
                 elif layerName[:5] == 'dense':
                     weights[:, indsToPreserve] = \
@@ -2064,3 +2133,11 @@ if __name__ == "__main__":
     # mainWindow.paintRect()
     sys.exit(app.exec_())
     # mainWindow.saveState()
+
+# Result notes:
+# Reinitialization of neirons works bad or doesn't give serious effect.
+# It's bad that the resting neirons setups theirs surroundings to theirs old weights.
+# Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
+# works in conjunction with some others, which gives theirs final good results. And this looses at
+# reinitializations.
+# After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png)

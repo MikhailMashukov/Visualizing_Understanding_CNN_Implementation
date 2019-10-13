@@ -5,7 +5,7 @@ import tensorflow as tf
 
 import datetime
 import math
-# import numpy as np
+import numpy as np
 # import psutil
 # import subprocess
 # import sys
@@ -222,23 +222,38 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
     #
 
     def doLearning(self, epochCount, learningCallback,
-                   startTrainImageNum=0, endTrainImageNum=None, initialEpochNum=0):
+                   epochImageCount=None, initialEpochNum=0):
         from keras.callbacks import TensorBoard
 
         # epochCount = int(math.ceil(iterCount / 100))
         fullDataset = self.mnist.getNetSource('train')
         fullTestDataset = self.mnist.getNetSource('test')
-        if endTrainImageNum is None:
-            endTrainImageNum = fullDataset[0].shape[0]
+        fullDatasetImageCount = fullDataset[0].shape[0]
+        if epochImageCount is None:
+            epochImageCount = fullDatasetImageCount
         print("Running %d epoch(s) from %d, %d images each" % \
-                (epochCount, initialEpochNum, endTrainImageNum - startTrainImageNum))
+                (epochCount, initialEpochNum, epochImageCount))
         groupStartTime = datetime.datetime.now()
 
-        dataset = (fullDataset[0][startTrainImageNum : endTrainImageNum],
-                   tf.keras.utils.to_categorical(fullDataset[1][startTrainImageNum : endTrainImageNum]))
-        testDatasetSize = min(len(fullTestDataset[0]), (endTrainImageNum - startTrainImageNum) // 2)
-        testDataset = (fullTestDataset[0][:testDatasetSize],
-                   tf.keras.utils.to_categorical(fullTestDataset[1][:testDatasetSize]))
+        if epochImageCount == fullDatasetImageCount:
+            dataset = (fullDataset[0],
+                       tf.keras.utils.to_categorical(fullDataset[1]))
+        else:
+            permut = np.random.permutation(fullDatasetImageCount)[:epochImageCount]
+            dataset = (fullDataset[0][permut, :, :, :],
+                       tf.keras.utils.to_categorical(fullDataset[1][permut]))
+
+        testDatasetSize = epochImageCount // 6
+        if testDatasetSize >= fullTestDataset[0].shape[0]:
+            testDataset = (fullTestDataset[0],
+                   tf.keras.utils.to_categorical(fullTestDataset[1]))
+        else:
+            permut = np.random.permutation(fullTestDataset[0].shape[0])[:testDatasetSize]
+            testDataset = (fullTestDataset[0][permut, :, :, :],
+                           tf.keras.utils.to_categorical(fullTestDataset[1][permut]))
+        # testDataset = (fullTestDataset[0][:testDatasetSize],
+        #            tf.keras.utils.to_categorical(fullTestDataset[1][:testDatasetSize]))
+
         tensorBoardCallback = TensorBoard(log_dir='QtLogs', histogram_freq=0,
                 write_graph=True, write_grads=True, write_images=1,    # batch_size=32,
                 embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=None, embeddings_data=None,

@@ -240,27 +240,25 @@ class CMnistVisWrapper:
         try:
             epochNum = 0    # Number for starting from small epochs each time
             for _ in range(int(math.ceil(iterCount / 100))):
-                if 0:
+                if 1:
                     if iterCount > 500:
                         if epochNum < 4:
-                            (start, end) = (epochNum * 1000, (epochNum + 1) * 1000)
-                        elif 4 << (epochNum - 4) <= 55:
-                            (start, end) = (2000 + 2000 << (epochNum - 4), 2000 + 4000 << (epochNum - 4))
+                            epochImageCount = 1000
+                        elif 2 << (epochNum - 4) <= 10:
+                            epochImageCount = 2000 << (epochNum - 4)
                         else:
-                            (start, end) = (0, None)
+                            epochImageCount = 10000
                     else:
-                        (start, end) = (0, None)
+                        (start, end) = None
                 else:
-                    shift = 2000 * (epochNum % 30)
-                    (start, end) = (shift, shift + 2000)
-
+                    epochImageCount = 2000
 
                 if self.curModelLearnRate != options.learnRate:
                     self.setLearnRate(options.learnRate)
                     print('Learning rate switched to %f' % options.learnRate)
 
                 infoStr = self.net.doLearning(1, callback,
-                                              start, end, self.curEpochNum)
+                                              epochImageCount, self.curEpochNum)
                 self.curEpochNum += 1
                 epochNum += 1
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
@@ -373,10 +371,14 @@ class CMnistVisWrapper:
     def setLearnRate(self, learnRate):
         from keras.optimizers import Adam, SGD
 
-        # optimizer = Adam(learning_rate=learnRate, decay=1e-5)
-        optimizer = SGD(lr=learnRate, decay=1e-6, momentum=0.9, nesterov=True)
+        # optimizer = SGD(lr=learnRate, decay=1e-6, momentum=0.9, nesterov=True)
+        optimizer = Adam(learning_rate=learnRate, decay=1e-5)
         self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
         self.curModelLearnRate = learnRate
+
+    def getRecommendedLearnRate(self):
+        # return 0.1      # SGD
+        return 0.001    # Adam
 
     def _getNet(self, highestLayer = None):
         if not self.net:
