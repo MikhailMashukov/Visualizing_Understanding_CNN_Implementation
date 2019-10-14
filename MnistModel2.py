@@ -13,32 +13,71 @@ import keras.callbacks
 
 # from alexnet_utils import preprocess_image_batch
 
+from keras.layers.core import Lambda
 # from alexnet_additional_layers import split_tensor, cross_channel_normalization
 # from decode_predictions import decode_classnames_json, decode_classnumber
 
 
 # MNIST model like CMnistRecognitionNet.MyModel, but made in the same style as alexnet
+
+def cut_image_tensor(x0, xk, y0, yk, **kwargs):
+    def f(X):
+        output = X[:, y0 : yk, x0 : xk, :]
+        return output
+
+    def g(input_shape):
+        output_shape = list(input_shape)
+        output_shape[1] = yk - y0
+        output_shape[2] = xk - x0
+        return tuple(output_shape)
+
+    return Lambda(f, output_shape=lambda input_shape: g(input_shape), **kwargs)
+
+
 def CMnistModel2(weights_path=None):
     # K.set_image_dim_ordering('th')
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(28, 28, 1))
 
-    conv_1 = Conv2D(80, 5, strides=(2, 2), activation='relu', name='conv_1')(inputs)
+    conv_1 = Conv2D(32, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
+
+    towerCount = 8
+    conv_2 = []
+    for towerInd in range(towerCount):
+        x0 = (towerInd % 2) * 12
+        y0 = ((towerInd // 2) % 2) * 12
+        # t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(
+        #         inputs[:, x0 : x0 + 16, y0 : y0 + 16, :])
+        t_input = cut_image_tensor(x0, x0 + 16, y0, y0 + 16)(inputs)
+        t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
+
+        cut_main_conv_1 = cut_image_tensor(x0 // 2, x0 // 2 + 6, y0 // 2, y0 // 2 + 6)(conv_1)
+
+        # common_conv_x0 = (towerInd % 2) * 6
+        # union = Concatenate(axis=3)([conv_1[:, x0 // 2 : x0 // 2 + 6, y0 // 2 : y0 // 2 + 6, :]])  # t_conv_1])
+        union = Concatenate(axis=3)([cut_main_conv_1, t_conv_1])
+        # union = BatchNormalization()(union)
+        t_conv_2 = Conv2D(24, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union)
+        conv_2.append(t_conv_2)
+        # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
+    conv_2 = Concatenate(axis=3, name='conv_2')(conv_2)
+
+    conv_3 = Conv2D(32, 1, strides=(1, 1), activation='relu', name='conv_3')(conv_2)
 
     # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
-    conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
+    # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
 
-    conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
+    # conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
     # conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)
     # conv_2 = ZeroPadding2D((2, 2))(conv_2)
     # conv_next = Conv2D(20, 3, strides=1, activation='relu', name='conv_3')(conv_next)
-    conv_next = DepthwiseConv2D(3, depth_multiplier=2, activation='relu', name='conv_3')(conv_next)
+    # conv_next = DepthwiseConv2D(3, depth_multiplier=2, activation='relu', name='conv_3')(conv_next)
 
-    dense_1 = Dropout(0.4)(conv_next)
+    dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
     dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
 
-    dense_2 = Dropout(0.4)(dense_1)
+    dense_2 = Dropout(0.3)(dense_1)
     dense_2 = Dense(10, name='dense_2')(dense_2)
     prediction = Activation("softmax", name="softmax")(dense_2)
 

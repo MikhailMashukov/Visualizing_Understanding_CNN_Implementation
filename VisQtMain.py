@@ -912,7 +912,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             dataList = []
             t0 = datetime.datetime.now()
             for curEpochNum in self.netWrapper.getSavedNetEpochs():
-                dataList.append(self.netWrapper.getGradients(layerName, firstImageCount, curEpochNum))
+                dataList.append(self.netWrapper.getGradients(layerName, firstImageCount, curEpochNum, True))
                 t = datetime.datetime.now()
                 if (t - t0).total_seconds() >= 1:
                     self.showProgress('Analyzed epoch %d' % curEpochNum)
@@ -926,7 +926,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 data2 = np.mean(data, axis=(2))    # Averaging by other convolution channels dimension out of 2
             data = np.mean(data, axis=(1))
         else:
-            data = np.abs(self.netWrapper.getGradients(layerName, firstImageCount, epochNum))
+            data = np.abs(self.netWrapper.getGradients(layerName, firstImageCount, epochNum, True))
         stdData = None
         drawMode = 'map'
         shape = data.shape
@@ -1165,14 +1165,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.weightsAfterReinit = dict()
         self.weightsReinitInds = dict()
 
-        # self.reinitWorstNeirons_Random(curEpochNum)
-        self.reinitWorstNeirons_Towers(curEpochNum)
+        self.reinitWorstNeirons_Random(curEpochNum)
+        # self.reinitWorstNeirons_Towers(curEpochNum)
 
         self.weightsReinitEpochNum = curEpochNum
         self.infoLabel.setText('Worst neirons reinitialized')
 
     def reinitWorstNeirons_Random(self, curEpochNum):
-        for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
+        for layerName in self.netWrapper.getComponentNetLayers():
             gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
             weights = self.netWrapper.getMultWeights(layerName)
 
@@ -1188,7 +1188,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 othersStdDev = np.std(others)
                 resetShape[1] = len(indsToChange)
                 weights[:, indsToChange, :, :] = \
-                    np.random.normal(scale=othersStdDev, size=resetShape)
+                    np.random.normal(scale=othersStdDev / 16, size=resetShape)
             elif layerName[:5] == 'dense':
                 meanGradients = np.mean(gradients2, axis=(0, ))
                 sortedInds = meanGradients.argsort()
@@ -1201,7 +1201,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 othersStdDev = np.std(others)
                 resetShape[1] = len(indsToChange)
                 weights[:, indsToChange] = \
-                    np.random.normal(scale=othersStdDev, size=resetShape)
+                    np.random.normal(scale=othersStdDev / 16, size=resetShape)
             else:
                 indsToChange = None
                 del self.weightsBeforeReinit[layerName]
@@ -1275,7 +1275,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def restoreReinitedNeirons(self, veryStrong=False):
         print('restoreReinitedNeirons %s' % ('very strong' if veryStrong else ''))
-        for layerName in self.netWrapper.getNetLayersToVisualize()[:-1]:
+        for layerName in self.netWrapper.getComponentNetLayers():
             if layerName in self.weightsBeforeReinit:
                 if veryStrong and layerName[:4] == 'conv':
                     self.netWrapper.setMultWeights(layerName, self.weightsAfterReinit[layerName])
@@ -1287,7 +1287,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 indsToPreserve = list(indsToPreserve.difference(indsToChange))
 
                 if layerName[:4] == 'conv':
-                    if 0 or layerName == 'conv_1':     # Restoring after reinitWorstNeirons_Random
+                    if 1 or layerName == 'conv_1':     # Restoring after reinitWorstNeirons_Random
                                                        # or conv_1 after reinitWorstNeirons_Towers
                         weights[:, indsToPreserve, :, :] = \
                             self.weightsBeforeReinit[layerName][:, indsToPreserve, :, :]

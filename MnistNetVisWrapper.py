@@ -78,6 +78,17 @@ class CMnistVisWrapper:
     def getNetLayersToVisualize(self):
         return ['conv_1', 'conv_2', 'conv_3', 'dense_1', 'dense_2']
 
+    def getComponentNetLayers(self):
+        # return self.getNetLayersToVisualize()
+
+        l1 = ['conv_1_common']
+        l2 = []
+        towerCount = 8
+        for i in range(towerCount):
+            l1.append('conv_1_%d' % i)
+            l2.append('conv_2_%d' % i)
+        return l1 + l2 + ['conv_3', 'dense_1', 'dense_2']
+
     def getImageActivations(self, layerName, imageNum, epochNum=None):
         if epochNum is None:
             epochNum = self.curEpochNum
@@ -150,12 +161,32 @@ class CMnistVisWrapper:
         return np.stack(batchActs, axis=0)
 
     # Returns convolutions' multiplication weights (not bias) or similar for other layers
-    def getMultWeights(self, layerName):  # , epochNum):
+    def getMultWeights(self, layerName, allowCombinedLayers=False):  # , epochNum):
         model = self._getNet()
-        layer = model.base_model.get_layer(layerName)
-        allWeights = layer.get_weights()
-        assert len(allWeights) == 1 or len(allWeights[0].shape) > len(allWeights[1].shape)
-        weights = allWeights[0]
+
+        try:
+            layer = model.base_model.get_layer(layerName)
+            allWeights = layer.get_weights()
+        except:
+            allWeights = None
+
+        if allWeights:
+            assert len(allWeights) == 1 or len(allWeights[0].shape) > len(allWeights[1].shape)
+            weights = allWeights[0]
+        else:
+            if allowCombinedLayers:
+                allWeights = []
+                for layer in model.base_model.layers:
+                    if layer.name.find(layerName + '_') >= 0:
+                        allLayerWeights = layer.get_weights()
+                        assert len(allLayerWeights) == 1 or len(allLayerWeights[0].shape) > len(allLayerWeights[1].shape)
+                        allWeights.append(allLayerWeights[0])
+                if not allWeights:
+                    raise Exception('No weights found for combined layer %s' % layerName)
+                allWeights = np.concatenate(allWeights, axis=3)
+            else:
+                raise Exception('No weights found for layer %s' % layerName)
+
         if len(weights.shape) == 4:
             weights = weights.transpose((2, 3, 0, 1))
         elif len(weights.shape) == 3:
@@ -185,7 +216,7 @@ class CMnistVisWrapper:
         #         return
         # raise Exception('No weights found for layer %s' % layerName)
 
-    def getGradients(self, layerName, firstImageCount, epochNum=None):
+    def getGradients(self, layerName, firstImageCount, epochNum=None, allowCombinedLayers=False):
         import tensorflow as tf
         import keras.backend as K
 
@@ -208,17 +239,32 @@ class CMnistVisWrapper:
         print("Data for net prepared")
         gradients = self.gradientKerasFunc(inp)
         print("Gradients calculated")
+
+        # Looking for exact layer name match
         layerInd = None
         for i in range(len(self.gradientTensors)):
             name = self.gradientTensors[i].name
-            if name.find(layerName) >= 0 and name.find('Bias') < 0:
+            if name.find(layerName + '/') >= 0 and name.find('Bias') < 0:
                 if layerInd != None:
                     raise Exception('Multiple matching gradients layers (%s and %s)' % \
                                     (self.gradientTensors[layerInd].name, name))
                 layerInd = i
         if layerInd is None:
-            raise Exception('Unknown layer %s' % layerName)
+            if allowCombinedLayers:
+                # Gathering <layerName>_* layers instead
+                selectedGradients = []
+                names=[]
+                for i in range(len(self.gradientTensors)):
+                    name = self.gradientTensors[i].name
+                    if name.find(layerName + '_') >= 0 and name.find('Bias') < 0:
+                        selectedGradients.append(gradients[i])
+                        names.append(name)
+                # print('Returning conbined gradients for %s instead of %s' % (str(names), layerName))
+                gradients = np.concatenate(selectedGradients, axis=3)
+            else:
+                raise Exception('Unknown layer %s' % layerName)
         gradients = gradients[layerInd]
+
         if len(gradients.shape) == 4:
             gradients = gradients.transpose((2, 3, 0, 1))    # Becomes (in channel, out channel, y, x)
         elif len(gradients.shape) == 3:
