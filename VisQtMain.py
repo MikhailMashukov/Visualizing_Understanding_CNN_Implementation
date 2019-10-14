@@ -1165,8 +1165,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.weightsAfterReinit = dict()
         self.weightsReinitInds = dict()
 
-        self.reinitWorstNeirons_Random(curEpochNum)
-        # self.reinitWorstNeirons_Towers(curEpochNum)
+        # self.reinitWorstNeirons_Random(curEpochNum)
+        # self.reinitWorstNeirons_OneLayerTowers(curEpochNum)
+        self.reinitWorstNeirons_SeparatedTowers(curEpochNum)
 
         self.weightsReinitEpochNum = curEpochNum
         self.infoLabel.setText('Worst neirons reinitialized')
@@ -1214,7 +1215,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                       (layerName, std0, np.std(weights),
                        ', '.join(sorted([str(i) for i in indsToChange]))))
 
-    def reinitWorstNeirons_Towers(self, curEpochNum):
+    def reinitWorstNeirons_OneLayerTowers(self, curEpochNum):
         towerCount = self.netWrapper.getMultWeights('conv_1').shape[1]          # E.g., 80, weights - 1 * 80 * 5 * 5
         gradients = self.netWrapper.getGradients('conv_3', 500, curEpochNum)    # E.g. (80 * 4) * 2 * 3 * 3
         gradients2 = np.reshape(np.square(gradients), (towerCount, -1, gradients.shape[2], gradients.shape[3]))
@@ -1273,25 +1274,101 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                       (layerName, std0, np.std(weights),
                        ', '.join(sorted([str(i) for i in indsToChange]))))
 
+    def reinitWorstNeirons_SeparatedTowers(self, curEpochNum):
+        towerInd = 0
+        towerMeans = []
+        while True:
+            try:
+                gradients = self.netWrapper.getGradients('conv_2_%d' % towerInd, 500, curEpochNum)
+            except Exception as ex:
+                break   # No more towers
+
+            gradients2 = np.square(gradients)         # E.g. 40 * 24 * 3 * 3
+            meanGradients = np.mean(gradients2) # , axis=(1, 2, 3))
+            towerMeans.append(meanGradients)
+            towerInd += 1
+        if towerInd <= 0:
+            raise Exception('No towers found')
+
+        towerMeans = np.stack(towerMeans)
+        sortedTowerInds = towerMeans.argsort()
+        towerIndsToChange = sortedTowerInds[4:]
+        towersToPreserveInds = sortedTowerInds[:4]
+        for towerInd in towerIndsToChange:
+            for layerName in ['conv_1_%d' % towerInd, 'conv_2_%d' % towerInd]:
+                weights = self.netWrapper.getMultWeights(layerName)
+                std0 = np.std(weights)
+                resetShape = list(weights.shape)
+                # self.weightsBeforeReinit[layerName] = weights
+
+                others = weights # [:, sortedInds[: gradients.shape[1] - len(indsToChange)], :, :]
+                othersStdDev = np.std(others)
+                weights[:, :, :, :] = \
+                    np.random.normal(scale=othersStdDev / 16, size=resetShape)
+                self.netWrapper.setMultWeights(layerName, weights)
+
+        if 1:
+            layerName = 'conv_3'
+            # gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
+            weights = self.netWrapper.getMultWeights(layerName)
+
+            std0 = np.std(weights)
+            # gradients2 = np.square(gradients)
+            resetShape = list(weights.shape)
+
+            indsToChange = []
+            assert weights.shape[0] % len(sortedTowerInds) == 0
+            towerWidth = weights.shape[0] // len(sortedTowerInds)
+            for towerInd in towerIndsToChange:
+                indsToChange += range(towerInd * towerWidth, (towerInd + 1) * towerWidth)
+            # meanGradients = np.mean(gradients2, axis=(0, 2, 3))
+            # sortedInds = meanGradients.argsort()
+            resetShape[0] = len(indsToChange)
+            indsToPreserve = set(range(len(indsToChange)))
+            indsToPreserve = list(indsToPreserve.difference(indsToChange))
+
+            # self.weightsBeforeReinit[layerName] = weights
+            weights[indsToChange, :, :, :] = \
+                np.random.normal(scale=othersStdDev / 16, size=resetShape)
+            weights[indsToPreserve, :, :, :] *= 4
+            # self.weightsReinitInds[layerName] = indsToChange
+            # self.weightsAfterReinit[layerName] = weights
+
+        keepLayerNames = ['dense_1', 'dense_2']
+        for towerInd in towersToPreserveInds:
+            for layerName in ['conv_1_%d' % towerInd, 'conv_2_%d' % towerInd]:
+                keepLayerNames.append(layerName)
+        for layerName in keepLayerNames:
+            weights = self.netWrapper.getMultWeights(layerName)
+            self.weightsBeforeReinit[layerName] = weights
+            self.weightsReinitInds[layerName] = []
+            self.weightsAfterReinit[layerName] = weights
+            # print("%s reinit: std. %.9f - %.9f, neirons %s" % \
+            #       (layerName, std0, np.std(weights),
+            #        ', '.join(sorted([str(i) for i in indsToChange]))))
+
     def restoreReinitedNeirons(self, veryStrong=False):
-        print('restoreReinitedNeirons %s' % ('very strong' if veryStrong else ''))
+        # print('restoreReinitedNeirons %s' % ('very strong' if veryStrong else ''))
         for layerName in self.netWrapper.getComponentNetLayers():
             if layerName in self.weightsBeforeReinit:
-                if veryStrong and layerName[:4] == 'conv':
-                    self.netWrapper.setMultWeights(layerName, self.weightsAfterReinit[layerName])
-                    continue
+                # if veryStrong and layerName[:4] == 'conv':
+                #     self.netWrapper.setMultWeights(layerName, self.weightsAfterReinit[layerName])
+                #     continue
 
                 weights = self.netWrapper.getMultWeights(layerName)
                 indsToChange = self.weightsReinitInds[layerName]
                 indsToPreserve = set(range(len(indsToChange)))
                 indsToPreserve = list(indsToPreserve.difference(indsToChange))
+                print("Restoring %d weights at %s" % (len(indsToPreserve), layerName))
 
                 if layerName[:4] == 'conv':
+                    # if layerName == 'conv_3':
+                    #     w
                     if 1 or layerName == 'conv_1':     # Restoring after reinitWorstNeirons_Random
-                                                       # or conv_1 after reinitWorstNeirons_Towers
+                                                       # or conv_1 after reinitWorstNeirons_OneLayerTowers
                         weights[:, indsToPreserve, :, :] = \
                             self.weightsBeforeReinit[layerName][:, indsToPreserve, :, :]
-                    else:                              # Restoring after reinitWorstNeirons_Towers
+                    else:                              # Restoring after reinitWorstNeirons_OneLayerTowers
                         weights[indsToPreserve, :, :, :] = \
                             self.weightsBeforeReinit[layerName][indsToPreserve, :, :, :]
                     self.netWrapper.setMultWeights(layerName, weights)
@@ -2140,4 +2217,9 @@ if __name__ == "__main__":
 # Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
 # works in conjunction with some others, which gives theirs final good results. And this looses at
 # reinitializations.
-# After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png)
+# After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
+#
+# With separated towers and full reinitialization or keeping of entire tower reinitializations
+# seems to work better - good results restores very quickly and reaches source results more reliably.
+# It looks as a good idea to reinitialize with small weights and to multiply the kept weights
+# in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later

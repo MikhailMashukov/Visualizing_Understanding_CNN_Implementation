@@ -128,6 +128,8 @@ def layoutLayersToOneImage(activations, colCount, channelMargin, fillValue=None)
                         dtype=activations.dtype)
             fullList.append(rowMarginData)
         fullList.append(rowData)
+    if not fullList:
+        return activations[0]
     return np.concatenate(fullList, axis=0)
 
 # Convolution of multiple channels with one output channel's weights

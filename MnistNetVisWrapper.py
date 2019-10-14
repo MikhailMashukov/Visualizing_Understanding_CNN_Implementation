@@ -263,7 +263,8 @@ class CMnistVisWrapper:
                 gradients = np.concatenate(selectedGradients, axis=3)
             else:
                 raise Exception('Unknown layer %s' % layerName)
-        gradients = gradients[layerInd]
+        else:
+            gradients = gradients[layerInd]
 
         if len(gradients.shape) == 4:
             gradients = gradients.transpose((2, 3, 0, 1))    # Becomes (in channel, out channel, y, x)
@@ -417,8 +418,8 @@ class CMnistVisWrapper:
     def setLearnRate(self, learnRate):
         from keras.optimizers import Adam, SGD
 
-        # optimizer = SGD(lr=learnRate, decay=1e-6, momentum=0.9, nesterov=True)
-        optimizer = Adam(learning_rate=learnRate, decay=1e-5)
+        # optimizer = SGD(lr=learnRate, decay=5e-6, momentum=0.9, nesterov=True)
+        optimizer = Adam(learning_rate=learnRate, decay=5e-5)
         self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
         self.curModelLearnRate = learnRate
 
