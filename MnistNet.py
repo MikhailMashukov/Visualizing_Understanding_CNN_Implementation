@@ -199,7 +199,8 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
 
     def createModel(self):
         if not self.base_model:
-            self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
+            # self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
+            self.base_model = MnistModel2.CMnistModel4_Matrix()
         self.model = self._sub_model() if self.highest_layer else self.base_model         # Use full network if no highest_layer
 
     def _sub_model(self):
@@ -255,8 +256,8 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         #            tf.keras.utils.to_categorical(fullTestDataset[1][:testDatasetSize]))
 
         tensorBoardCallback = TensorBoard(log_dir='QtLogs', histogram_freq=0,
-                write_graph=True, write_grads=True, write_images=1,    # batch_size=32,
-                embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=None, embeddings_data=None,
+                write_graph=False, write_grads=False, write_images=1,    # batch_size=32,
+                embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=True, embeddings_data=None,
                 update_freq='epoch')
         summaryCallback = MnistModel2.CSummaryWriteCallback(self.mnist,
                 self.train_writer, self.test_writer,

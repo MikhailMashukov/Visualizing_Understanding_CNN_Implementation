@@ -14,7 +14,7 @@ import keras.callbacks
 # from alexnet_utils import preprocess_image_batch
 
 from keras.layers.core import Lambda
-# from alexnet_additional_layers import split_tensor, cross_channel_normalization
+from alexnet_additional_layers import split_tensor, cross_channel_normalization
 # from decode_predictions import decode_classnames_json, decode_classnumber
 
 
@@ -34,14 +34,49 @@ def cut_image_tensor(x0, xk, y0, yk, **kwargs):
     return Lambda(f, output_shape=lambda input_shape: g(input_shape), **kwargs)
 
 
+# MNIST model like CMnistRecognitionNet.MyModel, but made in the same style as alexnet
 def CMnistModel2(weights_path=None):
+    # K.set_image_dim_ordering('th')
+    # K.set_image_data_format('channels_first')
+    inputs = Input(shape=(28, 28, 1))
+
+    conv_1 = Conv2D(32, 5, strides=(2, 2), activation='relu', name='conv_1')(inputs)
+
+    conv_2 = Conv2D(20, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
+
+    conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
+    # conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)
+    # conv_2 = ZeroPadding2D((2, 2))(conv_2)
+    conv_next = Conv2D(20, 3, strides=1, activation='relu', name='conv_3')(conv_next)
+
+    dense_1 = Flatten(name="flatten")(conv_next)
+    dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
+
+    dense_2 = Dropout(0.4)(dense_1)
+    dense_2 = Dense(10, name='dense_2')(dense_2)
+    prediction = Activation("softmax", name="softmax")(dense_2)
+
+    m = Model(input=inputs, output=prediction)
+    print(m.summary())
+
+    if not weights_path is None:
+        m.load_weights(weights_path)
+
+    # convert_all_kernels_in_model(m)
+
+    # # optimizer = SGD(lr=0.1, decay=1e-6, momentum=0.9, nesterov=True)
+    # optimizer = Adam(learning_rate=0.001, decay=1e-5)
+    # m.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+    return m
+
+def CMnistModel3_Towers(weights_path=None):
     # K.set_image_dim_ordering('th')
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(28, 28, 1))
 
     conv_1 = Conv2D(16, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
 
-    towerCount = 32
+    towerCount = 4
     conv_2 = []
     for towerInd in range(towerCount):
         x0 = (towerInd % 2) * 12
@@ -52,17 +87,27 @@ def CMnistModel2(weights_path=None):
         t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
 
         cut_main_conv_1 = cut_image_tensor(x0 // 2, x0 // 2 + 6, y0 // 2, y0 // 2 + 6)(conv_1)
+            # Output - 6 * 6
 
         # common_conv_x0 = (towerInd % 2) * 6
         # union = Concatenate(axis=3)([conv_1[:, x0 // 2 : x0 // 2 + 6, y0 // 2 : y0 // 2 + 6, :]])  # t_conv_1])
         union = Concatenate(axis=3)([cut_main_conv_1, t_conv_1])
-        union = BatchNormalization()(union)
-        t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union)
-        conv_2.append(t_conv_2)
+        union_norm = BatchNormalization()(union)
+        t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
+            # Output - 4 * 4
         # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
+        conv_2.append(t_conv_2)
+
+        # t_conv_3 = BatchNormalization()(t_conv_2)
+        # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
+        # t_conv_3 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(t_conv_3)
+        #     # Output - 4 * 4
+        # conv_3.append(t_conv_2 + t_conv_3)
+        # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
+
     conv_2 = Concatenate(axis=3, name='conv_2')(conv_2)
 
-    conv_3 = Conv2D(64, 1, strides=(1, 1), activation='relu', name='conv_3')(conv_2)
+    conv_last = Conv2D(64, 1, strides=(1, 1), activation='relu', name='conv_3')(conv_2)
 
     # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
@@ -73,7 +118,75 @@ def CMnistModel2(weights_path=None):
     # conv_next = Conv2D(20, 3, strides=1, activation='relu', name='conv_3')(conv_next)
     # conv_next = DepthwiseConv2D(3, depth_multiplier=2, activation='relu', name='conv_3')(conv_next)
 
-    dense_1 = BatchNormalization()(conv_3)
+    dense_1 = BatchNormalization()(conv_last)
+    # dense_1 = Dropout(0.3)(conv_3)
+    dense_1 = Flatten(name="flatten")(dense_1)
+    dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
+
+    dense_2 = BatchNormalization()(dense_1)
+    # dense_2 = Dropout(0.3)(dense_1)
+    dense_2 = Dense(10, name='dense_2')(dense_2)
+    prediction = Activation("softmax", name="softmax")(dense_2)
+
+    m = Model(input=inputs, output=prediction)
+    print(m.summary())
+
+    if not weights_path is None:
+        m.load_weights(weights_path)
+
+    # convert_all_kernels_in_model(m)
+
+    # optimizer = SGD(lr=0.1, decay=1e-6, momentum=0.9, nesterov=True)
+    # optimizer = Adam(learning_rate=0.001, decay=1e-5)
+    # m.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+
+    return m
+
+def CMnistModel4_Matrix(weights_path=None):
+    # K.set_image_dim_ordering('th')
+    # K.set_image_data_format('channels_first')
+    inputs = Input(shape=(28, 28, 1))
+
+    conv_1 = Conv2D(40, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
+
+    matrixWidth = 5
+    conv_1_outputs = [split_tensor(axis=3, ratio_split=matrixWidth * 2, id_split=i)(conv_1) \
+                      for i in range(matrixWidth * 2)]           # Each - 12 * 12 * 4 channels
+    for i in range(matrixWidth * 2):
+        conv_1_outputs[i] = BatchNormalization(name='conv_1_%d' % i)(conv_1_outputs[i])
+
+    conv_2_matrix = []
+    for x in range(matrixWidth):
+        conv_2_matrix.append([None] * matrixWidth)
+        for y in range(matrixWidth):
+            conv_2_input = Concatenate(axis=3)([conv_1_outputs[x], conv_1_outputs[matrixWidth + y]])
+            conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_2_%d_%d' % (x, y))(conv_2_input)
+                # Each - 10 * 10
+            conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
+                # Each - 5 * 5, totally were 6 * 6 * 8 channels (with matrixWidth and 48 conv_1 channels)
+            # conv = BatchNormalization()(conv)
+
+            conv_2_matrix[x][y] = conv
+
+    conv_3s_horiz = []
+    conv_3s_vert = []
+    for i in range(matrixWidth):
+        conv_3_input = Concatenate(axis=3)([conv_2_matrix[j][i] for j in range(matrixWidth)])
+            # Each - 5 * 5 * 48 channels
+        conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_3_horiz_%d' % (i))(conv_3_input)
+            # 4 * 4
+        conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
+            # 2 * 2, 8 channels each
+        conv_3s_horiz.append(conv)
+
+        conv_3_input = Concatenate(axis=3)([conv_2_matrix[i][j] for j in range(matrixWidth)])
+        conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_3_vert_%d' % (i))(conv_3_input)
+        conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
+            # 2 * 2, 8 channels each, 96 channels total
+        conv_3s_vert.append(conv)
+
+    dense_1 = Concatenate(axis=3)(conv_3s_horiz + conv_3s_vert)
+    dense_1 = BatchNormalization()(dense_1)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
     dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
