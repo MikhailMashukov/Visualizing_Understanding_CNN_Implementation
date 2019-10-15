@@ -4,12 +4,14 @@ from keras.models import Model
 from keras.layers import Flatten, Dense, Dropout, Activation, Input, merge, Concatenate
 from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
 from keras.layers.normalization import BatchNormalization
+import keras.layers
 
 from keras.optimizers import Adam, SGD
 # from keras import backend as K
 # from keras.utils.layer_utils import convert_all_kernels_in_model
 # from keras.utils import plot_model
 import keras.callbacks
+import keras.initializers
 
 # from alexnet_utils import preprocess_image_batch
 
@@ -142,14 +144,38 @@ def CMnistModel3_Towers(weights_path=None):
 
     return m
 
+
+class MyInitializer2(keras.initializers.VarianceScaling):
+    def __init__(self, seed=None):
+        super(MyInitializer, self).__init__(scale=1./16,
+                       mode='fan_avg',
+                       distribution='uniform',
+                       seed=seed)
+
+    def __call__(self, shape, dtype=None):
+        return super(MyInitializer, self)(shape, dtype)
+
+    # return keras.initializers.VarianceScaling(scale=1./16,
+    #                mode='fan_avg',
+    #                distribution='uniform',
+    #                seed=seed)
+
+def MyInitializer(shape, dtype=None):
+    v = keras.initializers.VarianceScaling(scale=1. / 16,
+                           mode='fan_avg',
+                           distribution='uniform',
+                           seed=None)
+    return v(shape, dtype)
+
+
 def CMnistModel4_Matrix(weights_path=None):
     # K.set_image_dim_ordering('th')
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(28, 28, 1))
 
-    conv_1 = Conv2D(40, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
+    conv_1 = Conv2D(32, 5, strides=(2, 2), activation='relu', name='conv_1_all')(inputs)
 
-    matrixWidth = 5
+    matrixWidth = 4
     conv_1_outputs = [split_tensor(axis=3, ratio_split=matrixWidth * 2, id_split=i)(conv_1) \
                       for i in range(matrixWidth * 2)]           # Each - 12 * 12 * 4 channels
     for i in range(matrixWidth * 2):
@@ -162,37 +188,85 @@ def CMnistModel4_Matrix(weights_path=None):
             conv_2_input = Concatenate(axis=3)([conv_1_outputs[x], conv_1_outputs[matrixWidth + y]])
             conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_2_%d_%d' % (x, y))(conv_2_input)
                 # Each - 10 * 10
-            conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
+            # conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
                 # Each - 5 * 5, totally were 6 * 6 * 8 channels (with matrixWidth and 48 conv_1 channels)
             # conv = BatchNormalization()(conv)
+            conv = Dropout(0.3)(conv)
 
             conv_2_matrix[x][y] = conv
 
     conv_3s_horiz = []
     conv_3s_vert = []
+    conv_3s_horiz_before_zp = []
+    conv_3s_vert_before_zp = []
     for i in range(matrixWidth):
         conv_3_input = Concatenate(axis=3)([conv_2_matrix[j][i] for j in range(matrixWidth)])
             # Each - 5 * 5 * 48 channels
         conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_3_horiz_%d' % (i))(conv_3_input)
-            # 4 * 4
+            # 3 * 3
         conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
-            # 2 * 2, 8 channels each
-        conv_3s_horiz.append(conv)
+            # 2 * 2, 8 channels each, 96 channels total
+        conv = BatchNormalization()(conv)
+        # conv = keras.layers.Add()([conv_1[], conv])
+        conv_3s_horiz_before_zp.append(conv)
+        conv = ZeroPadding2D((1, 1))(conv)
+        conv_3s_horiz.append(conv)      # Convolutions of horizontal rows of the matrix
 
         conv_3_input = Concatenate(axis=3)([conv_2_matrix[i][j] for j in range(matrixWidth)])
         conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_3_vert_%d' % (i))(conv_3_input)
         conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
-            # 2 * 2, 8 channels each, 96 channels total
+        conv = BatchNormalization()(conv)
+        conv_3s_vert_before_zp.append(conv)
+        conv = ZeroPadding2D((1, 1))(conv)
         conv_3s_vert.append(conv)
+        conv_3_all = Concatenate(axis=3, name='conv_3')(conv_3s_horiz_before_zp + conv_3s_vert_before_zp)
 
-    dense_1 = Concatenate(axis=3)(conv_3s_horiz + conv_3s_vert)
-    dense_1 = BatchNormalization()(dense_1)
-    # dense_1 = Dropout(0.3)(conv_3)
+    if 0:
+        dense_1 = Concatenate(axis=3)(conv_3s_horiz_before_zp + conv_3s_vert_before_zp)
+    else:      # Two more layers
+        conv_next_matrix = []
+        for x in range(matrixWidth):
+            conv_next_matrix.append([None] * matrixWidth)
+            for y in range(matrixWidth):
+                input = Concatenate(axis=3)([conv_3s_horiz[y], conv_3s_vert[x]])
+                conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_4_%d_%d' % (x, y))(input)
+                # conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
+                # conv = BatchNormalization()(conv)
+                conv = Dropout(0.3)(conv)
+
+                conv_next_matrix[x][y] = conv
+
+        conv_next_horiz = []
+        conv_next_vert = []
+        for i in range(matrixWidth):
+            input = Concatenate(axis=3)([conv_next_matrix[j][i] for j in range(matrixWidth)])
+                # # Each - 5 * 5 * 48 channels
+            input = ZeroPadding2D((1, 1))(input)
+            conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_5_horiz_%d' % (i),
+                    kernel_initializer=MyInitializer)(input)
+            conv = keras.layers.Add()([conv_3s_horiz_before_zp[i], conv])
+            # conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
+            conv_next_horiz.append(conv)
+            # prediction = Dense(10, name='dense_2')(Flatten(name="flatten")  (conv))
+            # return Model(input=inputs, output=prediction)
+
+            input = Concatenate(axis=3)([conv_next_matrix[i][j] for j in range(matrixWidth)])
+            input = ZeroPadding2D((1, 1))(input)
+            conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_5_vert_%d' % (i),
+                    kernel_initializer=MyInitializer)(input)
+            conv = keras.layers.Add()([conv_3s_vert_before_zp[i], conv])
+            # conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
+                # # 2 * 2, 8 channels each, 96 channels total
+            conv_next_vert.append(conv)
+        dense_1 = Concatenate(axis=3, name='conv_5')(conv_next_vert + conv_next_vert)
+
+    # dense_1 = BatchNormalization()(dense_1)
+    dense_1 = Dropout(0.3)(dense_1)
     dense_1 = Flatten(name="flatten")(dense_1)
     dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
 
-    dense_2 = BatchNormalization()(dense_1)
-    # dense_2 = Dropout(0.3)(dense_1)
+    # dense_2 = BatchNormalization()(dense_1)
+    dense_2 = Dropout(0.3)(dense_1)
     dense_2 = Dense(10, name='dense_2')(dense_2)
     prediction = Activation("softmax", name="softmax")(dense_2)
 

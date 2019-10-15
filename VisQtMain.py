@@ -1274,6 +1274,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                       (layerName, std0, np.std(weights),
                        ', '.join(sorted([str(i) for i in indsToChange]))))
 
+    # For CMnistModel3_Towers
     def reinitWorstNeirons_SeparatedTowers(self, curEpochNum):
         towerInd = 0
         towerMeans = []
@@ -2194,7 +2195,7 @@ if __name__ == "__main__":
         # mainWindow.loadState(mainWindow.getSelectedEpochNum())
         # mainWindow.netWrapper.getGradients()
         # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
-        # mainWindow.onDoItersPressed(1)
+        mainWindow.onDoItersPressed(1)
         # mainWindow.onReinitWorstNeironsPressed()
 
         # mainWindow.onDisplayIntermResultsPressed()
@@ -2223,3 +2224,5 @@ if __name__ == "__main__":
 # seems to work better - good results restores very quickly and reaches source results more reliably.
 # It looks as a good idea to reinitialize with small weights and to multiply the kept weights
 # in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later
+# 15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
+# more and more conv_2 filters got stucked on the same favorite images

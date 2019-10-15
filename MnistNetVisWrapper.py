@@ -76,7 +76,8 @@ class CMnistVisWrapper:
         return self.mnistDataset
 
     def getNetLayersToVisualize(self):
-        return ['conv_1', 'conv_2', 'conv_3', 'dense_1', 'dense_2']
+        return ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5', 
+                'conv_3_horiz_0', 'dense_1', 'dense_2']
 
     def getComponentNetLayers(self):
         # return self.getNetLayersToVisualize()
@@ -296,7 +297,7 @@ class CMnistVisWrapper:
                         else:
                             epochImageCount = 10000
                     else:
-                        (start, end) = None
+                        epochImageCount = 2000
                 else:
                     epochImageCount = 2000
 
