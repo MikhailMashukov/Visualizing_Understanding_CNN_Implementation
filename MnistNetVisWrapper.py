@@ -76,19 +76,10 @@ class CMnistVisWrapper:
         return self.mnistDataset
 
     def getNetLayersToVisualize(self):
-        return ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5', 
-                'conv_3_horiz_0', 'dense_1', 'dense_2']
+        return ['conv_1', 'conv_2', 'conv_3', 'dense_1', 'dense_2']
 
     def getComponentNetLayers(self):
-        # return self.getNetLayersToVisualize()
-
-        l1 = ['conv_1_common']
-        l2 = []
-        towerCount = 8
-        for i in range(towerCount):
-            l1.append('conv_1_%d' % i)
-            l2.append('conv_2_%d' % i)
-        return l1 + l2 + ['conv_3', 'dense_1', 'dense_2']
+        return self.getNetLayersToVisualize()
 
     def getImageActivations(self, layerName, imageNum, epochNum=None):
         if epochNum is None:
@@ -217,7 +208,7 @@ class CMnistVisWrapper:
         #         return
         # raise Exception('No weights found for layer %s' % layerName)
 
-    def getGradients(self, layerName, firstImageCount, epochNum=None, allowCombinedLayers=False):
+    def getGradients(self, layerName, startImageNum, imageCount, epochNum=None, allowCombinedLayers=False):
         import tensorflow as tf
         import keras.backend as K
 
@@ -235,8 +226,8 @@ class CMnistVisWrapper:
                        model.base_model.targets[0]],
                     outputs=self.gradientTensors)
         data = self.mnistDataset.getNetSource()
-        inp = [data[0][:firstImageCount], 1, \
-                   tf.keras.utils.to_categorical(data[1][:firstImageCount], num_classes=10)]
+        inp = [data[0][startImageNum : startImageNum + imageCount], 1, \
+                   tf.keras.utils.to_categorical(data[1][startImageNum : startImageNum + imageCount], num_classes=10)]
         print("Data for net prepared")
         gradients = self.gradientKerasFunc(inp)
         print("Gradients calculated")
@@ -402,10 +393,16 @@ class CMnistVisWrapper:
         return (0, 0, 28, 28)
 
 
+    @property
+    def baseModel(self):
+        import MnistModel2
+
+        return MnistModel2.CMnistModel2()
+
     def _initMainNet(self):
         import MnistNet
 
-        self.net = MnistNet.CMnistRecognitionNet2()
+        self.net = MnistNet.CMnistRecognitionNet2(None, base_model=self.baseModel)
         dataset = CMnistDataset()
         self.net.init(dataset, 'QtLogs')
         self.setLearnRate(0.1)
@@ -441,6 +438,35 @@ class CMnistVisWrapper:
                 self.netsCache[highestLayer] = MnistNet.CMnistRecognitionNet2(highestLayer, base_model=self.net.model)
                 # self.netsCache[highestLayer].model._make_predict_function()
             return self.netsCache[highestLayer]
+
+
+class CMnistVisWrapper3_Towers(CMnistVisWrapper):
+    @property
+    def baseModel(self):
+        import MnistModel2
+
+        return MnistModel2.CMnistModel3_Towers()
+
+    def getNetLayersToVisualize(self):
+        return ['conv_1', 'conv_2', 'conv_3', 'conv_4',
+                'conv_3_0', 'dense_1', 'dense_2']
+
+    def getComponentNetLayers(self):
+        l1 = ['conv_1_common']
+        l2 = []
+        towerCount = 8
+        for i in range(towerCount):
+            l1.append('conv_1_%d' % i)
+            l2.append('conv_2_%d' % i)
+            l2.append('conv_3_%d' % i)
+        return l1 + l2 + ['conv_3', 'conv_4', 'dense_1', 'dense_2']
+
+    @staticmethod
+    def get_source_block_calc_func(layerName):
+        return CMnistVisWrapper.get_entire_image_block
+    # get_conv_*_source_block are incorrect here because source depends on tower
+
+
 
 
 class CMnistDataset:

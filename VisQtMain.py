@@ -1,4 +1,22 @@
-import copy
+# Result notes:
+# Reinitialization of neirons works bad or doesn't give serious effect.
+# It's bad that the resting neirons setups theirs surroundings to theirs old weights.
+# Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
+# works in conjunction with some others, which gives theirs final good results. And this looses at
+# reinitializations.
+# After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
+#
+# With separated towers and full reinitialization or keeping of entire tower reinitializations
+# seems to work better - good results restores very quickly and reaches source results more reliably.
+# It looks as a good idea to reinitialize with small weights and to multiply the kept weights
+# in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later
+# 15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
+# more and more conv_2 filters got stucked on the same favorite images
+# 16_4_Train8e-4_Test0.95e-3: maybe with further training test results improve even better,
+# (with the initial learning rate) as for 16_5
+
+
+# import copy
 import datetime
 import matplotlib
 matplotlib.use('AGG')
@@ -54,7 +72,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastAction = None
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
-        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
+        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
+        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
         self.tensorFlowLock = _thread.allocate_lock()
@@ -205,6 +224,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         y += c_buttonHeight + c_margin
         x = c_margin
         curHorizWidget = QtGui.QHBoxLayout()
+        # self.style().toolTipTimeouts[curHorizWidget] = 0      # 'QCommonStyle' object has no attribute 'toolTipTimeouts'
         # button = QtGui.QPushButton('test', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         # button.clicked.connect(lambda: self.onTestPress())
@@ -226,7 +246,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(self.onShowImagePressed)
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Show &activations', self)
+        button = QtGui.QPushButton('Show &act.', self)
         button.clicked.connect(self.onShowActivationsPressed)
         curHorizWidget.addWidget(button)
 
@@ -234,22 +254,30 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # button.clicked.connect(self.onShowActTopsPressed)
         # curHorizWidget.addWidget(button)
 
-        self.multActTopsButtonText = 'Show my &mult. act. tops'
+        self.multActTopsButtonText = 'My &mult. act. tops'
         button = QtGui.QPushButton(self.multActTopsButtonText, self)
         self.multActTopsButton = button
         button.clicked.connect(self.onShowMultActTopsPressed)
+        button.setToolTip('Show my activations tops by multiple images')
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Multith. mult. act. tops', self)
+        button = QtGui.QPushButton('Multith. act. tops', self)
         button.clicked.connect(self.calcMultActTops_MultiThreaded)
+        button.setToolTip('Multithreaded preparation of activations tops for all epochs')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('Show all images tops', self)
         # button.clicked.connect(self.onShowActTopsFromCsvPressed)
         # curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Show &gradients', self)
+        button = QtGui.QPushButton('Average &grad.', self)
         button.clicked.connect(self.onShowGradientsPressed)
+        button.setToolTip('Show average (by specified number of first images) gradients')
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Grad. by images', self)
+        button.clicked.connect(self.onGradientsByImagesPressed)
+        button.setToolTip('Show gradients by images, for one image at vertical line')
         curHorizWidget.addWidget(button)
 
         lineEdit = QtGui.QLineEdit(self)
@@ -268,14 +296,16 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button = QtGui.QPushButton('I&terations', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountEdit.text())))
+        button.setToolTip('Run learning iterations')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('+ learn. rate', self)
         # button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
         # curHorizWidget.addWidget(button)
         #
-        button = QtGui.QPushButton('Reinit. worst neir.', self)
+        button = QtGui.QPushButton('Reinit. worst n.', self)
         button.clicked.connect(lambda: self.onReinitWorstNeironsPressed())
+        button.setToolTip('Reinitialize worst neirons')
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('&Cancel', self)
@@ -463,6 +493,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.figure.clear()
         self.mainSubplotAxes = None
         self.figure.set_tight_layout(True)
+
+    def getMainSubplot(self):
+        if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
+            self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
+        return self.mainSubplotAxes
 
     def showImage(self, ax, imageData):
         # ax.clear()    # Including clear here is handy, but not obvious
@@ -912,7 +947,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             dataList = []
             t0 = datetime.datetime.now()
             for curEpochNum in self.netWrapper.getSavedNetEpochs():
-                dataList.append(self.netWrapper.getGradients(layerName, firstImageCount, curEpochNum, True))
+                dataList.append(self.netWrapper.getGradients(layerName, 1, firstImageCount, curEpochNum, True))
                 t = datetime.datetime.now()
                 if (t - t0).total_seconds() >= 1:
                     self.showProgress('Analyzed epoch %d' % curEpochNum)
@@ -926,7 +961,38 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 data2 = np.mean(data, axis=(2))    # Averaging by other convolution channels dimension out of 2
             data = np.mean(data, axis=(1))
         else:
-            data = np.abs(self.netWrapper.getGradients(layerName, firstImageCount, epochNum, True))
+            data = np.abs(self.netWrapper.getGradients(layerName, 1, firstImageCount, epochNum, True))
+        self.showGradients(data, data2, epochNum == self.AllEpochs)
+
+    def onGradientsByImagesPressed(self):
+        self.startAction(self.onGradientsByImagesPressed)
+        epochNum = self.getSelectedEpochNum()
+        firstImageCount = max(self.getSelectedImageNum(), 30)
+        layerName = self.blockComboBox.currentText()
+
+        data2 = None
+        dataList = []
+        t0 = datetime.datetime.now()
+        for imageNum in range(1, firstImageCount + 1):
+            dataList.append(self.netWrapper.getGradients(layerName, imageNum, 1, epochNum, True))
+            t = datetime.datetime.now()
+            if (t - t0).total_seconds() >= 1:
+                self.showProgress('Analyzed image %d' % imageNum)
+                t0 = t
+                if self.cancelling or self.exiting:
+                    self.showProgress('Cancelled')
+                    break
+        data = np.abs(np.stack(dataList, axis=0))
+        if len(data.shape) == 5:
+            data2 = np.mean(data, axis=(2))    # Averaging by other convolution channels dimension out of 2
+        data = np.mean(data, axis=(1))
+        # data = np.log10(data)
+        self.showGradients(data, data2, True)
+
+    # MultipleObjects means that many images or epochs will be depicted, so a logarithm should be shown
+    def showGradients(self, data, data2, multipleObjects):
+        self.showProgress('Gradients: %s, max %.4f (%s)' % \
+                (str(data.shape), data.max(), str([int(v) for v in np.where(data == data.max())])))
         stdData = None
         drawMode = 'map'
         shape = data.shape
@@ -955,7 +1021,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             data = self.getChannelsToAnalyze(data)
             margin = self.c_channelMargin
 
-        if epochNum == self.AllEpochs and len(data.shape) >= 2:
+        if multipleObjects and len(data.shape) >= 2:
             data = data.transpose([1, 0] + list(data.shape[2:]))
             if not stdData is None:
                 stdData = stdData.transpose([1, 0] + list(stdData.shape[2:]))
@@ -973,7 +1039,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             im = ax.imshow(data, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
         elif drawMode == '2d':
-            if epochNum == self.AllEpochs:
+            if multipleObjects:
                 data = np.abs(data)
                 data[data < 1e-15] = 1e-15
                 data = np.log10(data)
@@ -987,6 +1053,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             ax.clear()
             im = ax.imshow(stdData, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
+            ax.title.set_text('Std. dev.')
 
         ax = self.figure.add_subplot(self.gridSpec[1, 0])
         ax.clear()
@@ -996,7 +1063,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 ax.invert_yaxis()
             ax.set_aspect('auto')
         else:
-            if epochNum == self.AllEpochs:
+            if multipleObjects:
                 data2 = np.abs(data2)
                 data2[data2 < 1e-15] = 1e-15
                 data2 = np.log10(data2)
@@ -1024,22 +1091,24 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
                 # self.lastAction()
             elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed,
-                                     self.onShowGradientsPressed]:
+                                     self.onShowGradientsPressed, self.onGradientsByImagesPressed]:
                 self.lastAction()
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
 
+    def onEpochComboBoxChanged(self):
+        # if getCpuCoreCount() > 4 and
+        if self.lastAction in [self.onShowMultActTopsPressed, self.onGradientsByImagesPressed]:
+            self.lastAction()
+        else:
+            self.onSpinBoxValueChanged()   # onDisplayPressed()
+
     def onBlockChanged(self):
         if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
             self.onSpinBoxValueChanged()
-        elif self.lastAction in [self.onShowGradientsPressed] and \
+        elif self.lastAction in [self.onShowGradientsPressed, self.onGradientsByImagesPressed] and \
                 self.getSelectedEpochNum() and self.getSelectedEpochNum() > 0:
             self.lastAction()
-
-    def getMainSubplot(self):
-        if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
-            self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
-        return self.mainSubplotAxes
 
 
     def onDoItersPressed(self, iterCount):
@@ -1142,13 +1211,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 # A hacking of super-class in order to make epoch info visible longer
 
 
-    def onEpochComboBoxChanged(self):
-        # if getCpuCoreCount() > 4 and 
-        if self.lastAction in [self.onShowMultActTopsPressed]:
-            self.lastAction()
-        else:
-            self.onSpinBoxValueChanged()   # onDisplayPressed()
-
     def onTestPress(self):
         # self.loadState()
         pass
@@ -1165,16 +1227,18 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.weightsAfterReinit = dict()
         self.weightsReinitInds = dict()
 
-        # self.reinitWorstNeirons_Random(curEpochNum)
-        # self.reinitWorstNeirons_OneLayerTowers(curEpochNum)
-        self.reinitWorstNeirons_SeparatedTowers(curEpochNum)
+        if isinstance(self.netWrapper, MnistNetVisWrapper.CMnistVisWrapper):
+            self.reinitWorstNeirons_Random(curEpochNum)
+        else:  # if isinstance(self.netWrapper, MnistNetVisWrapper.CMnistVisWrapper3_Towers):
+            # self.reinitWorstNeirons_OneLayerTowers(curEpochNum)
+            self.reinitWorstNeirons_SeparatedTowers(curEpochNum)
 
         self.weightsReinitEpochNum = curEpochNum
         self.infoLabel.setText('Worst neirons reinitialized')
 
     def reinitWorstNeirons_Random(self, curEpochNum):
         for layerName in self.netWrapper.getComponentNetLayers():
-            gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
+            gradients = self.netWrapper.getGradients(layerName, 1, 500, curEpochNum)
             weights = self.netWrapper.getMultWeights(layerName)
 
             std0 = np.std(weights)
@@ -1217,13 +1281,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def reinitWorstNeirons_OneLayerTowers(self, curEpochNum):
         towerCount = self.netWrapper.getMultWeights('conv_1').shape[1]          # E.g., 80, weights - 1 * 80 * 5 * 5
-        gradients = self.netWrapper.getGradients('conv_3', 500, curEpochNum)    # E.g. (80 * 4) * 2 * 3 * 3
+        gradients = self.netWrapper.getGradients('conv_3', 1, 500, curEpochNum)    # E.g. (80 * 4) * 2 * 3 * 3
         gradients2 = np.reshape(np.square(gradients), (towerCount, -1, gradients.shape[2], gradients.shape[3]))
         meanGradients = np.mean(gradients2, axis=(1, 2, 3))
         sortedInds = meanGradients.argsort()
         towerIndsToChange = sortedInds[8 : ]
         for layerName in self.netWrapper.getNetLayersToVisualize():
-            gradients = self.netWrapper.getGradients(layerName, 500, curEpochNum)
+            gradients = self.netWrapper.getGradients(layerName, 1, 500, curEpochNum)
             weights = self.netWrapper.getMultWeights(layerName)
 
             std0 = np.std(weights)
@@ -1280,7 +1344,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         towerMeans = []
         while True:
             try:
-                gradients = self.netWrapper.getGradients('conv_2_%d' % towerInd, 500, curEpochNum)
+                gradients = self.netWrapper.getGradients('conv_2_%d' % towerInd, 1, 500, curEpochNum)
             except Exception as ex:
                 break   # No more towers
 
@@ -1350,6 +1414,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def restoreReinitedNeirons(self, veryStrong=False):
         # print('restoreReinitedNeirons %s' % ('very strong' if veryStrong else ''))
+        if isinstance(self.netWrapper, MnistNetVisWrapper.CMnistVisWrapper):
+            indicesAxis = 1
+        else:
+            indicesAxis = 0
+
         for layerName in self.netWrapper.getComponentNetLayers():
             if layerName in self.weightsBeforeReinit:
                 # if veryStrong and layerName[:4] == 'conv':
@@ -1365,11 +1434,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 if layerName[:4] == 'conv':
                     # if layerName == 'conv_3':
                     #     w
-                    if 1 or layerName == 'conv_1':     # Restoring after reinitWorstNeirons_Random
-                                                       # or conv_1 after reinitWorstNeirons_OneLayerTowers
+                    if indicesAxis == 1 or layerName == 'conv_1':    # Restoring after reinitWorstNeirons_Random
+                                                                     # or conv_1 after reinitWorstNeirons_OneLayerTowers
                         weights[:, indsToPreserve, :, :] = \
                             self.weightsBeforeReinit[layerName][:, indsToPreserve, :, :]
-                    else:                              # Restoring after reinitWorstNeirons_OneLayerTowers
+                    else:                                            # Restoring after reinitWorstNeirons_OneLayerTowers
                         weights[indsToPreserve, :, :, :] = \
                             self.weightsBeforeReinit[layerName][indsToPreserve, :, :, :]
                     self.netWrapper.setMultWeights(layerName, weights)
@@ -2195,13 +2264,12 @@ if __name__ == "__main__":
         # mainWindow.loadState(mainWindow.getSelectedEpochNum())
         # mainWindow.netWrapper.getGradients()
         # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
-        mainWindow.onDoItersPressed(1)
+        # mainWindow.onDoItersPressed(1)
         # mainWindow.onReinitWorstNeironsPressed()
 
         # mainWindow.onDisplayIntermResultsPressed()
         # mainWindow.onDisplayPressed()
         # mainWindow.onShowActivationsPressed()
-        # mainWindow.onDoItersPressed(1)
         # mainWindow.onShowMultActTopsPressed()
         # mainWindow.onShowSortedChanActivationsPressed()
         # mainWindow.onSpinBoxValueChanged()
@@ -2211,18 +2279,3 @@ if __name__ == "__main__":
     # mainWindow.paintRect()
     sys.exit(app.exec_())
     # mainWindow.saveState()
-
-# Result notes:
-# Reinitialization of neirons works bad or doesn't give serious effect.
-# It's bad that the resting neirons setups theirs surroundings to theirs old weights.
-# Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
-# works in conjunction with some others, which gives theirs final good results. And this looses at
-# reinitializations.
-# After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
-#
-# With separated towers and full reinitialization or keeping of entire tower reinitializations
-# seems to work better - good results restores very quickly and reaches source results more reliably.
-# It looks as a good idea to reinitialize with small weights and to multiply the kept weights
-# in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later
-# 15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
-# more and more conv_2 filters got stucked on the same favorite images

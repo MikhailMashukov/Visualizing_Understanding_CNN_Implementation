@@ -26,6 +26,7 @@ def variable_summaries(var):
       tf.compat.v1.summary.histogram('histogram', var)
 
 
+# Net as in Google tutorial for experts
 class CMnistRecognitionNet:
     class MyModel(tf.keras.Model):
         # Error in loadState: You are trying to load a weight file containing 4 layers into a model with 0 layers.
@@ -188,6 +189,7 @@ class CMnistRecognitionNet:
             # self.train_accuracy.reset_states()
 
 
+# Net based on model, made in the same style as alexnet
 class CMnistRecognitionNet2(CMnistRecognitionNet):
     def __init__(self, highest_layer=None, base_model=None):
         self.highest_layer = highest_layer

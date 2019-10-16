@@ -1,7 +1,7 @@
 import tensorflow as tf
 
 from keras.models import Model
-from keras.layers import Flatten, Dense, Dropout, Activation, Input, merge, Concatenate
+from keras.layers import Flatten, Dense, Dropout, Activation, Input, merge, Add, Concatenate
 from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
 from keras.layers.normalization import BatchNormalization
 import keras.layers
@@ -78,8 +78,9 @@ def CMnistModel3_Towers(weights_path=None):
 
     conv_1 = Conv2D(16, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
 
-    towerCount = 4
-    conv_2 = []
+    towerCount = 8
+    additLayer = True
+    last_tower_convs = []
     for towerInd in range(towerCount):
         x0 = (towerInd % 2) * 12
         y0 = ((towerInd // 2) % 2) * 12
@@ -98,18 +99,20 @@ def CMnistModel3_Towers(weights_path=None):
         t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
             # Output - 4 * 4
         # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
-        conv_2.append(t_conv_2)
 
-        # t_conv_3 = BatchNormalization()(t_conv_2)
-        # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-        # t_conv_3 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(t_conv_3)
-        #     # Output - 4 * 4
-        # conv_3.append(t_conv_2 + t_conv_3)
+        if not additLayer:
+            last_tower_convs.append(t_conv_2)
+        else:
+            t_conv_3 = BatchNormalization()(t_conv_2)
+            t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
+            t_conv_3 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_3_%d' % towerInd)(t_conv_3)
+                # Output - 4 * 4
+            last_tower_convs.append(Add()([t_conv_2, t_conv_3]))
         # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
 
-    conv_2 = Concatenate(axis=3, name='conv_2')(conv_2)
-
-    conv_last = Conv2D(64, 1, strides=(1, 1), activation='relu', name='conv_3')(conv_2)
+    conv_last = Concatenate(axis=3, name='conv_3' if additLayer else 'conv_2')(last_tower_convs)
+    conv_last = Conv2D(64, 1, strides=(1, 1), activation='relu',
+                       name='conv_4' if additLayer else 'conv_3')(conv_last)
 
     # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
@@ -173,9 +176,9 @@ def CMnistModel4_Matrix(weights_path=None):
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(28, 28, 1))
 
-    conv_1 = Conv2D(32, 5, strides=(2, 2), activation='relu', name='conv_1_all')(inputs)
+    conv_1 = Conv2D(40, 5, strides=(2, 2), activation='relu', name='conv_1_all')(inputs)
 
-    matrixWidth = 4
+    matrixWidth = 5
     conv_1_outputs = [split_tensor(axis=3, ratio_split=matrixWidth * 2, id_split=i)(conv_1) \
                       for i in range(matrixWidth * 2)]           # Each - 12 * 12 * 4 channels
     for i in range(matrixWidth * 2):
@@ -191,7 +194,7 @@ def CMnistModel4_Matrix(weights_path=None):
             # conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
                 # Each - 5 * 5, totally were 6 * 6 * 8 channels (with matrixWidth and 48 conv_1 channels)
             # conv = BatchNormalization()(conv)
-            conv = Dropout(0.3)(conv)
+            # conv = Dropout(0.3)(conv)
 
             conv_2_matrix[x][y] = conv
 
@@ -231,8 +234,8 @@ def CMnistModel4_Matrix(weights_path=None):
                 input = Concatenate(axis=3)([conv_3s_horiz[y], conv_3s_vert[x]])
                 conv = Conv2D(4, 3, strides=(1, 1), activation='relu', name='conv_4_%d_%d' % (x, y))(input)
                 # conv = MaxPooling2D((2, 2), strides=(2, 2))(conv)
-                # conv = BatchNormalization()(conv)
-                conv = Dropout(0.3)(conv)
+                conv = BatchNormalization()(conv)
+                # conv = Dropout(0.3)(conv)
 
                 conv_next_matrix[x][y] = conv
 
@@ -260,13 +263,13 @@ def CMnistModel4_Matrix(weights_path=None):
             conv_next_vert.append(conv)
         dense_1 = Concatenate(axis=3, name='conv_5')(conv_next_vert + conv_next_vert)
 
-    # dense_1 = BatchNormalization()(dense_1)
-    dense_1 = Dropout(0.3)(dense_1)
+    dense_1 = BatchNormalization()(dense_1)
+    # dense_1 = Dropout(0.3)(dense_1)
     dense_1 = Flatten(name="flatten")(dense_1)
     dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
 
-    # dense_2 = BatchNormalization()(dense_1)
-    dense_2 = Dropout(0.3)(dense_1)
+    dense_2 = BatchNormalization()(dense_1)
+    # dense_2 = Dropout(0.3)(dense_1)
     dense_2 = Dense(10, name='dense_2')(dense_2)
     prediction = Activation("softmax", name="softmax")(dense_2)
 
