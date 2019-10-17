@@ -533,7 +533,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # activations = model.predict(self.imageDataset.getImageFilePath(imageNum))
         self.showProgress('Activations: %s, max %.4f (%s)' % \
                 (str(activations.shape), activations.max(),
-                 str([int(v) for v in np.where(activations == activations.max())])))
+                 str([int(v[0]) for v in np.where(activations == activations.max())])))
 
         drawMode = 'map'
         if len(activations.shape) == 2:   # Dense level scalars
@@ -849,7 +849,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                         # Conv2 - 256 * 27 * 27
             self.showProgress('Prev. layer act.: %s, max %.4f (%s)' % \
                 (str(prevLayerActivations.shape), prevLayerActivations.max(),
-                 str([int(v) for v in np.where(prevLayerActivations == prevLayerActivations.max())])))
+                 str([int(v[0]) for v in np.where(prevLayerActivations == prevLayerActivations.max())])))
 
             if not showCurLayerActivations:
                 ax = self.figure.add_subplot(self.gridSpec[0, 0])
@@ -1017,7 +1017,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     # MultipleObjects means that many images or epochs will be depicted, so a logarithm should be shown
     def showGradients(self, data, data2, multipleObjects):
         self.showProgress('Gradients: %s, max %.4f (%s)' % \
-                (str(data.shape), data.max(), str([int(v) for v in np.where(data == data.max())])))
+                (str(data.shape), data.max(), str([int(v[0]) for v in np.where(data == data.max())])))
         stdData = None
         drawMode = 'map'
         shape = data.shape

@@ -215,9 +215,14 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
             # if highest_layer_name[-len('_weights') : ] == '_weights':
             #     highest_layer = self.base_model.get_layer(highest_layer_name[ : -len('_weights')])._trainable_weights
             # else:
-        highest_layer = self.base_model.get_layer(highest_layer_name)
-        return Model(inputs=self.base_model.input,
-                     outputs=highest_layer.output)
+        try:
+            highest_layer = self.base_model.get_layer(highest_layer_name)
+            return Model(inputs=self.base_model.input,
+                         outputs=highest_layer.output)
+        except ValueError as valueEx:
+            highest_layer_output = self.base_model.debug_layers[highest_layer_name]
+            return Model(inputs=self.base_model.input,
+                         outputs=highest_layer_output)
 
     # def predict(self, img_path):
     #     img = preprocess_image_batch(img_path)

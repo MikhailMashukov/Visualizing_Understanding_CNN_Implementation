@@ -84,13 +84,18 @@ def CMnistModel3_Towers(weights_path=None):
     conv_1s = []     # Lists only for creating concatenated level for simple data extraction
     conv_2s = []
     conv_3s = []
+    convLayers = [None, Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_op'),
+                   Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_op'),
+                   Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_3_op')]
+    batchNormLayers = [BatchNormalization(), BatchNormalization()]
     for towerInd in range(towerCount):
         x0 = (towerInd % 2) * 12
         y0 = ((towerInd // 2) % 2) * 12
         # t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(
         #         inputs[:, x0 : x0 + 16, y0 : y0 + 16, :])
         t_input = cut_image_tensor(x0, x0 + 16, y0, y0 + 16)(inputs)
-        t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
+        # t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
+        t_conv_1 = convLayers[1](t_input)
         conv_1s.append(t_conv_1)
 
         cut_main_conv_1 = cut_image_tensor(x0 // 2, x0 // 2 + 6, y0 // 2, y0 // 2 + 6)(conv_1)
@@ -99,8 +104,9 @@ def CMnistModel3_Towers(weights_path=None):
         # common_conv_x0 = (towerInd % 2) * 6
         # union = Concatenate(axis=3)([conv_1[:, x0 // 2 : x0 // 2 + 6, y0 // 2 : y0 // 2 + 6, :]])  # t_conv_1])
         union = Concatenate(axis=3)([cut_main_conv_1, t_conv_1])
-        union_norm = BatchNormalization()(union)
-        t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
+        union_norm = batchNormLayers[0](union)
+        # t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
+        t_conv_2 = convLayers[2](union_norm)
             # Output - 4 * 4
         # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
         conv_2s.append(t_conv_2)
@@ -108,18 +114,14 @@ def CMnistModel3_Towers(weights_path=None):
         if not additLayer:
             last_tower_convs.append(t_conv_2)
         else:
-            t_conv_3 = BatchNormalization()(t_conv_2)
+            t_conv_3 = batchNormLayers[1](t_conv_2)
             t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_3_%d' % towerInd)(t_conv_3)
+            # t_conv_3 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_3_%d' % towerInd)(t_conv_3)
+            t_conv_3 = convLayers[3](t_conv_3)
                 # Output - 4 * 4
             last_tower_convs.append(Add()([t_conv_2, t_conv_3]))
             conv_3s.append(t_conv_3)
         # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
-
-    Concatenate(axis=3, name='conv_1')(conv_1s)
-    Concatenate(axis=3, name='conv_2')(conv_2s)
-    if additLayer:
-        Concatenate(axis=3, name='conv_3')(conv_3s)
 
     conv_last = Concatenate(axis=3, name='conv_3_adds' if additLayer else 'conv_2_adds')(last_tower_convs)
         # This layer produces 8*1 gradients tensor, so special conv_2/3 was added
@@ -156,6 +158,12 @@ def CMnistModel3_Towers(weights_path=None):
     # optimizer = SGD(lr=0.1, decay=1e-6, momentum=0.9, nesterov=True)
     # optimizer = Adam(learning_rate=0.001, decay=1e-5)
     # m.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+
+    m.debug_layers = dict()
+    m.debug_layers['conv_1'] = Concatenate(axis=3, name='conv_1')(conv_1s)
+    m.debug_layers['conv_2'] = Concatenate(axis=3, name='conv_2')(conv_2s)
+    if additLayer:
+        m.debug_layers['conv_3'] = Concatenate(axis=3, name='conv_3')(conv_3s)
 
     return m
 
