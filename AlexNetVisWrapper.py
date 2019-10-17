@@ -66,7 +66,7 @@ class CAlexNetVisWrapper:
         activations = model.model.predict(batchInput)
         return activations
 
-    def getNetWeights(self, layerName):
+    def getMultWeights(self, layerName):
         itemCacheName = 'w_%s' % (layerName)
         cacheItem = self.activationCache.getObject(itemCacheName)
         if not cacheItem is None:
@@ -77,8 +77,9 @@ class CAlexNetVisWrapper:
             allWeights = model.layers[13]._trainable_weights
         else:
             raise Exception('Unknown weights position in net')
-        self.activationCache.saveObject(itemCacheName, allWeights)
-        return allWeights
+        weights = allWeights[0].numpy()
+        self.activationCache.saveObject(itemCacheName, weights)
+        return weights
 
     def getImagesActivationMatrix(self, layerNum, mode='summation'):
         itemCacheName = 'actMat_%s_%d' % (mode, layerNum)

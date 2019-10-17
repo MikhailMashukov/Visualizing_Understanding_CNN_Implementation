@@ -438,6 +438,16 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             epochNum = int(epochText[pos + len('epoch') : ])
         return epochNum
 
+    def getPrevLayerName(self, layerName):
+        import re
+
+        result = re.search(r'conv_(\d+)(.*)', layerName)
+        if result:
+            layerNum = int(result.group(1))
+            return 'conv_%d%s' % (layerNum - 1, result.group(2))
+        else:
+            raise Exception('Can\'t decode layer number')
+
     def getSelectedImageNum(self):
         return self.imageNumEdit.value()
             # int(self.imageNumLineEdit.text())
@@ -460,6 +470,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             colCount -= 1
         chanCount = chanCount // colCount * colCount
         return (chanCount, colCount)
+
 
     def closeEvent(self, event):
         self.exiting = True
@@ -520,6 +531,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
         # model = alexnet.AlexNet(layerNum, self.alexNet.model)
         # activations = model.predict(self.imageDataset.getImageFilePath(imageNum))
+        self.showProgress('Activations: %s, max %.4f (%s)' % \
+                (str(activations.shape), activations.max(),
+                 str([int(v) for v in np.where(activations == activations.max())])))
+
         drawMode = 'map'
         if len(activations.shape) == 2:   # Dense level scalars
             if activations.shape[1] < 50:
@@ -623,10 +638,16 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         options.imageToProcessCount = max(200 if self.netWrapper.name == 'mnist' else 20, \
                     self.getSelectedImageNum())
 
+        # Getting activations to get channel count. They should be reread from cache later
+        # try:
         activations1 = self.netWrapper.getImageActivations(
                             layerName, 1, options.epochNum)
+        # except Exception as ex:
+        #     self.showProgress("Error: %s. Looking for children layers" % str(ex))
+        #     activations1 = self.net.getCombinedLayerImageActivations(layerName, 1, options.epochNum)
         activations1 = self.getChannelsToAnalyze(activations1[0])
         (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
+
         calculator.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
         return calculator
 
@@ -795,9 +816,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.startAction(self.onShowChanActivationsPressed)
             epochNum = self.getSelectedEpochNum()
             imageNum = self.getSelectedImageNum()
-            layerNum = self.blockComboBox.currentIndex() + 1
+            layerName = self.blockComboBox.currentText()
             chanNum = self.getSelectedChannelNum()
-            activations = self.netWrapper.getImageActivations(layerNum, imageNum, epochNum)
+            activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
             activations = activations[0][chanNum]
 
             self.clearFigure()
@@ -818,13 +839,17 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
             # allWeights = self.getAlexNet().model.layers[13]._trainable_weights     # Conv3 - 3 * 3 * 256 * 384 and bias 384
             # allWeights = self.getAlexNet('conv_%d_weights' % layerNum)
-            allWeights = self.netWrapper.getNetWeights('conv_%d' % layerNum)
-            weights = allWeights[0].numpy()[:, :, :, chanNum]
-            if layerNum == 1:
+            allWeights = self.netWrapper.getMultWeights(layerName)
+            weights = allWeights[:, :, :, chanNum]
+            if layerName[:6] == 'conv_1':
                 prevLayerActivations = self.imageDataset.getImage(imageNum, 'cropped')
             else:
-                prevLayerActivations = self.netWrapper.getImageActivations(layerNum - 1, imageNum, epochNum)[0]
+                prevLayerName = self.getPrevLayerName(layerName)
+                prevLayerActivations = self.netWrapper.getImageActivations(prevLayerName, imageNum, epochNum)[0]
                         # Conv2 - 256 * 27 * 27
+            self.showProgress('Prev. layer act.: %s, max %.4f (%s)' % \
+                (str(prevLayerActivations.shape), prevLayerActivations.max(),
+                 str([int(v) for v in np.where(prevLayerActivations == prevLayerActivations.max())])))
 
             if not showCurLayerActivations:
                 ax = self.figure.add_subplot(self.gridSpec[0, 0])
@@ -876,7 +901,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
             # allWeights = self.getAlexNet().model.layers[13]._trainable_weights     # Conv3 - 3 * 3 * 256 * 384 and bias 384
             # allWeights = self.getAlexNet('conv_%d_weights' % layerNum)
-            allWeights = self.netWrapper.getNetWeights('conv_%d' % layerNum)
+            allWeights = self.netWrapper.getMultWeights('conv_%d' % layerNum)
             weights = allWeights[0].numpy()[:, :, :, chanNum]
             if layerNum == 1:
                 prevLayerActivations = self.imageDataset.getImage(imageNum, 'cropped')
@@ -967,7 +992,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onGradientsByImagesPressed(self):
         self.startAction(self.onGradientsByImagesPressed)
         epochNum = self.getSelectedEpochNum()
-        firstImageCount = max(self.getSelectedImageNum(), 30)
+        firstImageCount = max(self.getSelectedImageNum(), 100)
         layerName = self.blockComboBox.currentText()
 
         data2 = None

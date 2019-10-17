@@ -81,6 +81,9 @@ def CMnistModel3_Towers(weights_path=None):
     towerCount = 8
     additLayer = True
     last_tower_convs = []
+    conv_1s = []     # Lists only for creating concatenated level for simple data extraction
+    conv_2s = []
+    conv_3s = []
     for towerInd in range(towerCount):
         x0 = (towerInd % 2) * 12
         y0 = ((towerInd // 2) % 2) * 12
@@ -88,6 +91,7 @@ def CMnistModel3_Towers(weights_path=None):
         #         inputs[:, x0 : x0 + 16, y0 : y0 + 16, :])
         t_input = cut_image_tensor(x0, x0 + 16, y0, y0 + 16)(inputs)
         t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
+        conv_1s.append(t_conv_1)
 
         cut_main_conv_1 = cut_image_tensor(x0 // 2, x0 // 2 + 6, y0 // 2, y0 // 2 + 6)(conv_1)
             # Output - 6 * 6
@@ -99,6 +103,7 @@ def CMnistModel3_Towers(weights_path=None):
         t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
             # Output - 4 * 4
         # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
+        conv_2s.append(t_conv_2)
 
         if not additLayer:
             last_tower_convs.append(t_conv_2)
@@ -108,9 +113,16 @@ def CMnistModel3_Towers(weights_path=None):
             t_conv_3 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_3_%d' % towerInd)(t_conv_3)
                 # Output - 4 * 4
             last_tower_convs.append(Add()([t_conv_2, t_conv_3]))
+            conv_3s.append(t_conv_3)
         # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
 
-    conv_last = Concatenate(axis=3, name='conv_3' if additLayer else 'conv_2')(last_tower_convs)
+    Concatenate(axis=3, name='conv_1')(conv_1s)
+    Concatenate(axis=3, name='conv_2')(conv_2s)
+    if additLayer:
+        Concatenate(axis=3, name='conv_3')(conv_3s)
+
+    conv_last = Concatenate(axis=3, name='conv_3_adds' if additLayer else 'conv_2_adds')(last_tower_convs)
+        # This layer produces 8*1 gradients tensor, so special conv_2/3 was added
     conv_last = Conv2D(64, 1, strides=(1, 1), activation='relu',
                        name='conv_4' if additLayer else 'conv_3')(conv_last)
 
@@ -148,28 +160,12 @@ def CMnistModel3_Towers(weights_path=None):
     return m
 
 
-class MyInitializer2(keras.initializers.VarianceScaling):
-    def __init__(self, seed=None):
-        super(MyInitializer, self).__init__(scale=1./16,
-                       mode='fan_avg',
-                       distribution='uniform',
-                       seed=seed)
-
-    def __call__(self, shape, dtype=None):
-        return super(MyInitializer, self)(shape, dtype)
-
-    # return keras.initializers.VarianceScaling(scale=1./16,
-    #                mode='fan_avg',
-    #                distribution='uniform',
-    #                seed=seed)
-
 def MyInitializer(shape, dtype=None):
     v = keras.initializers.VarianceScaling(scale=1. / 16,
                            mode='fan_avg',
                            distribution='uniform',
                            seed=None)
     return v(shape, dtype)
-
 
 def CMnistModel4_Matrix(weights_path=None):
     # K.set_image_dim_ordering('th')

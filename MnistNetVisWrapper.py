@@ -208,7 +208,7 @@ class CMnistVisWrapper:
         #         return
         # raise Exception('No weights found for layer %s' % layerName)
 
-    def getGradients(self, layerName, startImageNum, imageCount, epochNum=None, allowCombinedLayers=False):
+    def getGradients(self, layerName, startImageNum, imageCount, epochNum=None, allowCombinedLayers=True):
         import tensorflow as tf
         import keras.backend as K
 
