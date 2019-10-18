@@ -484,6 +484,66 @@ class CMnistVisWrapper3_Towers(CMnistVisWrapper):
     # get_conv_*_source_block are incorrect here because source depends on tower
 
 
+class CMnistVisWrapper4_Matrix(CMnistVisWrapper):
+    @property
+    def baseModel(self):
+        import MnistModel2
+
+        return MnistModel2.CMnistModel4_Matrix()
+
+    def getNetLayersToVisualize(self):
+        return ['conv_1', 'conv_2', 'conv_3', 'conv_4', 'conv_5'] + \
+               ['conv_2_0_0', 'conv_2_0_1', 'conv_3_horiz_1', 'dense_1', 'dense_2']
+
+    def getComponentNetLayers(self):
+        l1 = ['conv_1_common']
+        l2 = []
+        towerCount = 8
+        for i in range(towerCount):
+            l1.append('conv_1_%d' % i)
+            l2.append('conv_2_%d' % i)
+            l2.append('conv_3_%d' % i)
+        return l1 + l2 + ['conv_3', 'conv_4', 'dense_1', 'dense_2']
+
+    @staticmethod
+    def get_source_block_calc_func(layerName):
+        if layerName == 'conv_1':
+            return CMnistVisWrapper4_Matrix.get_conv_1_source_block
+        elif layerName == 'conv_2':
+            return CMnistVisWrapper4_Matrix.get_conv_2_source_block
+        elif layerName == 'conv_3':
+            return CMnistVisWrapper4_Matrix.get_conv_3_source_block
+        elif layerName == 'conv_4':
+            return CMnistVisWrapper4_Matrix.get_conv_4_source_block
+        else:
+            return CMnistVisWrapper4_Matrix.get_entire_image_block
+
+    @staticmethod
+    def get_conv_1_source_block(x, y):
+        source_xy_0 = (x * 2, y * 2)
+        size = 5
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_2_source_block(x, y):
+        source_xy_0 = (x * 2, y * 2)
+        size = 9
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_3_source_block(x, y):
+        source_xy_0 = (x * 2, y * 2)
+        size = 13
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_4_source_block(x, y):
+        source_xy_0 = (x * 4 - 2, y * 2 - 2)
+        size = 21
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + size, source_xy_0[1] + size)
+
 
 
 class CMnistDataset:

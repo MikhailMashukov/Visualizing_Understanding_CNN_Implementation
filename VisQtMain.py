@@ -73,7 +73,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
-        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
+        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
+        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
         self.tensorFlowLock = _thread.allocate_lock()
@@ -88,7 +89,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.showControlWindow()
 
         self.iterNumLabel.setText('Epoch 0')
-        self.maxAnalyzeChanCount = 64
+        self.maxAnalyzeChanCount = 200
 
     def init(self):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
@@ -205,7 +206,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         spinBox = QtGui.QSpinBox(self)
         spinBox.setMaximumWidth(100)
-        spinBox.setRange(0, 10000)
+        spinBox.setRange(0, 2000000000)
         spinBox.setValue(0)
         spinBox.valueChanged.connect(lambda: self.onChanSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
@@ -292,7 +293,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 1000000)
-        spinBox.setValue(1500)
+        spinBox.setValue(15000)
         spinBox.setSingleStep(100)
         curHorizWidget.addWidget(spinBox)
         self.iterCountEdit = spinBox
@@ -1200,6 +1201,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         intValue = self.chanNumEdit.value()
         strValue = '%04d' % intValue
         newWeights = [int(ch) / 9.0 for ch in strValue]
+        newWeights = ([0] * (len(curWeights) - len(newWeights))) + newWeights
         print('Tower weights: %s, replacing with %s' % (str(curWeights), str(newWeights)))
         self.netWrapper.setVariableValue('tower_weights', newWeights)
 
