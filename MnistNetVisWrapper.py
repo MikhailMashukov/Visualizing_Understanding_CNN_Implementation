@@ -208,6 +208,20 @@ class CMnistVisWrapper:
         #         return
         # raise Exception('No weights found for layer %s' % layerName)
 
+    def getVariableValue(self, varName):
+        import keras.backend as K
+
+        model = self._getNet()
+        var = model.base_model.variables['towers_weights']
+        return var.numpy()
+
+    def setVariableValue(self, varName, value):
+        import keras.backend as K
+
+        model = self._getNet()
+        K.set_value(model.base_model.variables['towers_weights'], value)
+
+
     def getGradients(self, layerName, startImageNum, imageCount, epochNum=None, allowCombinedLayers=True):
         import tensorflow as tf
         import keras.backend as K
@@ -409,7 +423,7 @@ class CMnistVisWrapper:
         # if os.path.exists(self.weightsFileNameTempl):
         #     self.net.model.load_weights(self.weightsFileNameTempl)
         # self.net.model._make_predict_function()
-        self.net.batchSize = min(16 * getCpuCoreCount(), 64)
+        self.net.batchSize = max(16 * getCpuCoreCount(), 64)
 
         self.netsCache = dict()
 
@@ -418,6 +432,8 @@ class CMnistVisWrapper:
 
         # optimizer = SGD(lr=learnRate, decay=5e-6, momentum=0.9, nesterov=True)
         optimizer = Adam(learning_rate=learnRate, decay=5e-5)
+        # It's possible to turn off layers' weights updating with layer.trainable = False/
+        # It requires model.compile for changes to take effect
         self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
         self.curModelLearnRate = learnRate
 
@@ -448,8 +464,9 @@ class CMnistVisWrapper3_Towers(CMnistVisWrapper):
         return MnistModel2.CMnistModel3_Towers()
 
     def getNetLayersToVisualize(self):
-        return ['conv_1', 'conv_2', 'conv_3', 'conv_4',
-                'conv_3_0', 'dense_1', 'dense_2']
+        return ['conv_1', 'conv_2', 'conv_3', 'conv_4'] + \
+               ['conv_5', 'add_23'] + \
+               ['conv_4_adds', 'conv_2_0', 'conv_3_0', 'dense_1', 'dense_2']
 
     def getComponentNetLayers(self):
         l1 = ['conv_1_common']

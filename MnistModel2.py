@@ -1,9 +1,11 @@
+import numpy as np
 import tensorflow as tf
 
 from keras.models import Model
-from keras.layers import Flatten, Dense, Dropout, Activation, Input, merge, Add, Concatenate
+from keras.layers import Flatten, Dense, Dropout, Activation, Input, merge, Add, Concatenate, Multiply
 from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
 from keras.layers.normalization import BatchNormalization
+from keras.layers.advanced_activations import ReLU
 import keras.layers
 
 from keras.optimizers import Adam, SGD
@@ -71,6 +73,17 @@ def CMnistModel2(weights_path=None):
     # m.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
     return m
 
+def cut_tensor(x):
+    def f(X):
+        return X[x : x + 1]
+
+    def g(input_shape):
+        output_shape = list(input_shape)
+        output_shape[-1] = 1
+        return tuple(output_shape)
+
+    return Lambda(f, output_shape=lambda input_shape: g(input_shape))
+
 def CMnistModel3_Towers(weights_path=None):
     # K.set_image_dim_ordering('th')
     # K.set_image_data_format('channels_first')
@@ -78,24 +91,32 @@ def CMnistModel3_Towers(weights_path=None):
 
     conv_1 = Conv2D(16, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
 
-    towerCount = 8
-    additLayer = True
-    last_tower_convs = []
+    from keras import backend as K
+
+    towerCount = 4
+    additLayerCount = 2
+    towerWeightsKerasVar = K.variable(np.ones([4]), name='tower_weights')
+    towerWeights = Input(shape=(towerCount, ), tensor=towerWeightsKerasVar)
+        # Looks like input, should be declared in model's input, but (if the tensor parameter is present)
+        # should not be supplied to the net (in model.fit and so on)
+    # towerWeights = keras.layers.Layer(name='tower_weights')
+    # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
+    # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
+
     conv_1s = []     # Lists only for creating concatenated level for simple data extraction
     conv_2s = []
+    add_23s = []
     conv_3s = []
-    convLayers = [None, Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_op'),
-                   Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_op'),
-                   Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_3_op')]
-    batchNormLayers = [BatchNormalization(), BatchNormalization()]
+    # add_34s = []
+    conv_4s = []
+    last_tower_convs = []
     for towerInd in range(towerCount):
         x0 = (towerInd % 2) * 12
         y0 = ((towerInd // 2) % 2) * 12
         # t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(
         #         inputs[:, x0 : x0 + 16, y0 : y0 + 16, :])
         t_input = cut_image_tensor(x0, x0 + 16, y0, y0 + 16)(inputs)
-        # t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
-        t_conv_1 = convLayers[1](t_input)
+        t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
         conv_1s.append(t_conv_1)
 
         cut_main_conv_1 = cut_image_tensor(x0 // 2, x0 // 2 + 6, y0 // 2, y0 // 2 + 6)(conv_1)
@@ -104,29 +125,50 @@ def CMnistModel3_Towers(weights_path=None):
         # common_conv_x0 = (towerInd % 2) * 6
         # union = Concatenate(axis=3)([conv_1[:, x0 // 2 : x0 // 2 + 6, y0 // 2 : y0 // 2 + 6, :]])  # t_conv_1])
         union = Concatenate(axis=3)([cut_main_conv_1, t_conv_1])
-        union_norm = batchNormLayers[0](union)
-        # t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
-        t_conv_2 = convLayers[2](union_norm)
+        union_norm = BatchNormalization()(union)
+        t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
             # Output - 4 * 4
         # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
         conv_2s.append(t_conv_2)
 
-        if not additLayer:
+        if additLayerCount < 1:
             last_tower_convs.append(t_conv_2)
         else:
-            t_conv_3 = batchNormLayers[1](t_conv_2)
-            t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            # t_conv_3 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_3_%d' % towerInd)(t_conv_3)
-            t_conv_3 = convLayers[3](t_conv_3)
+            # t_conv_3 = BatchNormalization()(t_conv_2)
+            t_conv_3 = Dropout(0.3)(t_conv_2)
+            # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
+            t_conv_3 = Conv2D(8, 3, padding='same', strides=(1, 1),
+                              activation='relu', name='conv_3_%d' % towerInd,
+                              kernel_initializer=MyInitializer)(t_conv_3)
                 # Output - 4 * 4
-            last_tower_convs.append(Add()([t_conv_2, t_conv_3]))
             conv_3s.append(t_conv_3)
+            t_conv_3 = Add(name='add_23_%d' % towerInd)([t_conv_2, t_conv_3])
+            add_23s.append(t_conv_3)
         # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
 
-    conv_last = Concatenate(axis=3, name='conv_3_adds' if additLayer else 'conv_2_adds')(last_tower_convs)
+        if additLayerCount < 2:
+            last_tower_convs.append(t_conv_3)
+        else:
+            t_conv_4 = BatchNormalization()(t_conv_3)
+            # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
+            t_conv_4 = Conv2D(8, 3, padding='same', strides=(1, 1),
+                              # activation='relu',
+                              name='conv_4_%d' % towerInd,
+                              kernel_initializer=MyInitializer)(t_conv_4)
+                # Output - 4 * 4
+            conv_4s.append(t_conv_4)
+            t_conv_4 = Add(name='add_34_%d' % towerInd)([t_conv_3, t_conv_4])
+            t_conv_4 = Multiply()([ReLU()(t_conv_4), cut_tensor(towerInd)(towerWeights)])
+                    # K.constant(value=np.ones([1, 1, 1]), dtype='float32')])   # if towerInd in [0, 3] else \
+                        # K.constant(value=0, dtype='float32')])
+                 # split_tensor(axis=1, ratio_split=towerCount, id_split=towerInd)(towerWeights)])
+            last_tower_convs.append(t_conv_4)
+            # add_34s.append(t_conv_4)
+
+    conv_last = Concatenate(axis=3, name='conv_%d_adds' % (2 + additLayerCount))(last_tower_convs)
         # This layer produces 8*1 gradients tensor, so special conv_2/3 was added
-    conv_last = Conv2D(64, 1, strides=(1, 1), activation='relu',
-                       name='conv_4' if additLayer else 'conv_3')(conv_last)
+    conv_last = Conv2D(32, 1, strides=(1, 1), activation='relu',
+                       name='conv_%d' % (3 + additLayerCount))(conv_last)
 
     # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
@@ -140,14 +182,14 @@ def CMnistModel3_Towers(weights_path=None):
     dense_1 = BatchNormalization()(conv_last)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
+    dense_1 = Dense(64, activation='relu', name='dense_1')(dense_1)
 
-    dense_2 = BatchNormalization()(dense_1)
-    # dense_2 = Dropout(0.3)(dense_1)
+    # dense_2 = BatchNormalization()(dense_1)
+    dense_2 = Dropout(0.3)(dense_1)
     dense_2 = Dense(10, name='dense_2')(dense_2)
     prediction = Activation("softmax", name="softmax")(dense_2)
 
-    m = Model(input=inputs, output=prediction)
+    m = Model(inputs=[inputs, towerWeights], outputs=prediction)
     print(m.summary())
 
     if not weights_path is None:
@@ -159,11 +201,16 @@ def CMnistModel3_Towers(weights_path=None):
     # optimizer = Adam(learning_rate=0.001, decay=1e-5)
     # m.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
 
+    m.variables = {'towers_weights': towerWeightsKerasVar}
+
     m.debug_layers = dict()
     m.debug_layers['conv_1'] = Concatenate(axis=3, name='conv_1')(conv_1s)
     m.debug_layers['conv_2'] = Concatenate(axis=3, name='conv_2')(conv_2s)
-    if additLayer:
+    if additLayerCount >= 1:
         m.debug_layers['conv_3'] = Concatenate(axis=3, name='conv_3')(conv_3s)
+    if additLayerCount >= 2:
+        m.debug_layers['conv_4'] = Concatenate(axis=3, name='conv_4')(conv_4s)
+        m.debug_layers['add_23'] = Concatenate(axis=3, name='conv_3')(add_23s)
 
     return m
 
@@ -316,12 +363,12 @@ class CSummaryWriteCallback(keras.callbacks.Callback):
         self.trainIterNum += 1
 
         # self.losses.append(logs.get('loss'))
-        with self.train_writer.as_default():
-            # logs example: {'accuracy': 1.0, 'size': 32, 'loss': 0.00013134594, 'batch': 0}
-            tf.summary.scalar('loss_callback', logs.get('loss'), step=self.trainIterNum)
-            # print("Callback results %d: %.6f" % (self.trainIterNum, logs.get('loss')))
-            # if 'lr' in logs:
-            #     tf.summary.scalar('learn_rate', logs.get('lr'), step=self.trainIterNum)
+        # with self.train_writer.as_default():
+        #     # logs example: {'accuracy': 1.0, 'size': 32, 'loss': 0.00013134594, 'batch': 0}
+        #     tf.summary.scalar('loss_callback', logs.get('loss'), step=self.trainIterNum)
+        #     # print("Callback results %d: %.6f" % (self.trainIterNum, logs.get('loss')))
+        #     # if 'lr' in logs:
+        #     #     tf.summary.scalar('learn_rate', logs.get('lr'), step=self.trainIterNum)
         if self.trainIterNum % 50 == 0:
             passed = self.trainIterNum < self.initialIterNum
             if passed <= 250 or self.trainIterNum % 200 == 0:

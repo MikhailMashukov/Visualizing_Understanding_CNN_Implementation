@@ -205,7 +205,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         spinBox = QtGui.QSpinBox(self)
         spinBox.setMaximumWidth(100)
-        spinBox.setRange(0, 1023)
+        spinBox.setRange(0, 10000)
         spinBox.setValue(0)
         spinBox.valueChanged.connect(lambda: self.onChanSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
@@ -217,6 +217,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         button = QtGui.QPushButton('Sorted &channel act.', self)
         button.clicked.connect(self.onShowSortedChanActivationsPressed)
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Set towers weights', self)
+        button.clicked.connect(self.onSetTowersWeightsPressed)
         curHorizWidget.addWidget(button)
         layout.addLayout(curHorizWidget)
 
@@ -1189,6 +1193,15 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.onSpinBoxValueChanged()   # onDisplayPressed()
         self.showProgress(infoStr, False)
 
+    # Expects number like 9990 at channel number spin box (each 0 to 9 - weight from 0 to 100%)
+    def onSetTowersWeightsPressed(self):
+        # curWeights = self.netWrapper.getMultWeights('tower_weights')
+        curWeights = self.netWrapper.getVariableValue('tower_weights')
+        intValue = self.chanNumEdit.value()
+        strValue = '%04d' % intValue
+        newWeights = [int(ch) / 9.0 for ch in strValue]
+        print('Tower weights: %s, replacing with %s' % (str(curWeights), str(newWeights)))
+        self.netWrapper.setVariableValue('tower_weights', newWeights)
 
     class TLearningCallback(MnistNetVisWrapper.CBaseLearningCallback):
         def __init__(self, parent, curEpochNum):

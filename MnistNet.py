@@ -272,6 +272,8 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
                 learningCallback)
         # tensorBoardCallback.set_model(self.model)
 
+        # inp = [dataset[0], np.ones([dataset[0].shape[0], 4])]
+        # valData = testDataset[0], np.ones([testDataset[0].shape[0], 4])], testDataset[1]]
         history = self.model.fit(x=dataset[0], y=dataset[1], validation_data=testDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  batch_size=self.batchSize, verbose=2, callbacks=[tensorBoardCallback, summaryCallback])
