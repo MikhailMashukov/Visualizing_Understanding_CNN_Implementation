@@ -1,19 +1,25 @@
-# Result notes:
-# Reinitialization of neirons works bad or doesn't give serious effect.
-# It's bad that the resting neirons setups theirs surroundings to theirs old weights.
-# Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
-# works in conjunction with some others, which gives theirs final good results. And this looses at
-# reinitializations.
-# After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
-#
-# With separated towers and full reinitialization or keeping of entire tower reinitializations
-# seems to work better - good results restores very quickly and reaches source results more reliably.
-# It looks as a good idea to reinitialize with small weights and to multiply the kept weights
-# in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later
-# 15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
-# more and more conv_2 filters got stucked on the same favorite images
-# 16_4_Train8e-4_Test0.95e-3: maybe with further training test results improve even better,
-# (with the initial learning rate) as for 16_5
+""" Result notes:
+Reinitialization of neirons works bad or doesn't give serious effect.
+It's bad that the resting neirons setups theirs surroundings to theirs old weights.
+Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
+works in conjunction with some others, which gives theirs final good results. And this looses at
+reinitializations.
+After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
+
+With separated towers and full reinitialization or keeping of entire tower reinitializations
+seems to work better - good results restores very quickly and reaches source results more reliably.
+It looks as a good idea to reinitialize with small weights and to multiply the kept weights
+in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later
+15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
+more and more conv_2 filters got stucked on the same favorite images
+16_4_Train8e-4_Test0.95e-3: maybe with further training test results improve even better,
+(with the initial learning rate) as for 16_5
+
+Further ideas:
+* to train a usual each-to-each or towers conv. network, then estimate dissimilarity
+  of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
+  in a matrix network
+"""
 
 
 # import copy

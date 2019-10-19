@@ -315,7 +315,7 @@ class CMnistVisWrapper:
                 self.curEpochNum += 1
                 epochNum += 1
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
-                self.saveState()
+                self.saveState(self.curEpochNum % 8 == 0)
                 # self.saveCurGradients()
                 callback.onEpochEnd(self.curEpochNum, infoStr)
                 if self.cancelling:
@@ -330,10 +330,11 @@ class CMnistVisWrapper:
     def getSavedNetEpochs(self):
         return getSavedNetEpochs(self.weightsFileNameTempl.replace('%d', '*'))
 
-    def saveState(self):
+    def saveState(self, saveCache=True):
         try:
-            with open('Data/MnistVisActCache.dat', 'wb') as file:
-                self.activationCache.saveState_OpenedFile(file)
+            if saveCache:
+                with open('Data/MnistVisActCache.dat', 'wb') as file:
+                    self.activationCache.saveState_OpenedFile(file)
             if not self.net is None:
                 self.net.model.save_weights(self.weightsFileNameTempl % self.curEpochNum)
         except Exception as ex:
