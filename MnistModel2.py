@@ -90,9 +90,17 @@ def concatenateLayersByNameBegin(model, nameBegin):
     for layer in model.layers:
         if layer.name[:l] == nameBegin:
             foundLayers.append(layer.output)
-    return Concatenate(axis=3, name=nameBegin)(foundLayers)
+
+    if not foundLayers:
+        return None
+    elif len(foundLayers) == 1:
+        return foundLayers[0]
+    else:
+        return Concatenate(axis=3, name=nameBegin)(foundLayers)
 
 def CMnistModel3_Towers(weights_path=None):
+    import tensorflow as tf
+
     # K.set_image_dim_ordering('th')
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(28, 28, 1))
@@ -101,7 +109,9 @@ def CMnistModel3_Towers(weights_path=None):
 
     towerCount = 4
     additLayerCount = 2
-    towerWeightsKerasVar = K.variable(np.ones([towerCount]), name='tower_weights')
+    # towerWeightsKerasVar = tf.Variable(np.ones([towerCount]), name='tower_weights')
+    towerWeightsKerasVar = tf.compat.v1.Variable(np.ones([towerCount]) / 2, dtype=tf.float32, name='tower_weights')
+    towerWeightsKerasVar._trainable = False    # "Doesn't help against Tensor.op is meaningless when eager execution is enabled."
     towerWeights = Input(shape=(towerCount, ), tensor=towerWeightsKerasVar)
         # Looks like input, should be declared in model's input, but (if the tensor parameter is present)
         # should not be supplied to the net (in model.fit and so on)

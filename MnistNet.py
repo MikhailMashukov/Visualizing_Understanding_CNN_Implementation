@@ -12,6 +12,8 @@ import numpy as np
 # import time
 
 import MnistModel2
+from MyUtils import getCpuCoreCount
+
 
 def variable_summaries(var):
     """Attach a lot of summaries to a Tensor (for TensorBoard visualization)."""
@@ -229,15 +231,22 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
     #     return self.model.predict(img)
     #
 
+    @staticmethod
+    def _transformLabelsForNet(labels):
+        return tf.keras.utils.to_categorical(labels, num_classes=10)
+
     def doLearning(self, epochCount, learningCallback,
+                   fullDataset, fullTestDataset,
                    epochImageCount=None, initialEpochNum=0):
         from keras.callbacks import TensorBoard
 
         # epochCount = int(math.ceil(iterCount / 100))
-        fullDataset = self.mnist.getNetSource('train')
-        fullTestDataset = self.mnist.getNetSource('test')
+        # fullDataset = self.mnist.getNetSource('train')
+        # fullTestDataset = self.mnist.getNetSource('test')
         fullDatasetImageCount = fullDataset[0].shape[0]
         if epochImageCount is None:
+            epochImageCount = fullDatasetImageCount
+        elif epochImageCount > fullDatasetImageCount:
             epochImageCount = fullDatasetImageCount
         print("Running %d epoch(s) from %d, %d images each" % \
                 (epochCount, initialEpochNum, epochImageCount))
@@ -245,22 +254,22 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
 
         if epochImageCount == fullDatasetImageCount:
             dataset = (fullDataset[0],
-                       tf.keras.utils.to_categorical(fullDataset[1]))
+                       self._transformLabelsForNet(fullDataset[1]))
         else:
             permut = np.random.permutation(fullDatasetImageCount)[:epochImageCount]
             dataset = (fullDataset[0][permut, :, :, :],
-                       tf.keras.utils.to_categorical(fullDataset[1][permut]))
+                       self._transformLabelsForNet(fullDataset[1][permut]))
 
         testDatasetSize = epochImageCount // 6
         if testDatasetSize >= fullTestDataset[0].shape[0]:
             testDataset = (fullTestDataset[0],
-                   tf.keras.utils.to_categorical(fullTestDataset[1]))
+                   self._transformLabelsForNet(fullTestDataset[1]))
         else:
             permut = np.random.permutation(fullTestDataset[0].shape[0])[:testDatasetSize]
             testDataset = (fullTestDataset[0][permut, :, :, :],
-                           tf.keras.utils.to_categorical(fullTestDataset[1][permut]))
+                           self._transformLabelsForNet(fullTestDataset[1][permut]))
         # testDataset = (fullTestDataset[0][:testDatasetSize],
-        #            tf.keras.utils.to_categorical(fullTestDataset[1][:testDatasetSize]))
+        #            self._transformLabelsForNet(fullTestDataset[1][:testDatasetSize]))
 
         tensorBoardCallback = TensorBoard(log_dir='QtLogs', histogram_freq=0,
                 write_graph=False, write_grads=False, write_images=1,    # batch_size=32,
@@ -293,3 +302,34 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
                 # groupStartTime = datetime.datetime.now()
 
         return infoStr
+
+
+    def getImageLosses(self, startImageNum=1, imageCount=None):
+        # from keras.callbacks import TensorBoard
+        import keras.losses
+
+        batchSize = min(getCpuCoreCount() * 64, 384)
+        fullDataset = self.mnist.getNetSource('train')
+        fullDatasetImageCount = fullDataset[0].shape[0]
+        if imageCount is None:
+            imageCount = fullDatasetImageCount
+        groupStartTime = datetime.datetime.now()
+
+        data = (fullDataset[0][startImageNum - 1 : startImageNum + imageCount - 1, :, :, :],
+                self._transformLabelsForNet(fullDataset[1][startImageNum - 1 : startImageNum + imageCount - 1]))
+        outputs = self.model.predict(data[0], batch_size=batchSize, verbose=1)
+        losses = keras.losses.mean_squared_error(outputs, data[1])
+        return (losses, outputs)
+
+        # losses = []
+        # outputs = []
+        # for batchNum in range((imageCount - 1) // batchSize + 1):
+        #     imageInds = range(batchNum * batchSize + startImageNum - 1,
+        #                       min((batchNum + 1) * batchSize, imageCount) + startImageNum - 1)
+        #     batchData = (fullDataset[0][imageInds, :, :, :],
+        #                  self._transformLabelsForNet(fullDataset[1][imageInds]))
+        #     batchOutputs = self.model.predict(batchData[0], steps=1, verbose=1)
+        #     batchLosses = keras.losses.mean_squared_error(batchOutputs, batchData[1])
+        #     losses.append(batchLosses.numpy())
+        #     outputs.append(batchOutputs)
+        # return (np.concatenate(losses, axis=0), np.concatenate(outputs, axis=0))

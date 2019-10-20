@@ -144,7 +144,7 @@ class CMnistVisWrapper:
                 batchActs[i] = activations[predictedI]
                 imageNum = imageNums[i]
                 itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
-                self.activationCache.saveObject(itemCacheName, batchActs[i : i + 1])
+                self.activationCache.saveObject(itemCacheName, np.expand_dims(batchActs[i], 0))
                 predictedI += 1
         assert predictedI == activations.shape[0]
         if len(images) == len(imageNums):
@@ -310,7 +310,18 @@ class CMnistVisWrapper:
                     self.setLearnRate(options.learnRate)
                     print('Learning rate switched to %f' % options.learnRate)
 
+                fullDataset = self.mnistDataset.getNetSource('train')
+                fullTestDataset = self.mnistDataset.getNetSource('test')
+                if not options.trainImageNums is None:
+                    imageNums = options.trainImageNums
+                    if options.additTrainImageCount > 0:
+                        imageNums = np.concatenate([imageNums, np.random.randint(
+                                low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
+                    fullDataset = (fullDataset[0][imageNums - 1],
+                                   fullDataset[1][imageNums - 1])
+
                 infoStr = self.net.doLearning(1, callback,
+                                              fullDataset, fullTestDataset,
                                               epochImageCount, self.curEpochNum)
                 self.curEpochNum += 1
                 epochNum += 1
@@ -465,9 +476,10 @@ class CMnistVisWrapper3_Towers(CMnistVisWrapper):
         return MnistModel2.CMnistModel3_Towers()
 
     def getNetLayersToVisualize(self):
-        return ['conv_1', 'conv_2', 'conv_3', 'conv_4'] + \
-               ['conv_5', 'add_23'] + \
-               ['conv_4_adds', 'conv_2_0', 'conv_3_0', 'dense_1', 'dense_2']
+        return ['conv_1', 'conv_2', 'conv_3', 'conv_4',
+                'conv_5', 'add_23',
+                'conv_4_adds', # 'conv_2_0', 'conv_3_0',
+                'dense_1', 'dense_2', 'softmax']
 
     def getComponentNetLayers(self):
         l1 = ['conv_1_common']
@@ -557,10 +569,11 @@ class CMnistDataset:
         self.test = None
         self.preparedDatasetFileName = 'Data/MnistVisDataset.dat'
 
-    def getImage(self, imageNum, preprocessStage='net'):      # ImageNum here - 1-based
+    def getImage(self, imageNum, preprocessStage='net', type='train'):    # ImageNum here - 1-based
         if self.test is None:
             self.loadData()
-        data = np.expand_dims(self.test.images[imageNum - 1], axis=2)
+        subset = self.train if type == 'train' else self.test
+        data = np.expand_dims(subset.images[imageNum - 1], axis=2)
         if preprocessStage == 'cropped':
             data = (data * 255).astype(np.uint8)
         return data

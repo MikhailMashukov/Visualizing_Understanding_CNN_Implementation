@@ -79,8 +79,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
-        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
-        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
+        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
+        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
         self.tensorFlowLock = _thread.allocate_lock()
@@ -159,12 +159,14 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         x = c_margin
         curHorizWidget = QtGui.QHBoxLayout()
         self.iterNumLabel = QtGui.QLabel(self)
+        self.iterNumLabel.setMinimumWidth(250)
         # self.iterNumLabel.setGeometry(x, y, 200, c_buttonHeight)
         curHorizWidget.addWidget(self.iterNumLabel)
 
         self.epochComboBox = QtGui.QComboBox(self)
         self.epochComboBox.currentIndexChanged.connect(self.onEpochComboBoxChanged)
         # self.epochComboBox.currentIndexChanged.connect(self.onSpinBoxValueChanged)
+        self.iterNumLabel.setMinimumWidth(150)
         curHorizWidget.addWidget(self.epochComboBox)
 
         button = QtGui.QPushButton('Load state', self)
@@ -175,9 +177,44 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(lambda: self.saveState())
         curHorizWidget.addWidget(button)
 
-        # x += c_buttonWidth + c_margin
-        button = QtGui.QPushButton('1 epoch', self)
-        button.clicked.connect(lambda: self.onDoItersPressed(100))
+        # # x += c_buttonWidth + c_margin
+        # button = QtGui.QPushButton('1 epoch', self)
+        # button.clicked.connect(lambda: self.onDoItersPressed(100))
+        # curHorizWidget.addWidget(button)
+
+        lineEdit = QtGui.QLineEdit(self)
+        # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
+        lineEdit.setText(str(self.netWrapper.getRecommendedLearnRate()))
+        lineEdit.setMaximumWidth(100)
+        curHorizWidget.addWidget(lineEdit)
+        self.learnRateEdit = lineEdit
+
+        spinBox = QtGui.QSpinBox(self)
+        spinBox.setRange(1, 1000000)
+        spinBox.setValue(15000)
+        spinBox.setSingleStep(100)
+        spinBox.setMaximumWidth(120)
+        curHorizWidget.addWidget(spinBox)
+        self.iterCountEdit = spinBox
+
+        button = QtGui.QPushButton('I&terations', self)
+        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+        button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountEdit.text())))
+        button.setToolTip('Run learning iterations')
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Iter. on worst', self)
+        button.clicked.connect(lambda: self.onDoItersOnWorstPressed(int(self.iterCountEdit.text())))
+        button.setToolTip('Run iterations on worst samples')
+        curHorizWidget.addWidget(button)
+
+        # button = QtGui.QPushButton('+ learn. rate', self)
+        # button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
+        # curHorizWidget.addWidget(button)
+        #
+        button = QtGui.QPushButton('Reinit. worst n.', self)
+        button.clicked.connect(lambda: self.onReinitWorstNeironsPressed())
+        button.setToolTip('Reinitialize worst neirons')
         curHorizWidget.addWidget(button)
         layout.addLayout(curHorizWidget)
 
@@ -212,7 +249,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         spinBox = QtGui.QSpinBox(self)
         spinBox.setMaximumWidth(100)
-        spinBox.setRange(0, 2000000000)
+        spinBox.setRange(0, int(2e9))
         spinBox.setValue(0)
         spinBox.valueChanged.connect(lambda: self.onChanSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
@@ -247,7 +284,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # curHorizWidget.addWidget(lineEdit)
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 999999)
-        spinBox.setValue(1)
+        spinBox.setValue(495)
         spinBox.valueChanged.connect(lambda: self.onSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
         self.imageNumEdit = spinBox
@@ -291,33 +328,15 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.setToolTip('Show gradients by images, for one image at vertical line')
         curHorizWidget.addWidget(button)
 
-        lineEdit = QtGui.QLineEdit(self)
-        # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
-        lineEdit.setText(str(self.netWrapper.getRecommendedLearnRate()))
-        curHorizWidget.addWidget(lineEdit)
-        self.learnRateEdit = lineEdit
-
-        spinBox = QtGui.QSpinBox(self)
-        spinBox.setRange(1, 1000000)
-        spinBox.setValue(15000)
-        spinBox.setSingleStep(100)
-        curHorizWidget.addWidget(spinBox)
-        self.iterCountEdit = spinBox
-
-        button = QtGui.QPushButton('I&terations', self)
-        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountEdit.text())))
-        button.setToolTip('Run learning iterations')
+        button = QtGui.QPushButton('Worst images', self)
+        button.clicked.connect(self.onShowWorstImagesPressed)
+        button.setToolTip('Show images with maximal prediction errors')
         curHorizWidget.addWidget(button)
 
-        # button = QtGui.QPushButton('+ learn. rate', self)
-        # button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
+        # button = QtGui.QPushButton('Pred. history', self)
+        # button.clicked.connect(self.onShowPredictionHistoryPressed)
+        # # button.setToolTip('')
         # curHorizWidget.addWidget(button)
-        #
-        button = QtGui.QPushButton('Reinit. worst n.', self)
-        button.clicked.connect(lambda: self.onReinitWorstNeironsPressed())
-        button.setToolTip('Reinitialize worst neirons')
-        curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('&Cancel', self)
         button.clicked.connect(self.onCancelPressed)
@@ -525,50 +544,90 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # ax.clear()    # Including clear here is handy, but not obvious
         if len(imageData.shape) >= 3:
             if imageData.shape[2] > 1:
-                ax.imshow(imageData) # , aspect='equal')
+                return ax.imshow(imageData) # , aspect='equal')
             else:
                 imageData = np.squeeze(imageData, axis=2)
                 # if imageData.dtype == np.float32:
                 #     imageData *= 255
-                ax.imshow(imageData, cmap='Greys_r')
+                return ax.imshow(imageData, cmap='Greys_r')
         else:
-            ax.imshow(imageData, cmap='Greys_r')
+            return ax.imshow(imageData, cmap='Greys_r')
 
     def onShowActivationsPressed(self):
         self.startAction(self.onShowActivationsPressed)
         epochNum = self.getSelectedEpochNum()
         imageNum = self.getSelectedImageNum()
         layerName = self.blockComboBox.currentText()
-        activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
-        # model = alexnet.AlexNet(layerNum, self.alexNet.model)
-        # activations = model.predict(self.imageDataset.getImageFilePath(imageNum))
-        self.showProgress('Activations: %s, max %.4f (%s)' % \
-                (str(activations.shape), activations.max(),
-                 str([int(v[0]) for v in np.where(activations == activations.max())])))
 
-        drawMode = 'map'
-        if len(activations.shape) == 2:   # Dense level scalars
-            if activations.shape[1] < 50:
-                drawMode = 'plot'
-                activations = activations.flatten()
+        if epochNum == self.AllEpochs:
+            dataList = []
+            t0 = datetime.datetime.now()
+            for curEpochNum in self.netWrapper.getSavedNetEpochs():
+                dataList.append(self.netWrapper.getImagesActivations_Batch(layerName, [imageNum], curEpochNum)[0])
+                t = datetime.datetime.now()
+                if (t - t0).total_seconds() >= 1:
+                    self.showProgress('Analyzed epoch %d' % curEpochNum)
+                    t0 = t
+                    if self.cancelling or self.exiting:
+                        self.showProgress('Cancelled')
+                        break
+            activations = np.stack(dataList, axis=0)
+            self.showProgress('Activations: %s, min %.4f, max %.4f (%s)' % \
+                    (str(activations.shape), activations.min(), activations.max(),
+                     str([int(v[0]) for v in np.where(activations == activations.max())])))
+
+            drawMode = 'map'
+            stdData = None
+            if len(activations.shape) > 2:
+                axisToStick = tuple(range(2, len(activations.shape)))
+                stdData = np.std(activations, axis=axisToStick)
+                activations = np.abs(activations)
+                activations = np.mean(activations, axis=axisToStick)
+        else:
+            activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
+            self.showProgress('Activations: %s, max %.4f (%s)' % \
+                    (str(activations.shape), activations.max(),
+                     str([int(v[0]) for v in np.where(activations == activations.max())])))
+
+            drawMode = 'map'
+            if len(activations.shape) == 2:   # Dense level scalars
+                if activations.shape[1] < 50:
+                    drawMode = 'plot'
+                    activations = activations.flatten()
+                else:
+                    activations = np.reshape(activations, [activations.shape[1], 1, 1])
+                    margin = 0
             else:
-                activations = np.reshape(activations, [activations.shape[1], 1, 1])
-                margin = 0
-        else:
-            activations = self.getChannelsToAnalyze(activations[0])
-            margin = self.c_channelMargin
+                activations = self.getChannelsToAnalyze(activations[0])
+                margin = self.c_channelMargin
 
-        self.figure.set_tight_layout(True)
-        ax = self.getMainSubplot()
-        ax.clear()
-        # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
-        if drawMode == 'map':
-            colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
-            data = layoutLayersToOneImage(np.sqrt(activations),
-                                          colCount, margin)
-            ax.imshow(data, cmap='plasma')
+        if epochNum == self.AllEpochs:
+            self.clearFigure()
+            ax = self.getMainSubplot()
+
+            im = ax.imshow(activations.transpose(), cmap='plasma')
+            colorBar = self.figure.colorbar(im, ax=ax)
+
+            if not stdData is None:
+                ax = self.figure.add_subplot(self.gridSpec[1, 0])
+                self.showImage(ax, stdData.transpose())
         else:
-            ax.plot(activations)
+            self.figure.set_tight_layout(True)
+            ax = self.getMainSubplot()
+            ax.clear()
+
+            # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
+            if drawMode == 'map':
+                colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
+                data = layoutLayersToOneImage(np.sqrt(activations),
+                                              colCount, margin)
+                ax.imshow(data, cmap='plasma')
+            else:
+                ax.plot(activations)
+                if ax.get_ylim()[0] > ax.get_ylim()[1]:
+                    ax.invert_yaxis()
+
+
         self.canvas.draw()
 
     def onShowActTopsPressed(self):       # It would be desirable to move into MultActTops, but this requires time and the code is not necessary
@@ -1110,6 +1169,87 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.canvas.draw()
         print("Done")
 
+    def onShowWorstImagesPressed(self):
+        try:
+            self.startAction(self.onShowWorstImagesPressed)
+            epochNum = self.getSelectedEpochNum()    # TODO
+            firstImageCount = max(self.getSelectedImageNum(), 1000)
+            self.netWrapper.loadState(epochNum)     # TODO: to wrap into a NetWrapper's method
+            (losses, predictions) = self.netWrapper._getNet().getImageLosses(1, firstImageCount)
+
+            arr = np.arange(1, firstImageCount + 1)
+            losses = np.stack([arr, losses], axis=0)
+            sortedVals = losses[:, losses[1, :].argsort()]
+
+            imageNums = np.flip(sortedVals[0, -300:])
+            colCount = 20
+            imageData = []
+            for imageNum in imageNums:
+                curImageData = self.imageDataset.getImage(int(imageNum), 'cropped')
+
+                if curImageData.max() > 1.01:
+                    if imageNum <= 255:
+                        curImageData[-1][-1] = imageNum
+                else:
+                    if imageNum <= 999:
+                        curImageData[-1][-1] = imageNum / 1000.0
+
+                imageData.append(curImageData)
+            imageData = np.stack(imageData, axis=0)
+            imageData = layoutLayersToOneImage(imageData, colCount, 1, imageData.min())
+
+            self.clearFigure()
+
+            ax = self.getMainSubplot()
+            self.showImage(ax, imageData)
+            # im = ax.imshow(imageData, cmap='plasma')
+
+            lossData = np.expand_dims(np.expand_dims(np.flip(sortedVals[1, -300:]), 1), 2)
+            lossData = layoutLayersToOneImage(lossData, colCount, 0, lossData.min())
+
+            ax = self.figure.add_subplot(self.gridSpec[1, 0])
+            ax.clear()
+            im = ax.imshow(lossData, cmap='plasma')
+            colorBar = self.figure.colorbar(im, ax=ax)
+            self.canvas.draw()
+
+            self.showProgress("Images: %s" % ', '.join([str(int(num)) for num in imageNums[:10]]))
+            np.savetxt('Data/WorstImageNums.txt', imageNums, fmt='%d', delimiter='')
+            # with open('Data/WorstImageNums.dat', 'wb') as file:
+            #     pickle.dump(imageNums, file)
+        except Exception as ex:
+            self.showProgress("Error: %s" % str(ex))
+
+    # def onShowPredictionHistoryPressed(self):
+    #     self.startAction(self.onShowPredictionHistoryPressed)
+    #     imageNums = [self.getSelectedImageNum()]
+    #     layerName = self.blockComboBox.currentText()
+    #
+    #     data2 = None
+    #     print("Getting data")
+    #     dataList = []
+    #     t0 = datetime.datetime.now()
+    #     for curEpochNum in self.netWrapper.getSavedNetEpochs():
+    #         dataList.append(self.netWrapper.getImagesActivations_Batch(layerName, imageNums, curEpochNum))
+    #         t = datetime.datetime.now()
+    #         if (t - t0).total_seconds() >= 1:
+    #             self.showProgress('Analyzed epoch %d' % curEpochNum)
+    #             t0 = t
+    #             if self.cancelling or self.exiting:
+    #                 self.showProgress('Cancelled')
+    #                 break
+    #
+    #     data = np.abs(np.stack(dataList, axis=0))
+    #     data = np.mean(data, axis=(1))
+    #     while len(data.shape) > 2:
+    #         data = np.mean(data, axis=(-1))
+    #     print("Drawing")
+    #
+    #     ax = self.getMainSubplot()
+    #     ax.clear()
+    #     im = self.showImage(ax, data)
+    #     colorBar = self.figure.colorbar(im, ax=ax)
+    #     self.canvas.draw()
 
     def onChanSpinBoxValueChanged(self):
         if self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
@@ -1121,9 +1261,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         try:
             if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
                 t0 = datetime.datetime.now()
-                self.onShowImagePressed()
                 self.onShowActivationsPressed()
-                self.showProgress('3 operations: %.1f ms' % ((datetime.datetime.now() - t0).total_seconds() * 1000))
+                self.onShowImagePressed()
+                # self.showProgress('2 operations: %.1f ms' % ((datetime.datetime.now() - t0).total_seconds() * 1000))
 
                 # self.lastAction()
             elif self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed,
@@ -1134,7 +1274,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def onEpochComboBoxChanged(self):
         # if getCpuCoreCount() > 4 and
-        if self.lastAction in [self.onShowMultActTopsPressed, self.onGradientsByImagesPressed]:
+        if self.lastAction in [self.onShowMultActTopsPressed, self.onGradientsByImagesPressed,
+                               self.onShowWorstImagesPressed]:
             self.lastAction()
         else:
             self.onSpinBoxValueChanged()   # onDisplayPressed()
@@ -1147,7 +1288,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.lastAction()
 
 
-    def onDoItersPressed(self, iterCount):
+    class TLearnOptions:
+        def __init__(self, learnRate):
+            self.learnRate = learnRate
+            self.trainImageNums = None
+            self.additTrainImageCount = 0
+
+    def onDoItersPressed(self, iterCount, trainImageNums=None):
         # epochIterCount = DeepOptions.trainSetSize / DeepOptions.batchSize
         # c_callIterCount = int(epochIterCount)  # 400
 
@@ -1166,11 +1313,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         #     restoreRestEpochCount = 40 - (curEpochNum - self.weightsReinitEpochNum)
         callback = QtMainWindow.TLearningCallback(self, curEpochNum)
         # callback.learnRate = float(self.learnRateEdit.text())
+        options = QtMainWindow.TLearnOptions(float(self.learnRateEdit.text()))
+        if not trainImageNums is None:
+            options.trainImageNums = trainImageNums
+            options.additTrainImageCount = max(1000, self.imageNumEdit.value()) - len(trainImageNums)
 
-        class TOptions:
-            learnRate = float(self.learnRateEdit.text())
-
-        infoStr = self.netWrapper.doLearning(iterCount, TOptions(), callback)
+        infoStr = self.netWrapper.doLearning(iterCount, options, callback)
 
         self.loadNetStateList()
         self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
@@ -1200,16 +1348,29 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.onSpinBoxValueChanged()   # onDisplayPressed()
         self.showProgress(infoStr, False)
 
+    def onDoItersOnWorstPressed(self, iterCount):
+        imageNums = np.loadtxt('Data/SelectedWorstImageNums.txt', dtype=int, delimiter='\n')
+        imageNums = list(set(imageNums))
+        print('%d unique worst images numbers read' % len(imageNums))
+        # additImageCount = max(1000, self.imageNumEdit.value()) - len(imageNums)
+        # if additImageCount > 0:
+        #     imageNums = np.concatenate([imageNums, np.random.randint(low=1, high=20000, size=additImageCount)])
+        self.onDoItersPressed(iterCount, imageNums)
+
     # Expects number like 9990 at channel number spin box (each 0 to 9 - weight from 0 to 100%)
     def onSetTowersWeightsPressed(self):
-        # curWeights = self.netWrapper.getMultWeights('tower_weights')
-        curWeights = self.netWrapper.getVariableValue('tower_weights')
-        intValue = self.chanNumEdit.value()
-        strValue = '%04d' % intValue
-        newWeights = [int(ch) / 9.0 for ch in strValue]
-        newWeights = ([0] * (len(curWeights) - len(newWeights))) + newWeights
-        print('Tower weights: %s, replacing with %s' % (str(curWeights), str(newWeights)))
-        self.netWrapper.setVariableValue('tower_weights', newWeights)
+        try:
+            # curWeights = self.netWrapper.getMultWeights('tower_weights')
+            curWeights = self.netWrapper.getVariableValue('tower_weights')
+            intValue = self.chanNumEdit.value()
+            strValue = '%04d' % intValue
+            newWeights = [int(ch) / 9.0 for ch in strValue]
+            newWeights = ([0] * (len(curWeights) - len(newWeights))) + newWeights
+            print('Tower weights: %s, replacing with %s' % (str(curWeights), str(newWeights)))
+            self.netWrapper.setVariableValue('tower_weights', newWeights)
+            self.activationCache.clear()
+        except Exception as ex:
+            self.infoLabel.setText('Error on weights set: %s' % str(ex))
 
     class TLearningCallback(MnistNetVisWrapper.CBaseLearningCallback):
         def __init__(self, parent, curEpochNum):
@@ -2320,6 +2481,8 @@ if __name__ == "__main__":
         # mainWindow.onShowSortedChanActivationsPressed()
         # mainWindow.onSpinBoxValueChanged()
         # mainWindow.calcMultActTops_MultiThreaded()
+        # mainWindow.onGradientsByImagesPressed()
+        # mainWindow.onShowWorstImagesPressed()
     else:
         mainWindow.fastInit()
     # mainWindow.paintRect()
