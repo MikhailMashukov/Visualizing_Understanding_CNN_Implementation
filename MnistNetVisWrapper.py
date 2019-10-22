@@ -479,7 +479,7 @@ class CMnistVisWrapper3_Towers(CMnistVisWrapper):
         return ['conv_1', 'conv_2', 'conv_3', 'conv_4',
                 'conv_5', 'add_23',
                 'conv_4_adds', # 'conv_2_0', 'conv_3_0',
-                'dense_1', 'dense_2', 'softmax']
+                'dense_1', 'dense_2', 'dense_3', 'softmax']
 
     def getComponentNetLayers(self):
         l1 = ['conv_1_common']

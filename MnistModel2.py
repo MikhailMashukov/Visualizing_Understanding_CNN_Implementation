@@ -37,6 +37,15 @@ def cut_image_tensor(x0, xk, y0, yk, **kwargs):
 
     return Lambda(f, output_shape=lambda input_shape: g(input_shape), **kwargs)
 
+def pow(y, **kwargs):
+    def f(X):
+        output = K.pow(K.abs(X), y)
+        return output
+
+    def g(input_shape):
+        return input_shape
+
+    return Lambda(f, output_shape=lambda input_shape: input_shape, **kwargs)
 
 # MNIST model like CMnistRecognitionNet.MyModel, but made in the same style as alexnet
 def CMnistModel2(weights_path=None):
@@ -150,8 +159,8 @@ def CMnistModel3_Towers(weights_path=None):
         if additLayerCount < 1:
             last_tower_convs.append(t_conv_2)
         else:
-            # t_conv_3 = BatchNormalization()(t_conv_2)
-            t_conv_3 = Dropout(0.3)(t_conv_2)
+            t_conv_3 = BatchNormalization()(t_conv_2)
+            # t_conv_3 = Dropout(0.3)(t_conv_2)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = Conv2D(8, 3, padding='same', strides=(1, 1),
                               activation='relu', name='conv_3_%d' % towerInd,
@@ -183,7 +192,7 @@ def CMnistModel3_Towers(weights_path=None):
 
     conv_last = Concatenate(axis=3, name='conv_%d_adds' % (2 + additLayerCount))(last_tower_convs)
         # This layer produces 8*1 gradients tensor, so special conv_2/3 was added
-    conv_last = Conv2D(32, 1, strides=(1, 1), activation='relu',
+    conv_last = Conv2D(32, 2, strides=(1, 1), activation='relu',
                        name='conv_%d' % (3 + additLayerCount))(conv_last)
 
     # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
@@ -198,12 +207,19 @@ def CMnistModel3_Towers(weights_path=None):
     dense_1 = BatchNormalization()(conv_last)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(64, activation='relu', name='dense_1')(dense_1)
+    dense_1 = Dense(96, activation='relu', name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)
     dense_2 = Dropout(0.3)(dense_1)
-    dense_2 = Dense(10, name='dense_2')(dense_2)
-    prediction = Activation("softmax", name="softmax")(dense_2)
+    dense_2 = Dense(32, name='dense_2')(dense_2)
+
+    # dense_3 = BatchNormalization()(dense_2)
+    dense_3 = Dropout(0.3)(dense_2)
+    dense_3 = Dense(10, name='dense_3')(dense_3)
+    # y = K.variable(value=2.0)
+    # meaner=Lambda(lambda x: K.mean(x, axis=1) )
+    # p = Lambda(f, output_shape=lambda input_shape: g(input_shape), **kwargs)
+    prediction = Activation("softmax", name="softmax")(pow(1.5)(dense_3))
 
     model = Model(inputs=[inputs, towerWeights], outputs=prediction)
     print(model.summary())
@@ -341,8 +357,8 @@ def CMnistModel4_Matrix(weights_path=None):
     dense_1 = Flatten(name="flatten")(dense_1)
     dense_1 = Dense(128, activation='relu', name='dense_1')(dense_1)
 
-    dense_2 = BatchNormalization()(dense_1)
-    # dense_2 = Dropout(0.3)(dense_1)
+    # dense_2 = BatchNormalization()(dense_1)
+    dense_2 = Dropout(0.3)(dense_1)
     dense_2 = Dense(10, name='dense_2')(dense_2)
     prediction = Activation("softmax", name="softmax")(dense_2)
 

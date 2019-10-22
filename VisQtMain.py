@@ -284,7 +284,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # curHorizWidget.addWidget(lineEdit)
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 999999)
-        spinBox.setValue(495)
+        spinBox.setValue(81)
         spinBox.valueChanged.connect(lambda: self.onSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
         self.imageNumEdit = spinBox
@@ -296,6 +296,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         button = QtGui.QPushButton('Show &act.', self)
         button.clicked.connect(self.onShowActivationsPressed)
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Act. est. by images', self)
+        button.clicked.connect(self.onShowActEstByImagesPressed)
+        button.setToolTip('Show activations estimations, one column per image')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('Show act. tops', self)     # Doesn't give interesting results
@@ -425,7 +430,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
                                                  #    hspace=0.3)
 
-        self.blockComboBox.setCurrentIndex(2)
+        # self.blockComboBox.setCurrentIndex(2)
+        self.blockComboBox.setCurrentIndex(7)
         # self.lastAction = self.onShowActTopsPressed   #d_
 
     def getTitleForWindow(self):
@@ -629,6 +635,73 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
 
         self.canvas.draw()
+
+    def onShowActEstByImagesPressed(self):
+        self.startAction(self.onShowActEstByImagesPressed)
+        epochNum = self.getSelectedEpochNum()
+        firstImageCount = max(100, self.getSelectedImageNum())
+        layerName = self.blockComboBox.currentText()
+
+        imagesActs = self.netWrapper.getImagesActivations_Batch(
+                layerName, range(1, firstImageCount + 1), epochNum)
+        self.showProgress('Activations: %s, max %.4f (%s)' % \
+                (str(imagesActs.shape), imagesActs.max(),
+                 str([int(v[0]) for v in np.where(imagesActs == imagesActs.max())])))
+        ests = self.getEstimations(imagesActs)
+
+        self.clearFigure()
+        # ax = self.getMainSubplot()
+
+        # ax = self.figure.add_subplot(self.gridSpec[0, 0])
+
+        data2 = imagesActs.transpose([1, 0] + list(range(2, len(imagesActs.shape))))
+        self.showGradients(ests.transpose([1, 0]), data2, False)
+        # self.showGradients(ests, imagesActs, True)  # Transpose will be made inside, but also undesirable log10
+
+        # if len(imagesActs.shape) == 2:   # Dense level scalars
+        #
+        #     drawMode = 'map'
+        #     if len(activations.shape) == 2:   # Dense level scalars
+        #         if activations.shape[1] < 50:
+        #             drawMode = 'plot'
+        #             activations = activations.flatten()
+        #         else:
+        #             activations = np.reshape(activations, [activations.shape[1], 1, 1])
+        #             margin = 0
+        #     else:
+        #         activations = self.getChannelsToAnalyze(activations[0])
+        #         margin = self.c_channelMargin
+        #
+        #     im = ax.imshow(activations.transpose(), cmap='plasma')
+        #     colorBar = self.figure.colorbar(im, ax=ax)
+        #
+        #     if not stdData is None:
+        #         self.showImage(ax, stdData.transpose())
+        # else:
+        #     self.figure.set_tight_layout(True)
+        #
+        #     # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
+        #     if drawMode == 'map':
+        #         colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
+        #         data = layoutLayersToOneImage(np.sqrt(activations),
+        #                                       colCount, margin)
+        #         ax.imshow(data, cmap='plasma')
+        #
+        #
+        # self.canvas.draw()
+
+    def getEstimations(self, imagesActs):
+        shape = imagesActs.shape
+        if len(shape) == 2:
+            return imagesActs
+        else:
+            data = abs(imagesActs)
+            # counts = np.zeros(shape)
+            # counts[data >= 0.1] = 1
+            # counts = np.sum(counts, axis=tuple(range(2, len(shape))))
+            counts = np.count_nonzero(data >= 0.05, axis=tuple(range(2, len(shape))))
+            means = np.mean(imagesActs, axis=tuple(range(2, len(shape))))
+            return np.concatenate([counts, means], axis=1)
 
     def onShowActTopsPressed(self):       # It would be desirable to move into MultActTops, but this requires time and the code is not necessary
         self.startAction(self.onShowActTopsPressed)
@@ -1057,6 +1130,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             data = np.mean(data, axis=(1))
         else:
             data = np.abs(self.netWrapper.getGradients(layerName, 1, firstImageCount, epochNum, True))
+
+        self.showProgress('Gradients: %s, max %.4f (%s)' % \
+                (str(data.shape), data.max(), str([int(v[0]) for v in np.where(data == data.max())])))
         self.showGradients(data, data2, epochNum == self.AllEpochs)
 
     def onGradientsByImagesPressed(self):
@@ -1082,26 +1158,22 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             data2 = np.mean(data, axis=(2))    # Averaging by other convolution channels dimension out of 2
         data = np.mean(data, axis=(1))
         # data = np.log10(data)
+        self.showProgress('Gradients: %s, max %.4f (%s)' % \
+                (str(data.shape), data.max(), str([int(v[0]) for v in np.where(data == data.max())])))
         self.showGradients(data, data2, True)
 
     # MultipleObjects means that many images or epochs will be depicted, so a logarithm should be shown
     def showGradients(self, data, data2, multipleObjects):
-        self.showProgress('Gradients: %s, max %.4f (%s)' % \
-                (str(data.shape), data.max(), str([int(v[0]) for v in np.where(data == data.max())])))
         stdData = None
         drawMode = 'map'
         shape = data.shape
-        if len(shape) == 4:
+        if len(shape) >= 3:
             # data = np.reshape(data, (shape[0] * shape[1], shape[2], shape[3]))
-            stdData = np.std(data, axis=(2, 3))
-            data = np.mean(data, axis=(2, 3))
-            if not data2 is None:
-                data2 = np.mean(data2, axis=(2, 3))
-        elif len(shape) == 3:
-            stdData = np.std(data, axis=(2))
-            data = np.mean(data, axis=(2))
-            if not data2 is None:
-                data2 = np.mean(data2, axis=(2))
+            restAxis = tuple(range(2, len(data.shape)))
+            stdData = np.std(data, axis=restAxis)
+            data = np.mean(data, axis=restAxis)
+        if not data2 is None and len(data2.shape) >= 3:
+            data2 = np.mean(data2, axis=tuple(range(2, len(data2.shape))))
 
         shape = data.shape
         if len(shape) == 2:
@@ -1117,11 +1189,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             margin = self.c_channelMargin
 
         if multipleObjects and len(data.shape) >= 2:
-            data = data.transpose([1, 0] + list(data.shape[2:]))
+            data = data.transpose([1, 0] + list(range(2, len(data.shape))))
             if not stdData is None:
-                stdData = stdData.transpose([1, 0] + list(stdData.shape[2:]))
+                stdData = stdData.transpose([1, 0] + list(range(2, len(stdData.shape))))
             if not data2 is None:
-                data2 = data2.transpose([1, 0] + list(data2.shape[2:]))
+                data2 = data2.transpose([1, 0] + list(range(2, len(data2.shape))))
 
         print("Data transformed")
         self.clearFigure()
@@ -1133,11 +1205,13 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                                           colCount, margin, 0)
             im = ax.imshow(data, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
+            ax.title.set_text('Sqrt')
         elif drawMode == '2d':
             if multipleObjects:
                 data = np.abs(data)
                 data[data < 1e-15] = 1e-15
                 data = np.log10(data)
+                ax.title.set_text('Log10')
             im = ax.imshow(data, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
         else:
@@ -1275,15 +1349,17 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onEpochComboBoxChanged(self):
         # if getCpuCoreCount() > 4 and
         if self.lastAction in [self.onShowMultActTopsPressed, self.onGradientsByImagesPressed,
-                               self.onShowWorstImagesPressed]:
+                               self.onShowActEstByImagesPressed, self.onShowWorstImagesPressed]:
             self.lastAction()
         else:
             self.onSpinBoxValueChanged()   # onDisplayPressed()
 
     def onBlockChanged(self):
-        if self.lastAction in [self.onShowImagePressed, self.onShowActivationsPressed, self.onShowActTopsPressed]:
+        if self.lastAction in [self.onShowImagePressed,
+                               self.onShowActivationsPressed, self.onShowActTopsPressed]:
             self.onSpinBoxValueChanged()
-        elif self.lastAction in [self.onShowGradientsPressed, self.onGradientsByImagesPressed] and \
+        elif self.lastAction in [self.onShowActEstByImagesPressed,
+                                 self.onShowGradientsPressed, self.onGradientsByImagesPressed] and \
                 self.getSelectedEpochNum() and self.getSelectedEpochNum() > 0:
             self.lastAction()
 
