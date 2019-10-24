@@ -196,7 +196,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                 return False
         return True
 
-    def buildMultActTopsImage(self, bestSourceCoords, processedImageCount=None):
+    def prepareMultActTopsImageData(self, bestSourceCoords, processedImageCount=None):
         if processedImageCount is None:
             processedImageCount = self.imageToProcessCount
         sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(self.layerName)
@@ -229,6 +229,13 @@ class CMultActTopsCalculator(TMultActOpsOptions):
 
         resultList = padImagesToMax(resultList, imageBorderValue)
         data = np.stack(resultList, axis=0)
+        return data
+
+    def buildMultActTopsImage(self, bestSourceCoords, processedImageCount=None):
+        data = self.prepareMultActTopsImageData(bestSourceCoords, processedImageCount)
+        if data is None:
+            return None
+
         chanBorderValue = 1 if data.dtype == np.float32 else 255
         data = layoutLayersToOneImage(data, self.colCount, self.c_channelMargin_Top, chanBorderValue)
         print("Top activations image built")

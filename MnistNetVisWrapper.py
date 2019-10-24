@@ -369,7 +369,7 @@ class CMnistVisWrapper:
             print("Error in loadCacheState: %s" % str(ex))
 
     def loadState(self, epochNum=-1):
-        try:
+        # try:
             # self.loadCacheState()
             if self.net is None:
                 self._initMainNet()
@@ -377,8 +377,8 @@ class CMnistVisWrapper:
                 raise Exception('Learning is in progress')
             self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             self.curEpochNum = epochNum
-        except Exception as ex:
-            print("Error in loadState: %s" % str(ex))
+        # except Exception as ex:
+        #     print("Error in loadState: %s" % str(ex))
 
     def getCacheStatusInfo(self):
         return '%.2f MBs' % \

@@ -63,6 +63,89 @@ from VisUtils import *
 # from PersistDiagram import *
 # from PriceHistory import *
 
+# Returns two groups most distant points count / 2 each
+# among N points in N * 2 coords array
+def getMostDistantPoints(coords, count):
+    # Converting to polar coordinates
+    center = np.mean(coords, axis=0)
+    deltas = coords - center[np.newaxis, :]
+    dists = np.sqrt(np.square(deltas[:, 0]) + np.square(deltas[:, 1]))       # R
+    angles = np.arctan(deltas[:, 1] / deltas[: , 0])                         # Theta
+    angles[deltas[:, 0] < 0] += math.pi
+
+    # assert count <= coords.shape[0] * 4 / 5
+    anglePartCount = 16
+    angleParts = np.array(np.floor((angles / math.pi + 0.5) / 2 * anglePartCount), dtype=int) % anglePartCount
+    # angleParts[deltas[:, 1] > 0] = 0
+    # np.sort(np.stack([angles, angleParts], 1), 0)
+    assert angleParts.min() >= 0 and angleParts.max() < anglePartCount
+    countByAngles = [0] * anglePartCount
+    sortedByDistInds = dists.argsort()
+    moreDistantInds = sortedByDistInds[coords.shape[0] // 3 : ]
+    for i in moreDistantInds:
+        countByAngles[angleParts[i]] += 1
+    # c = coords[moreDistantInds]
+
+    maxEst = 0
+    for i in range(anglePartCount // 2):
+        curEst = countByAngles[i] + countByAngles[i + anglePartCount // 2] + \
+                min(countByAngles[i], countByAngles[i + anglePartCount // 2])
+        if maxEst < curEst:
+            maxEst = curEst
+            selectedAngleParts = [i, i + anglePartCount // 2]
+            # selectedAngle = (i / float(anglePartCount) - 0.5) * math.pi
+
+    groups = [[], []]
+    groupSize = count // 2
+    anglePartDelta = 1
+    while len(groups[0]) < groupSize or len(groups[1]) < groupSize:
+        # if anglePartDelta == 0:
+        #     curAngleParts = selectedAngleParts
+        # else:
+        curAngleParts = [[(selectedAngleParts[0] + anglePartDelta) % anglePartCount,
+                              (selectedAngleParts[0] - anglePartDelta + anglePartCount) % anglePartCount],
+                             [(selectedAngleParts[1] + anglePartDelta) % anglePartCount,
+                              (selectedAngleParts[1] - anglePartDelta + anglePartCount) % anglePartCount]]
+        if anglePartDelta == 1:
+            curAngleParts[0].append(selectedAngleParts[0])
+            curAngleParts[1].append(selectedAngleParts[1])
+        for i in reversed(moreDistantInds):
+            if angleParts[i] in curAngleParts[0]:
+                if len(groups[0]) < groupSize:
+                    groups[0].append(i)
+                    # groups[0].append(coords[i])
+            elif angleParts[i] in curAngleParts[1]:
+                if len(groups[1]) < groupSize:
+                    groups[1].append(i)
+                    # groups[1].append(coords[i])
+        # c0 = coords[groups[0]]
+        # c1 = coords[groups[1]]
+        print('Angles %s: %d' % (str(curAngleParts[0]), len(groups[0])))
+        print('Angles 2 %s: %d' % (str(curAngleParts[1]), len(groups[1])))
+
+        # if len(groups[0]) * 3 < len(groups[1]):
+        #     for i in reversed(sortedByDistInds[coords.shape[0] * 2 // 3 : coords.shape[0] // 3]):
+        #         if angleParts[i] in curAngleParts[0]:
+        #             groups[0].append(i)
+        # elif len(groups[1]) * 3 < len(groups[0]):
+        #     for i in reversed(sortedByDistInds[coords.shape[0] * 2 // 3 : coords.shape[0] // 3]):
+        #         if angleParts[i] in curAngleParts[1]:
+        #             groups[1].append(i)
+
+        print('Angles %s: %d' % (str(curAngleParts[0]), len(groups[0])))
+        print('Angles 2 %s: %d' % (str(curAngleParts[1]), len(groups[1])))
+        anglePartDelta += 1
+    angleParts = np.array(np.floor((angles / math.pi + 0.5) * anglePartCount), dtype=int) % anglePartCount
+    groups.append(np.array(np.floor((angles / math.pi + 0.5) / 2 * anglePartCount), dtype=int) % anglePartCount)
+    groups.append(angleParts)
+    groups.append(moreDistantInds[-groupSize : ])
+    groups.append(moreDistantInds[-groupSize * 3 : -groupSize])
+    return groups
+
+    # anglePartSize = math.pi / anglePartCount
+    # countByAngles = [0] * anglePartCount
+    # for i in range(anglePartCount - 1):
+
 
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     c_channelMargin = 2
@@ -301,6 +384,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button = QtGui.QPushButton('Act. est. by images', self)
         button.clicked.connect(self.onShowActEstByImagesPressed)
         button.setToolTip('Show activations estimations, one column per image')
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('t-SNE', self)
+        button.clicked.connect(self.onShowImagesWithTSnePressed)
+        button.setToolTip('Show images, distributed in accordance with activations t-SNE')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('Show act. tops', self)     # Doesn't give interesting results
@@ -654,41 +742,192 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         # ax = self.figure.add_subplot(self.gridSpec[0, 0])
 
-        data2 = imagesActs.transpose([1, 0] + list(range(2, len(imagesActs.shape))))
+        if 1:
+            (ests, data2) = self.sortEstimations(ests, imagesActs)
+        else:
+            data2 = imagesActs
+        data2 = data2.transpose([1, 0] + list(range(2, len(imagesActs.shape))))
         self.showGradients(ests.transpose([1, 0]), data2, False)
         # self.showGradients(ests, imagesActs, True)  # Transpose will be made inside, but also undesirable log10
 
-        # if len(imagesActs.shape) == 2:   # Dense level scalars
-        #
-        #     drawMode = 'map'
-        #     if len(activations.shape) == 2:   # Dense level scalars
-        #         if activations.shape[1] < 50:
-        #             drawMode = 'plot'
-        #             activations = activations.flatten()
-        #         else:
-        #             activations = np.reshape(activations, [activations.shape[1], 1, 1])
-        #             margin = 0
-        #     else:
-        #         activations = self.getChannelsToAnalyze(activations[0])
-        #         margin = self.c_channelMargin
-        #
-        #     im = ax.imshow(activations.transpose(), cmap='plasma')
-        #     colorBar = self.figure.colorbar(im, ax=ax)
-        #
-        #     if not stdData is None:
-        #         self.showImage(ax, stdData.transpose())
-        # else:
-        #     self.figure.set_tight_layout(True)
-        #
-        #     # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
-        #     if drawMode == 'map':
-        #         colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
-        #         data = layoutLayersToOneImage(np.sqrt(activations),
-        #                                       colCount, margin)
-        #         ax.imshow(data, cmap='plasma')
-        #
-        #
-        # self.canvas.draw()
+    def onShowImagesWithTSnePressed(self):
+        self.startAction(self.onShowImagesWithTSnePressed)
+        epochNum = self.getSelectedEpochNum()
+        firstImageCount = max(300, self.getSelectedImageNum())
+        layerName = self.blockComboBox.currentText()
+
+        imagesActs = self.netWrapper.getImagesActivations_Batch(
+                layerName, range(1, firstImageCount + 1), epochNum)
+        self.showProgress('Activations: %s, max %.4f (%s)' % \
+                (str(imagesActs.shape), imagesActs.max(),
+                 str([int(v[0]) for v in np.where(imagesActs == imagesActs.max())])))
+        ests = self.getEstimations(imagesActs)
+
+        if 1:
+            self.showTSneByImages(ests, firstImageCount)
+        else:
+            self.showTSneByChannels(ests)
+
+    def showTSneByImages(self, ests, firstImageCount):
+        from sklearn.manifold import TSNE
+
+        tsne = TSNE(n_components=2, verbose=9, perplexity=40, n_iter=250, random_state=1)
+        # for iterCount in range(250, 2000000, 50):
+        iterCount = 250
+        while iterCount < 6000000:
+            tsne.n_iter = iterCount
+            tsne.n_iter_without_progress = 250
+            tsneCoords = tsne.fit_transform(ests)
+            self.showProgress('T-SNE: %d iterations made' % iterCount)
+
+            ax = self.getMainSubplot()
+            ax.clear()
+            (extent, imageSize) = self.getTsneResultsExtent(tsneCoords)
+            selectedImageInds = getMostDistantPoints(tsneCoords, tsneCoords.shape[0] // 4)
+            np.savetxt('Data/DistantImageNums1.txt', selectedImageInds[0], fmt='%d', delimiter='')
+            np.savetxt('Data/DistantImageNums2.txt', selectedImageInds[1], fmt='%d', delimiter='')
+
+            for i, coords in enumerate(tsneCoords):
+                imageNum = i + 1
+                imageData = self.imageDataset.getImage(imageNum, 'cropped')
+                imageData = np.squeeze(imageData, axis=2)
+                ax.imshow(imageData, cmap='Greys_r', alpha=0.05,
+                          extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
+            for j in range(0 * max(len(selectedImageInds[0]), len(selectedImageInds[1]))):
+                if j < len(selectedImageInds[0]):
+                    imageNum = selectedImageInds[0][j] + 1
+                    imageData = self.imageDataset.getImage(imageNum, 'cropped')
+                    imageData = np.squeeze(imageData, axis=2)
+                    coords = tsneCoords[imageNum - 1]
+                    ax.imshow(imageData, cmap='Greys_r', alpha=0.35,
+                              extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
+                    ax.imshow(imageData, cmap='Greys_r', alpha=0,
+                              extent=extent)
+                    self.canvas.draw()
+                    self.showProgress('Selected 0 %d' % j)
+
+                if j < len(selectedImageInds[1]):
+                    imageNum = selectedImageInds[1][j] + 1
+                    imageData = self.imageDataset.getImage(imageNum, 'cropped')
+                    imageData = np.squeeze(imageData, axis=2)
+                    coords = tsneCoords[imageNum - 1]
+                    ax.imshow(imageData, cmap='plasma', alpha=0.35,
+                              extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
+
+
+            for imageInd in selectedImageInds[0]:
+                imageNum = imageInd + 1
+                imageData = self.imageDataset.getImage(imageNum, 'cropped')
+                imageData = np.squeeze(imageData, axis=2)
+                coords = tsneCoords[imageInd]
+                ax.imshow(imageData, cmap='Greys_r', alpha=0.35,
+                          extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
+            for imageInd in selectedImageInds[1]:
+                imageNum = imageInd + 1
+                imageData = self.imageDataset.getImage(imageNum, 'cropped')
+                imageData = np.squeeze(imageData, axis=2)
+                coords = tsneCoords[imageInd]
+                ax.imshow(imageData, cmap='plasma', alpha=0.35,
+                          extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
+
+            ax.imshow(imageData, cmap='Greys_r', alpha=0,
+                      extent=extent)
+
+            ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            ax.clear()
+            labels = np.array(self.imageDataset.getNetSource()[1][:firstImageCount], dtype=float)
+            labels = np.array(selectedImageInds[2], dtype=float)
+            # ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='plasma')
+            ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='Blues')
+
+            self.canvas.draw()
+            self.showProgress('T-SNE: %d iterations displayed' % iterCount)
+            if self.cancelling or self.exiting:
+                return
+            iterCount = int(iterCount * 1.2)
+            # iterCount += 50
+
+    def showTSneByChannels(self, ests):
+        from sklearn.manifold import TSNE
+
+        self.needShowCurMultActTops = False
+        calculator = self.fillMainMultActTopsOptions()
+        calculator.chanCount = ests.shape[1]
+        if not calculator.checkMultActTopsInCache():
+            (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
+        else:
+            (bestSourceCoords, processedImageCount) = (None, None)
+        chanImages = calculator.prepareMultActTopsImageData(bestSourceCoords, processedImageCount)
+        chanImages = np.squeeze(chanImages, axis=3)
+        # resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+
+        tsne = TSNE(n_components=2, verbose=9, perplexity=30, n_iter=250, random_state=1)
+        # for iterCount in range(250, 2000000, 50):
+        iterCount = 250
+        assert len(ests.shape) == 2
+        tsneData = np.transpose(ests)
+        while iterCount < 1000000:
+            tsne.n_iter = iterCount
+            tsne.n_iter_without_progress = 250
+            tsneCoords = tsne.fit_transform(tsneData)
+            self.showProgress('T-SNE: %d iterations made' % iterCount)
+
+            ax = self.getMainSubplot()
+            ax.clear()
+            (extent, imageSize) = self.getTsneResultsExtent(tsneCoords)
+            for chanInd, coords in enumerate(tsneCoords):
+                imageData = chanImages[chanInd]
+                ax.imshow(imageData, cmap='Greys_r', alpha=0.5,
+                          extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
+
+            ax.imshow(imageData, cmap='Greys_r', alpha=0,
+                      extent=extent)
+                    # (tsneCoords[:, 0].min(), tsneCoords[:, 0].max() + imageSize,
+                    #  tsneCoords[:, 1].min(), tsneCoords[:, 1].max() + imageSize))
+
+            # ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            # ax.clear()
+            # labels = np.array(self.imageDataset.getNetSource()[1][:firstImageCount], dtype=float)
+            # ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='plasma')
+
+            self.canvas.draw()
+            self.showProgress('T-SNE: %d iterations displayed' % iterCount)
+            if self.cancelling or self.exiting:
+                return
+            # iterCount = int(iterCount * 1.25)
+            iterCount += 50
+
+    def getTsneResultsExtent(self, tsneCoords):
+        c_extentSkipCount = 5
+        c_maxEnlargeMult = 0.1
+
+        # Skipping first most distant (min and max x and y) points
+        # and then returning those of them which are not too far
+        sortedXs = np.sort(tsneCoords[:, 0])
+        sortedYs = np.sort(tsneCoords[:, 1])
+        extentWidth = sortedXs[-c_extentSkipCount] - sortedXs[c_extentSkipCount]
+        extentHeight = sortedYs[-c_extentSkipCount] - sortedYs[c_extentSkipCount]
+        # extent = (sortedXs[c_extentSkipCount], sortedXs[-c_extentSkipCount],
+        #           sortedYs[c_extentSkipCount], sortedYs[-c_extentSkipCount])
+        imageSize = max(extentWidth, extentHeight) / \
+                math.sqrt(tsneCoords.shape[0]) / 2
+        extent = [sortedXs[c_extentSkipCount], sortedXs[-c_extentSkipCount],
+                  sortedYs[c_extentSkipCount], sortedYs[-c_extentSkipCount]]
+        for i in range(c_extentSkipCount - 1, -1, -1):
+            if extent[0] - extentWidth * c_maxEnlargeMult <= sortedXs[i]:
+                extent[0] = sortedXs[i]
+            if extent[1] + extentWidth * c_maxEnlargeMult >= sortedXs[-i - 1]:
+                extent[1] = sortedXs[-i - 1]
+            if extent[2] - extentWidth * c_maxEnlargeMult <= sortedYs[i]:
+                extent[2] = sortedYs[i]
+            if extent[3] + extentWidth * c_maxEnlargeMult >= sortedYs[-i - 1]:
+                extent[3] = sortedYs[-i - 1]
+        extent[1] += imageSize
+        extent[3] += imageSize
+        # center = ((sortedXs[-c_extentSkipCount] + sortedXs[c_extentSkipCount]) / 2,
+        #           (sortedXs[-c_extentSkipCount] + sortedXs[c_extentSkipCount]) / 2,
+        # extent = ((sortedXs[-c_extentSkipCount] + sortedXs[c_extentSkipCount])
+        return (extent, imageSize)
 
     def getEstimations(self, imagesActs):
         shape = imagesActs.shape
@@ -699,9 +938,31 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             # counts = np.zeros(shape)
             # counts[data >= 0.1] = 1
             # counts = np.sum(counts, axis=tuple(range(2, len(shape))))
-            counts = np.count_nonzero(data >= 0.05, axis=tuple(range(2, len(shape))))
+            counts = np.count_nonzero(data >= 0.2, axis=tuple(range(2, len(shape))))
             means = np.mean(imagesActs, axis=tuple(range(2, len(shape))))
             return np.concatenate([counts, means], axis=1)
+
+    def sortEstimations(self, ests, imagesActs):
+        # First dimension here is images
+
+        if 0:
+            # Sorting by sum of estimations
+            sum = np.sum(ests, axis=1)
+            newInds = sum.argsort()
+            ests = ests[newInds, :]
+            # imagesActs = ests[np.sum(imagesActs, axis=1).argsort(), :]
+            imagesActs = imagesActs[newInds, :]
+        else:
+            firstImageCount = ests.shape[0]
+            labels = np.array(self.imageDataset.getNetSource()[1][:firstImageCount], dtype=float)
+            mean = np.mean(ests, axis=1)
+            mean -= mean.min()
+            labels += mean / (mean.max() + 1e-15) / 2
+            newInds = labels.argsort()
+            ests = ests[newInds]
+            imagesActs = imagesActs[newInds]
+
+        return (ests, imagesActs)
 
     def onShowActTopsPressed(self):       # It would be desirable to move into MultActTops, but this requires time and the code is not necessary
         self.startAction(self.onShowActTopsPressed)
@@ -2511,13 +2772,16 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 import signal
 
 app = None
+mainWindow = None
 
 def sigint_handler(*args):
-    global app
+    # global app
+    global mainWindow
 
     """Handler for the SIGINT signal."""
     sys.stderr.write('Exiting\n')
-    app.exiting = True
+    # app.exiting = True
+    mainWindow.exiting = True
     QtGui.QApplication.quit()
 
 if __name__ == "__main__":
@@ -2530,6 +2794,7 @@ if __name__ == "__main__":
 
     # app.use('pyside')
     app = QtGui.QApplication(sys.argv)
+    # app.exiting = False
 
     signal.signal(signal.SIGINT, sigint_handler)
     timer = QtCore.QTimer()
@@ -2559,6 +2824,7 @@ if __name__ == "__main__":
         # mainWindow.calcMultActTops_MultiThreaded()
         # mainWindow.onGradientsByImagesPressed()
         # mainWindow.onShowWorstImagesPressed()
+        mainWindow.onShowImagesWithTSnePressed()
     else:
         mainWindow.fastInit()
     # mainWindow.paintRect()
