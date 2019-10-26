@@ -61,24 +61,24 @@ class CMnistRecognitionNet:
 
 
     def __init__(self):
-        self.mnist = None
+        self.mnistDataset = None
         self.timeMeasureGroupSize = 20
         self.createModel()
 
     def init(self, mnistDataset, logDir):
-        self.mnist = mnistDataset
+        self.mnistDataset = mnistDataset
         self.logDir = logDir
 
-        # (x_train, y_train), (x_test, y_test) = self.mnist.load_data()
+        # (x_train, y_train), (x_test, y_test) = self.mnistDataset.load_data()
 
         # Add a channels dimension
-        # self.mnist.train.images = self.mnist.train.images[..., tf.newaxis]
-        # self.mnist.test.images  = self.mnist.test.images[..., tf.newaxis]
+        # self.mnistDataset.train.images = self.mnistDataset.train.images[..., tf.newaxis]
+        # self.mnistDataset.test.images  = self.mnistDataset.test.images[..., tf.newaxis]
 
         self.train_ds = tf.data.Dataset.from_tensor_slices(
-                self.mnist.getNetSource('train')).shuffle(5000).batch(32)
+                self.mnistDataset.getNetSource('train')).shuffle(5000).batch(32)
         self.test_ds = tf.data.Dataset.from_tensor_slices(
-                self.mnist.getNetSource('test')).batch(32)
+                self.mnistDataset.getNetSource('test')).batch(32)
 
         # self.train_writer = tf.compat.v1.summary.FileWriter(self.logDir + '/train', sess.graph)
         # self.tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.logDir, histogram_freq=1)
@@ -241,8 +241,8 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         from keras.callbacks import TensorBoard
 
         # epochCount = int(math.ceil(iterCount / 100))
-        # fullDataset = self.mnist.getNetSource('train')
-        # fullTestDataset = self.mnist.getNetSource('test')
+        # fullDataset = self.mnistDataset.getNetSource('train')
+        # fullTestDataset = self.mnistDataset.getNetSource('test')
         fullDatasetImageCount = fullDataset[0].shape[0]
         if epochImageCount is None:
             epochImageCount = fullDatasetImageCount
@@ -275,7 +275,7 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
                 write_graph=False, write_grads=False, write_images=1,    # batch_size=32,
                 embeddings_freq=0, embeddings_layer_names=None, embeddings_metadata=True, embeddings_data=None,
                 update_freq='epoch')
-        summaryCallback = MnistModel2.CSummaryWriteCallback(self.mnist,
+        summaryCallback = MnistModel2.CSummaryWriteCallback(self.mnistDataset,
                 self.train_writer, self.test_writer,
                 int(initialEpochNum * fullDataset[0].shape[0] / self.batchSize),
                 learningCallback)
@@ -309,7 +309,7 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         import keras.losses
 
         batchSize = min(getCpuCoreCount() * 64, 384)
-        fullDataset = self.mnist.getNetSource('train')
+        fullDataset = self.mnistDataset.getNetSource('train')
         fullDatasetImageCount = fullDataset[0].shape[0]
         if imageCount is None:
             imageCount = fullDatasetImageCount

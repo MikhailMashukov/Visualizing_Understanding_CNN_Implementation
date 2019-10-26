@@ -73,18 +73,14 @@ def getMostDistantPoints(coords, count):
     angles = np.arctan(deltas[:, 1] / deltas[: , 0])                         # Theta
     angles[deltas[:, 0] < 0] += math.pi
 
-    # assert count <= coords.shape[0] * 4 / 5
     anglePartCount = 16
     angleParts = np.array(np.floor((angles / math.pi + 0.5) / 2 * anglePartCount), dtype=int) % anglePartCount
-    # angleParts[deltas[:, 1] > 0] = 0
-    # np.sort(np.stack([angles, angleParts], 1), 0)
     assert angleParts.min() >= 0 and angleParts.max() < anglePartCount
     countByAngles = [0] * anglePartCount
     sortedByDistInds = dists.argsort()
-    moreDistantInds = sortedByDistInds[coords.shape[0] // 3 : ]
+    moreDistantInds = sortedByDistInds[coords.shape[0] // 2 : ]
     for i in moreDistantInds:
         countByAngles[angleParts[i]] += 1
-    # c = coords[moreDistantInds]
 
     maxEst = 0
     for i in range(anglePartCount // 2):
@@ -118,33 +114,13 @@ def getMostDistantPoints(coords, count):
                 if len(groups[1]) < groupSize:
                     groups[1].append(i)
                     # groups[1].append(coords[i])
-        # c0 = coords[groups[0]]
-        # c1 = coords[groups[1]]
-        print('Angles %s: %d' % (str(curAngleParts[0]), len(groups[0])))
-        print('Angles 2 %s: %d' % (str(curAngleParts[1]), len(groups[1])))
-
-        # if len(groups[0]) * 3 < len(groups[1]):
-        #     for i in reversed(sortedByDistInds[coords.shape[0] * 2 // 3 : coords.shape[0] // 3]):
-        #         if angleParts[i] in curAngleParts[0]:
-        #             groups[0].append(i)
-        # elif len(groups[1]) * 3 < len(groups[0]):
-        #     for i in reversed(sortedByDistInds[coords.shape[0] * 2 // 3 : coords.shape[0] // 3]):
-        #         if angleParts[i] in curAngleParts[1]:
-        #             groups[1].append(i)
-
         print('Angles %s: %d' % (str(curAngleParts[0]), len(groups[0])))
         print('Angles 2 %s: %d' % (str(curAngleParts[1]), len(groups[1])))
         anglePartDelta += 1
-    angleParts = np.array(np.floor((angles / math.pi + 0.5) * anglePartCount), dtype=int) % anglePartCount
-    groups.append(np.array(np.floor((angles / math.pi + 0.5) / 2 * anglePartCount), dtype=int) % anglePartCount)
-    groups.append(angleParts)
+
     groups.append(moreDistantInds[-groupSize : ])
     groups.append(moreDistantInds[-groupSize * 3 : -groupSize])
     return groups
-
-    # anglePartSize = math.pi / anglePartCount
-    # countByAngles = [0] * anglePartCount
-    # for i in range(anglePartCount - 1):
 
 
 class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
@@ -286,9 +262,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.setToolTip('Run learning iterations')
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Iter. on worst', self)
-        button.clicked.connect(lambda: self.onDoItersOnWorstPressed(int(self.iterCountEdit.text())))
-        button.setToolTip('Run iterations on worst samples')
+        button = QtGui.QPushButton('Spec. iter.', self)
+        button.clicked.connect(lambda: self.onSpecialDoItersPressed(int(self.iterCountEdit.text())))
+        button.setToolTip('Run iterations on selected samples')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('+ learn. rate', self)
@@ -518,8 +494,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
                                                  #    hspace=0.3)
 
-        # self.blockComboBox.setCurrentIndex(2)
-        self.blockComboBox.setCurrentIndex(7)
+        self.blockComboBox.setCurrentIndex(1)
+        # self.blockComboBox.setCurrentIndex(7)
         # self.lastAction = self.onShowActTopsPressed   #d_
 
     def getTitleForWindow(self):
@@ -773,7 +749,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         tsne = TSNE(n_components=2, verbose=9, perplexity=40, n_iter=250, random_state=1)
         # for iterCount in range(250, 2000000, 50):
-        iterCount = 250
+        iterCount = 3000
         while iterCount < 6000000:
             tsne.n_iter = iterCount
             tsne.n_iter_without_progress = 250
@@ -793,27 +769,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                 imageData = np.squeeze(imageData, axis=2)
                 ax.imshow(imageData, cmap='Greys_r', alpha=0.05,
                           extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
-            for j in range(0 * max(len(selectedImageInds[0]), len(selectedImageInds[1]))):
-                if j < len(selectedImageInds[0]):
-                    imageNum = selectedImageInds[0][j] + 1
-                    imageData = self.imageDataset.getImage(imageNum, 'cropped')
-                    imageData = np.squeeze(imageData, axis=2)
-                    coords = tsneCoords[imageNum - 1]
-                    ax.imshow(imageData, cmap='Greys_r', alpha=0.35,
-                              extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
-                    ax.imshow(imageData, cmap='Greys_r', alpha=0,
-                              extent=extent)
-                    self.canvas.draw()
-                    self.showProgress('Selected 0 %d' % j)
-
-                if j < len(selectedImageInds[1]):
-                    imageNum = selectedImageInds[1][j] + 1
-                    imageData = self.imageDataset.getImage(imageNum, 'cropped')
-                    imageData = np.squeeze(imageData, axis=2)
-                    coords = tsneCoords[imageNum - 1]
-                    ax.imshow(imageData, cmap='plasma', alpha=0.35,
-                              extent=(coords[0], coords[0] + imageSize, coords[1], coords[1] + imageSize))
-
 
             for imageInd in selectedImageInds[0]:
                 imageNum = imageInd + 1
@@ -836,15 +791,15 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             ax = self.figure.add_subplot(self.gridSpec[0, 0])
             ax.clear()
             labels = np.array(self.imageDataset.getNetSource()[1][:firstImageCount], dtype=float)
-            labels = np.array(selectedImageInds[2], dtype=float)
-            # ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='plasma')
-            ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='Blues')
+            ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='plasma')
 
             self.canvas.draw()
             self.showProgress('T-SNE: %d iterations displayed' % iterCount)
+
             if self.cancelling or self.exiting:
                 return
             iterCount = int(iterCount * 1.2)
+            break
             # iterCount += 50
 
     def showTSneByChannels(self, ests):
@@ -938,7 +893,11 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             # counts = np.zeros(shape)
             # counts[data >= 0.1] = 1
             # counts = np.sum(counts, axis=tuple(range(2, len(shape))))
-            counts = np.count_nonzero(data >= 0.2, axis=tuple(range(2, len(shape))))
+            mean = np.mean(data)
+            # boundary = 0.2
+            boundary = mean / 2
+            counts = np.count_nonzero(data >= boundary, axis=tuple(range(2, len(shape))))
+
             means = np.mean(imagesActs, axis=tuple(range(2, len(shape))))
             return np.concatenate([counts, means], axis=1)
 
@@ -1652,8 +1611,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # callback.learnRate = float(self.learnRateEdit.text())
         options = QtMainWindow.TLearnOptions(float(self.learnRateEdit.text()))
         if not trainImageNums is None:
-            options.trainImageNums = trainImageNums
-            options.additTrainImageCount = max(1000, self.imageNumEdit.value()) - len(trainImageNums)
+            options.trainImageNums = np.array(trainImageNums, dtype=int)
+            options.additTrainImageCount = max(500, self.imageNumEdit.value()) - len(trainImageNums)
 
         infoStr = self.netWrapper.doLearning(iterCount, options, callback)
 
@@ -1685,13 +1644,20 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.onSpinBoxValueChanged()   # onDisplayPressed()
         self.showProgress(infoStr, False)
 
-    def onDoItersOnWorstPressed(self, iterCount):
-        imageNums = np.loadtxt('Data/SelectedWorstImageNums.txt', dtype=int, delimiter='\n')
-        imageNums = list(set(imageNums))
-        print('%d unique worst images numbers read' % len(imageNums))
-        # additImageCount = max(1000, self.imageNumEdit.value()) - len(imageNums)
-        # if additImageCount > 0:
-        #     imageNums = np.concatenate([imageNums, np.random.randint(low=1, high=20000, size=additImageCount)])
+    # def onDoItersOnWorstPressed(self, iterCount):
+    def onSpecialDoItersPressed(self, iterCount):
+        if 0:
+            imageNums = np.loadtxt('Data/SelectedWorstImageNums.txt', dtype=int, delimiter='\n')
+            imageNums = list(set(imageNums))
+            print('%d unique worst images numbers read' % len(imageNums))
+            # additImageCount = max(1000, self.imageNumEdit.value()) - len(imageNums)
+            # if additImageCount > 0:
+            #     imageNums = np.concatenate([imageNums, np.random.randint(low=1, high=20000, size=additImageCount)])
+        else:
+            imageNums = np.loadtxt('Data/ImageNums/DistantImageNums1_conv_5.txt', dtype=int, delimiter='\n')
+            imageNums = list(set(imageNums))
+            print('%d unique images numbers read' % len(imageNums))
+
         self.onDoItersPressed(iterCount, imageNums)
 
     # Expects number like 9990 at channel number spin box (each 0 to 9 - weight from 0 to 100%)
@@ -2824,7 +2790,7 @@ if __name__ == "__main__":
         # mainWindow.calcMultActTops_MultiThreaded()
         # mainWindow.onGradientsByImagesPressed()
         # mainWindow.onShowWorstImagesPressed()
-        mainWindow.onShowImagesWithTSnePressed()
+        # mainWindow.onShowImagesWithTSnePressed()
     else:
         mainWindow.fastInit()
     # mainWindow.paintRect()

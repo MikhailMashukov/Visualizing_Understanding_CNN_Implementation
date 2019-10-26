@@ -375,7 +375,11 @@ class CMnistVisWrapper:
                 self._initMainNet()
             if self.isLearning:
                 raise Exception('Learning is in progress')
-            self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
+
+            if hasattr(self.net.model, 'weightsModel'):
+                self.net.model.weightsModel.load_weights(self.weightsFileNameTempl % epochNum)
+            else:
+                self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             self.curEpochNum = epochNum
         # except Exception as ex:
         #     print("Error in loadState: %s" % str(ex))

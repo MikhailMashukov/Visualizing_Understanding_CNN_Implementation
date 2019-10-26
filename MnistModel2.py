@@ -2,7 +2,8 @@ import numpy as np
 import tensorflow as tf
 
 from keras.models import Model
-from keras.layers import Flatten, Dense, Dropout, Activation, Input, merge, Add, Concatenate, Multiply
+from keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
+        Activation, Input, merge, Add, Concatenate, Multiply
 from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
 from keras.layers.normalization import BatchNormalization
 from keras.layers.advanced_activations import ReLU
@@ -14,6 +15,7 @@ from keras import backend as K
 # from keras.utils import plot_model
 import keras.callbacks
 import keras.initializers
+import keras.regularizers
 
 # from alexnet_utils import preprocess_image_batch
 
@@ -114,10 +116,9 @@ def CMnistModel3_Towers(weights_path=None):
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(28, 28, 1))
 
-    conv_1 = Conv2D(16, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
-
     towerCount = 4
-    additLayerCount = 2
+    mult = 8
+    additLayerCount = 1
     # towerWeightsKerasVar = tf.Variable(np.ones([towerCount]), name='tower_weights')
     towerWeightsKerasVar = tf.compat.v1.Variable(np.ones([towerCount]) / 2, dtype=tf.float32, name='tower_weights')
     towerWeightsKerasVar._trainable = False    # "Doesn't help against Tensor.op is meaningless when eager execution is enabled."
@@ -127,6 +128,8 @@ def CMnistModel3_Towers(weights_path=None):
     # towerWeights = keras.layers.Layer(name='tower_weights')
     # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
+
+    conv_1 = Conv2D(mult * 8, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
 
     conv_1s = []     # Lists only for creating concatenated level for simple data extraction
     # conv_2s = []
@@ -141,7 +144,7 @@ def CMnistModel3_Towers(weights_path=None):
         # t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(
         #         inputs[:, x0 : x0 + 16, y0 : y0 + 16, :])
         t_input = cut_image_tensor(x0, x0 + 16, y0, y0 + 16)(inputs)
-        t_conv_1 = Conv2D(8, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
+        t_conv_1 = Conv2D(mult * 4, 5, strides=(2, 2), activation='relu', name='conv_1_%d' % towerInd)(t_input)
         conv_1s.append(t_conv_1)
 
         cut_main_conv_1 = cut_image_tensor(x0 // 2, x0 // 2 + 6, y0 // 2, y0 // 2 + 6)(conv_1)
@@ -151,7 +154,7 @@ def CMnistModel3_Towers(weights_path=None):
         # union = Concatenate(axis=3)([conv_1[:, x0 // 2 : x0 // 2 + 6, y0 // 2 : y0 // 2 + 6, :]])  # t_conv_1])
         union = Concatenate(axis=3)([cut_main_conv_1, t_conv_1])
         union_norm = BatchNormalization()(union)
-        t_conv_2 = Conv2D(8, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
+        t_conv_2 = Conv2D(mult * 4, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(union_norm)
             # Output - 4 * 4
         # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
         # conv_2s.append(t_conv_2)
@@ -162,8 +165,9 @@ def CMnistModel3_Towers(weights_path=None):
             t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = Conv2D(8, 3, padding='same', strides=(1, 1),
-                              activation='relu', name='conv_3_%d' % towerInd,
+            t_conv_3 = Conv2D(mult * 4, 3, padding='same', strides=(1, 1),
+                              activation='relu', activity_regularizer=keras.regularizers.l1(1e-6),
+                              name='conv_3_%d' % towerInd,
                               kernel_initializer=MyInitializer)(t_conv_3)
                 # Output - 4 * 4
             # conv_3s.append(t_conv_3)
@@ -176,8 +180,8 @@ def CMnistModel3_Towers(weights_path=None):
         else:
             t_conv_4 = BatchNormalization()(t_conv_3)
             # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
-            t_conv_4 = Conv2D(8, 3, padding='same', strides=(1, 1),
-                              # activation='relu',
+            t_conv_4 = Conv2D(mult * 4, 3, padding='same', strides=(1, 1),
+                              activation='relu', activity_regularizer=keras.regularizers.l1(0.03),
                               name='conv_4_%d' % towerInd,
                               kernel_initializer=MyInitializer)(t_conv_4)
                 # Output - 4 * 4
@@ -192,8 +196,9 @@ def CMnistModel3_Towers(weights_path=None):
 
     conv_last = Concatenate(axis=3, name='conv_%d_adds' % (2 + additLayerCount))(last_tower_convs)
         # This layer produces 8*1 gradients tensor, so special conv_2/3 was added
-    conv_last = Conv2D(32, 2, strides=(1, 1), activation='relu',
-                       name='conv_%d' % (3 + additLayerCount))(conv_last)
+    # conv_last = Conv2D(mult * 16, 2, strides=(1, 1),
+    #                    activation='relu', activity_regularizer=keras.regularizers.l1(0.03),
+    #                    name='conv_%d' % (3 + additLayerCount))(conv_last)
 
     # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
@@ -207,11 +212,12 @@ def CMnistModel3_Towers(weights_path=None):
     dense_1 = BatchNormalization()(conv_last)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(96, activation='relu', name='dense_1')(dense_1)
+    dense_1 = Dense(mult * 256, activation='relu', activity_regularizer=keras.regularizers.l1(2e-6),
+                    name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)
     dense_2 = Dropout(0.3)(dense_1)
-    dense_2 = Dense(32, name='dense_2')(dense_2)
+    dense_2 = Dense(mult * 16, name='dense_2')(dense_2)
 
     # dense_3 = BatchNormalization()(dense_2)
     dense_3 = Dropout(0.3)(dense_2)
@@ -219,7 +225,7 @@ def CMnistModel3_Towers(weights_path=None):
     # y = K.variable(value=2.0)
     # meaner=Lambda(lambda x: K.mean(x, axis=1) )
     # p = Lambda(f, output_shape=lambda input_shape: g(input_shape), **kwargs)
-    prediction = Activation("softmax", name="softmax")(pow(1.5)(dense_3))
+    prediction = Activation("softmax", name="softmax")(pow(1.2)(dense_3))
 
     model = Model(inputs=[inputs, towerWeights], outputs=prediction)
     print(model.summary())
@@ -240,9 +246,9 @@ def CMnistModel3_Towers(weights_path=None):
     model.debug_layers['conv_2'] = concatenateLayersByNameBegin(model, 'conv_2')
     if additLayerCount >= 1:
         model.debug_layers['conv_3'] = concatenateLayersByNameBegin(model, 'conv_3')
+        model.debug_layers['add_23'] = concatenateLayersByNameBegin(model, 'add_23')
     if additLayerCount >= 2:
         model.debug_layers['conv_4'] = concatenateLayersByNameBegin(model, 'conv_4')
-        model.debug_layers['add_23'] = concatenateLayersByNameBegin(model, 'add_23')
 
     return model
 
