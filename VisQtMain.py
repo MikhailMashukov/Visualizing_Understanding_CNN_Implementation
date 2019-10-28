@@ -13,7 +13,13 @@ in order to compensate decreasing of total outputs. But I tried this only with 8
 15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
 more and more conv_2 filters got stucked on the same favorite images
 16_4_Train8e-4_Test0.95e-3: maybe with further training test results improve even better,
-(with the initial learning rate) as for 16_5
+(with the initial learning rate) as for 16_5.
+
+Activity regularization doesn't seem to give better generalization. Training becomes much slower,
+even with big networks. Number of active neirons really becomes smaller. Default coefficients l1/l2 0.01
+simply kill training, values should be like 1e-6 for both l1 and l2. They maybe depend on previous layers
+(if they also contain such regularization, the choice is smaller... maybe no, since each neiron
+anyway generates a potentially valuable result).
 
 Further ideas:
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
@@ -250,7 +256,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 1000000)
-        spinBox.setValue(15000)
+        spinBox.setValue(150000)
         spinBox.setSingleStep(100)
         spinBox.setMaximumWidth(120)
         curHorizWidget.addWidget(spinBox)
@@ -343,7 +349,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # curHorizWidget.addWidget(lineEdit)
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 999999)
-        spinBox.setValue(81)
+        spinBox.setValue(500)
         spinBox.valueChanged.connect(lambda: self.onSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
         self.imageNumEdit = spinBox
