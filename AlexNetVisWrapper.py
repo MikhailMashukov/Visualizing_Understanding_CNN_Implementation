@@ -18,6 +18,8 @@ class CAlexNetVisWrapper:
         self.cache = DataCache.CDataCache(256 * getCpuCoreCount())
         self.activationCache = DataCache.CDataCache(64 * getCpuCoreCount())
         self.imageDataset = CImageDataset(self.cache)
+
+        self.isLearning = False
         self.netsCache = None
 
     def getImageDataset(self):
@@ -104,6 +106,12 @@ class CAlexNetVisWrapper:
         # self.saveState()
         return activations
 
+    def doLearning(self, iterCount, options, callback=None):
+        self.cancelling = False
+        if self.net is None:
+            self._getAlexNet()
+        raise Exception('Not implemented')
+
 
     def getCacheStatusInfo(self):
         return '%.2f + %.2f MBs' % \
@@ -171,6 +179,10 @@ class CAlexNetVisWrapper:
         return (0, 0, 227, 227)
 
 
+    def getRecommendedLearnRate(self):
+        # return 0.1      # SGD
+        return 0.001    # Adam
+
     def _getAlexNet(self, highestLayer = None):
         if not self.net:
             import alexnet
@@ -186,6 +198,9 @@ class CAlexNetVisWrapper:
 
                 self.netsCache[highestLayer] = alexnet.AlexNet(highestLayer, base_model=self.net.model)
             return self.netsCache[highestLayer]
+
+    def getSavedNetEpochs(self):
+        return []     # Not implemented yet
 
     # This network only saves caches for further faster starting up
     def saveState(self):

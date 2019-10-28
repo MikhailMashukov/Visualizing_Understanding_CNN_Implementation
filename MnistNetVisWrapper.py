@@ -81,8 +81,11 @@ class CMnistVisWrapper:
     def getComponentNetLayers(self):
         return self.getNetLayersToVisualize()
 
+    def getTowerCount(self):
+        return 1
+
     def getImageActivations(self, layerName, imageNum, epochNum=None):
-        if epochNum is None:
+        if epochNum is None or epochNum < 0:
             epochNum = self.curEpochNum
         itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
         cacheItem = self.activationCache.getObject(itemCacheName)
@@ -105,7 +108,7 @@ class CMnistVisWrapper:
         return activations
 
     def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None):
-        if epochNum is None:
+        if epochNum is None or epochNum < 0:
             epochNum = self.curEpochNum
 
         batchActs = [None] * len(imageNums)
@@ -377,7 +380,12 @@ class CMnistVisWrapper:
                 raise Exception('Learning is in progress')
 
             if hasattr(self.net.model, 'weightsModel'):
-                self.net.model.weightsModel.load_weights(self.weightsFileNameTempl % epochNum)
+                try:
+                    self.net.model.weightsModel.load_weights(self.weightsFileNameTempl % epochNum)
+                    print("Loaded weights for other model")
+                except Exception as ex:
+                    print("Error on loading weights to other model: %s" % str(ex))
+                    self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             else:
                 self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             self.curEpochNum = epochNum
@@ -494,6 +502,17 @@ class CMnistVisWrapper3_Towers(CMnistVisWrapper):
             l2.append('conv_2_%d' % i)
             l2.append('conv_3_%d' % i)
         return l1 + l2 + ['conv_3', 'conv_4', 'dense_1', 'dense_2']
+
+    def getTowerCount(self):
+        itemCacheName = 'tower_count'
+        towerCount = self.activationCache.getObject(itemCacheName)
+        if towerCount is None:
+            # try:
+                towerCount = self._getNet().model.towerCount
+                self.activationCache.saveObject(itemCacheName, towerCount)
+            # except:
+            #     towerCount = 4
+        return towerCount
 
     @staticmethod
     def get_source_block_calc_func(layerName):

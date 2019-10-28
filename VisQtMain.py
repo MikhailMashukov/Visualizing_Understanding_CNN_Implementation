@@ -14,6 +14,7 @@ in order to compensate decreasing of total outputs. But I tried this only with 8
 more and more conv_2 filters got stucked on the same favorite images
 16_4_Train8e-4_Test0.95e-3: maybe with further training test results improve even better,
 (with the initial learning rate) as for 16_5.
+21_Correlations\21_3_BasedOn20_4_3 (8 towers): one tower correlates well with the 0 one, others - much less
 
 Activity regularization doesn't seem to give better generalization. Training becomes much slower,
 even with big networks. Number of active neirons really becomes smaller. Default coefficients l1/l2 0.01
@@ -242,6 +243,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         button.clicked.connect(lambda: self.saveState())
         curHorizWidget.addWidget(button)
 
+        button = QtGui.QPushButton('Save act.', self)
+        button.clicked.connect(self.saveActsForCorrelations)
+        curHorizWidget.addWidget(button)
+
         # # x += c_buttonWidth + c_margin
         # button = QtGui.QPushButton('1 epoch', self)
         # button.clicked.connect(lambda: self.onDoItersPressed(100))
@@ -326,6 +331,16 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         button = QtGui.QPushButton('Sorted &channel act.', self)
         button.clicked.connect(self.onShowSortedChanActivationsPressed)
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Correlat. an.', self)
+        button.clicked.connect(self.onCorrelationAnalyzisPressed)
+        button.setToolTip('Performs current layer\'s activations correlation analyzis among towers')
+        curHorizWidget.addWidget(button)
+
+        button = QtGui.QPushButton('Correlat. to model 2', self)
+        button.clicked.connect(self.onCorrelationToOtherModelPressed)
+        button.setToolTip('Performs current layer\'s activations correlation analyzis to towers of another model')
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Set towers weights', self)
@@ -534,8 +549,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def getSelectedEpochNum(self):
         if self.netWrapper.isLearning:
-            return None         # Ok to take the current epoch, tracked not by this object, but by the net wrapper
-        epochNum = None
+            return -5         # Ok to take the current epoch, tracked not by this object, but by the net wrapper
+        epochNum = -6
         epochText = self.epochComboBox.currentText().lower()
         if epochText.find('all') >= 0:
             return self.AllEpochs
@@ -901,7 +916,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             # counts = np.sum(counts, axis=tuple(range(2, len(shape))))
             mean = np.mean(data)
             # boundary = 0.2
-            boundary = mean / 2
+            boundary = mean / 1.8
             counts = np.count_nonzero(data >= boundary, axis=tuple(range(2, len(shape))))
 
             means = np.mean(imagesActs, axis=tuple(range(2, len(shape))))
@@ -1520,36 +1535,72 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
 
-    # def onShowPredictionHistoryPressed(self):
-    #     self.startAction(self.onShowPredictionHistoryPressed)
-    #     imageNums = [self.getSelectedImageNum()]
-    #     layerName = self.blockComboBox.currentText()
-    #
-    #     data2 = None
-    #     print("Getting data")
-    #     dataList = []
-    #     t0 = datetime.datetime.now()
-    #     for curEpochNum in self.netWrapper.getSavedNetEpochs():
-    #         dataList.append(self.netWrapper.getImagesActivations_Batch(layerName, imageNums, curEpochNum))
-    #         t = datetime.datetime.now()
-    #         if (t - t0).total_seconds() >= 1:
-    #             self.showProgress('Analyzed epoch %d' % curEpochNum)
-    #             t0 = t
-    #             if self.cancelling or self.exiting:
-    #                 self.showProgress('Cancelled')
-    #                 break
-    #
-    #     data = np.abs(np.stack(dataList, axis=0))
-    #     data = np.mean(data, axis=(1))
-    #     while len(data.shape) > 2:
-    #         data = np.mean(data, axis=(-1))
-    #     print("Drawing")
-    #
-    #     ax = self.getMainSubplot()
-    #     ax.clear()
-    #     im = self.showImage(ax, data)
-    #     colorBar = self.figure.colorbar(im, ax=ax)
-    #     self.canvas.draw()
+
+    def onCorrelationAnalyzisPressed(self):
+        self.startAction(self.onCorrelationAnalyzisPressed)
+        self.doCorrelationAnalyzis(False)
+
+    def onCorrelationToOtherModelPressed(self):
+        self.startAction(self.onCorrelationToOtherModelPressed)
+        self.doCorrelationAnalyzis(True)
+
+    def doCorrelationAnalyzis(self, toOtherModel):
+        import CorrelatAnalyzis
+
+
+        calculator = CorrelatAnalyzis.CCorrelationsCalculator(self, self.activationCache, self.netWrapper)
+        options = calculator
+        epochNum = self.getSelectedEpochNum()
+        firstImageCount = max(2000, self.getSelectedImageNum())
+        layerName = self.blockComboBox.currentText()
+        options.towerCount = self.netWrapper.getTowerCount()
+
+        imagesActs = self.netWrapper.getImagesActivations_Batch(
+                layerName, range(1, firstImageCount + 1), epochNum)
+        self.showProgress('Activations: %s, max %.4f (%s)' % \
+                (str(imagesActs.shape), imagesActs.max(),
+                 str([int(v[0]) for v in np.where(imagesActs == imagesActs.max())])))
+        # ests = self.getEstimations(imagesActs)
+
+        self.clearFigure()
+        # ax = self.getMainSubplot()
+
+        if 1:
+            ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            varianceDistrs = calculator.getTowersVarianceDistributions(imagesActs)
+            for i in range(varianceDistrs.shape[0]):
+                ax.plot(varianceDistrs[i])
+            ax.title.set_text('Variance distribution')
+
+        try:
+            if toOtherModel:
+                imagesActs2 = self.loadOtherModelActivations(firstImageCount, layerName)
+                calculator.show2ModelsCorrelations(imagesActs, imagesActs2)
+            else:
+                calculator.showTowersCorrelations(imagesActs)
+        except Exception as ex:
+            self.showProgress("Error on correlations: %s" % str(ex))
+
+        self.canvas.draw()
+
+    def saveActsForCorrelations(self):
+        epochNum = self.getSelectedEpochNum()
+        firstImageCount = max(2000, self.getSelectedImageNum())
+        if not os.path.exists('Data/Model2'):
+            os.makedirs('Data/Model2')
+        for layerName in ['conv_2', 'conv_3', 'conv_4']:
+            imagesActs = self.netWrapper.getImagesActivations_Batch(
+                layerName, range(1, firstImageCount + 1), epochNum)
+            with open('Data/Model2/Activations_%s.dat' % layerName, 'wb') as file:
+                pickle.dump(imagesActs, file)
+            self.showProgress('%s activations saved: %s' % \
+                (layerName, str(imagesActs.shape)))
+
+    def loadOtherModelActivations(self, firstImageCount, layerName):
+        with open('Data/Model2/Activations_%s.dat' % layerName, 'rb') as file:
+            imagesActs = pickle.load(file)
+        return imagesActs[:firstImageCount]
+
 
     def onChanSpinBoxValueChanged(self):
         if self.lastAction in [self.onShowChanActivationsPressed, self.onShowSortedChanActivationsPressed]:
@@ -1575,7 +1626,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def onEpochComboBoxChanged(self):
         # if getCpuCoreCount() > 4 and
         if self.lastAction in [self.onShowMultActTopsPressed, self.onGradientsByImagesPressed,
-                               self.onShowActEstByImagesPressed, self.onShowWorstImagesPressed]:
+                               self.onShowActEstByImagesPressed, self.onShowWorstImagesPressed,
+                               self.onCorrelationAnalyzisPressed, self.onCorrelationToOtherModelPressed]:
             self.lastAction()
         else:
             self.onSpinBoxValueChanged()   # onDisplayPressed()
@@ -1585,7 +1637,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                                self.onShowActivationsPressed, self.onShowActTopsPressed]:
             self.onSpinBoxValueChanged()
         elif self.lastAction in [self.onShowActEstByImagesPressed,
-                                 self.onShowGradientsPressed, self.onGradientsByImagesPressed] and \
+                                 self.onShowGradientsPressed, self.onGradientsByImagesPressed,
+                                 self.onCorrelationAnalyzisPressed, self.onCorrelationToOtherModelPressed] and \
                 self.getSelectedEpochNum() and self.getSelectedEpochNum() > 0:
             self.lastAction()
 
@@ -2781,22 +2834,27 @@ if __name__ == "__main__":
         mainWindow.init()
         mainWindow.loadCacheState()
 
-        # mainWindow.loadState(mainWindow.getSelectedEpochNum())
-        # mainWindow.netWrapper.getGradients()
-        # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
-        # mainWindow.onDoItersPressed(1)
-        # mainWindow.onReinitWorstNeironsPressed()
+        try:
+            # mainWindow.loadState(mainWindow.getSelectedEpochNum())
+            # mainWindow.netWrapper.getGradients()
+            # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
+            # mainWindow.onDoItersPressed(1)
+            # mainWindow.onReinitWorstNeironsPressed()
 
-        # mainWindow.onDisplayIntermResultsPressed()
-        # mainWindow.onDisplayPressed()
-        # mainWindow.onShowActivationsPressed()
-        # mainWindow.onShowMultActTopsPressed()
-        # mainWindow.onShowSortedChanActivationsPressed()
-        # mainWindow.onSpinBoxValueChanged()
-        # mainWindow.calcMultActTops_MultiThreaded()
-        # mainWindow.onGradientsByImagesPressed()
-        # mainWindow.onShowWorstImagesPressed()
-        # mainWindow.onShowImagesWithTSnePressed()
+            # mainWindow.onDisplayIntermResultsPressed()
+            # mainWindow.onDisplayPressed()
+            # mainWindow.onShowActivationsPressed()
+            # mainWindow.onShowMultActTopsPressed()
+            # mainWindow.onShowSortedChanActivationsPressed()
+            # mainWindow.onSpinBoxValueChanged()
+            # mainWindow.calcMultActTops_MultiThreaded()
+            # mainWindow.onGradientsByImagesPressed()
+            # mainWindow.onShowWorstImagesPressed()
+            # mainWindow.onShowImagesWithTSnePressed()
+            # mainWindow.onCorrelationToOtherModelPressed()
+            pass
+        except Exception as ex:
+            print('Exception in main procedure: %s' % str(ex))
     else:
         mainWindow.fastInit()
     # mainWindow.paintRect()
