@@ -130,7 +130,8 @@ def CMnistModel3_Towers(weights_path=None):
     # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
 
-    conv_1 = Conv2D(mult * 8, 5, strides=(2, 2), activation='relu', name='conv_1_common')(inputs)
+    conv_1 = Conv2D(mult * 8, 5, strides=(2, 2), activation='relu',
+                    name=('conv_1_common' if smallerInputAreas else 'conv_1'))(inputs)
 
     conv_1s = []     # Lists only for creating concatenated level for simple data extraction
     # conv_2s = []
@@ -162,16 +163,18 @@ def CMnistModel3_Towers(weights_path=None):
             # conv_2s.append(t_conv_2)
         else:
             # t_conv_2 = BatchNormalization()(conv_1)
-            t_conv_2 = Conv2D(mult * 4, 3, strides=(1, 1), activation='relu', name='conv_2_%d' % towerInd)(conv_1)
+            t_conv_2 = Conv2D(mult * 4, 3, strides=(1, 1),
+                              activation='relu' if towerInd < towerCount // 2 else 'tanh',
+                              name='conv_2_%d' % towerInd)(conv_1)
             t_conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
-            print("Maxpooling")
 
         if additLayerCount < 1:
             last_tower_convs.append(t_conv_2)
             # With smallerInputAreas == False actually there are no towers here
         else:
-            t_conv_3 = BatchNormalization()(t_conv_2)
+            # t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
+            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_%d' % towerInd,)(t_conv_2)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = Conv2D(mult * 4, 3, padding='same', strides=(1, 1),
                               activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
@@ -204,6 +207,7 @@ def CMnistModel3_Towers(weights_path=None):
 
     conv_last = Concatenate(axis=3, name='conv_%d_adds' % (2 + additLayerCount))(last_tower_convs)
         # This layer produces 8*1 gradients tensor, so special conv_2/3 was added
+    conv_last = cross_channel_normalization(name="cross_chan_norm_last")(conv_last)
     conv_last = Conv2D(mult * 8, 2, strides=(1, 1),
                        activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                        name='conv_%d' % (3 + additLayerCount))(conv_last)
@@ -248,6 +252,7 @@ def CMnistModel3_Towers(weights_path=None):
     # model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
 
     model.variables = {'towers_weights': towerWeightsKerasVar}
+    model.towerCount = towerCount
 
     model.debug_layers = dict()
     if smallerInputAreas:
