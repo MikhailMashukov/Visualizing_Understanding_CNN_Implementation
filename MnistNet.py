@@ -236,40 +236,38 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
         return tf.keras.utils.to_categorical(labels, num_classes=10)
 
     def doLearning(self, epochCount, learningCallback,
-                   fullDataset, fullTestDataset,
+                   trainDataset, testDataset,
                    epochImageCount=None, initialEpochNum=0):
         from keras.callbacks import TensorBoard
 
         # epochCount = int(math.ceil(iterCount / 100))
-        # fullDataset = self.mnistDataset.getNetSource('train')
-        # fullTestDataset = self.mnistDataset.getNetSource('test')
-        fullDatasetImageCount = fullDataset[0].shape[0]
-        if epochImageCount is None:
-            epochImageCount = fullDatasetImageCount
-        elif epochImageCount > fullDatasetImageCount:
-            epochImageCount = fullDatasetImageCount
+        # trainDataset = self.mnistDataset.getNetSource('train')
+        # testDataset = self.mnistDataset.getNetSource('test')
+        trainDatasetImageCount = trainDataset[0].shape[0]
+        if epochImageCount is None or epochImageCount > trainDatasetImageCount:
+            epochImageCount = trainDatasetImageCount
         print("Running %d epoch(s) from %d, %d images each" % \
                 (epochCount, initialEpochNum, epochImageCount))
         groupStartTime = datetime.datetime.now()
 
-        if epochImageCount == fullDatasetImageCount:
-            dataset = (fullDataset[0],
-                       self._transformLabelsForNet(fullDataset[1]))
+        if epochImageCount == trainDatasetImageCount:
+            curTrainDataset = (trainDataset[0],
+                       self._transformLabelsForNet(trainDataset[1]))
         else:
-            permut = np.random.permutation(fullDatasetImageCount)[:epochImageCount]
-            dataset = (fullDataset[0][permut, :, :, :],
-                       self._transformLabelsForNet(fullDataset[1][permut]))
+            permut = np.random.permutation(trainDatasetImageCount)[:epochImageCount]
+            curTrainDataset = (trainDataset[0][permut, :, :, :],
+                       self._transformLabelsForNet(trainDataset[1][permut]))
 
-        testDatasetSize = epochImageCount // 6
-        if testDatasetSize >= fullTestDataset[0].shape[0]:
-            testDataset = (fullTestDataset[0],
-                   self._transformLabelsForNet(fullTestDataset[1]))
+        curTestDatasetSize = epochImageCount // 6
+        if curTestDatasetSize >= testDataset[0].shape[0]:
+            curTestDataset = (testDataset[0],
+                   self._transformLabelsForNet(testDataset[1]))
         else:
-            permut = np.random.permutation(fullTestDataset[0].shape[0])[:testDatasetSize]
-            testDataset = (fullTestDataset[0][permut, :, :, :],
-                           self._transformLabelsForNet(fullTestDataset[1][permut]))
-        # testDataset = (fullTestDataset[0][:testDatasetSize],
-        #            self._transformLabelsForNet(fullTestDataset[1][:testDatasetSize]))
+            permut = np.random.permutation(testDataset[0].shape[0])[:curTestDatasetSize]
+            curTestDataset = (testDataset[0][permut, :, :, :],
+                           self._transformLabelsForNet(testDataset[1][permut]))
+        # curTestDataset = (testDataset[0][:curTestDatasetSize],
+        #            self._transformLabelsForNet(testDataset[1][:curTestDatasetSize]))
 
         tensorBoardCallback = TensorBoard(log_dir='QtLogs', histogram_freq=0,
                 write_graph=False, write_grads=False, write_images=1,    # batch_size=32,
@@ -277,13 +275,13 @@ class CMnistRecognitionNet2(CMnistRecognitionNet):
                 update_freq='epoch')
         summaryCallback = MnistModel2.CSummaryWriteCallback(self.mnistDataset,
                 self.train_writer, self.test_writer,
-                int(initialEpochNum * fullDataset[0].shape[0] / self.batchSize),
+                int(initialEpochNum * trainDataset[0].shape[0] / self.batchSize),
                 learningCallback)
         # tensorBoardCallback.set_model(self.model)
 
-        # inp = [dataset[0], np.ones([dataset[0].shape[0], 4])]
-        # valData = testDataset[0], np.ones([testDataset[0].shape[0], 4])], testDataset[1]]
-        history = self.model.fit(x=dataset[0], y=dataset[1], validation_data=testDataset,
+        # inp = [curTrainDataset[0], np.ones([curTrainDataset[0].shape[0], 4])]
+        # valData = curTestDataset[0], np.ones([curTestDataset[0].shape[0], 4])], curTestDataset[1]]
+        history = self.model.fit(x=curTrainDataset[0], y=curTrainDataset[1], validation_data=curTestDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  batch_size=self.batchSize, verbose=2, callbacks=[tensorBoardCallback, summaryCallback])
 

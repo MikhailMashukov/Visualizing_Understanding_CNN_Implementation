@@ -4,6 +4,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 # import argparse
 import datetime
 import math
+import random
 # import subprocess
 import os
 # import time
@@ -60,7 +61,8 @@ class CMnistVisWrapper:
         self.name = 'mnist'
         self.weightsFileNameTempl = 'QtLogs/MnistWeights_Epoch%d.h5'
         self.gradientsFileNameTempl = 'QtLogs/MnistGrads_Epoch%d.dat'
-        self.mnistDataset = CMnistDataset() if mnistDataset is None else mnistDataset
+        # self.mnistDataset = CMnistDataset() if mnistDataset is None else mnistDataset
+        self.mnistDataset = CAugmentedMnistDataset(CMnistDataset()) if mnistDataset is None else mnistDataset
         self.net = None
         self.curEpochNum = 0
         self.isLearning = False
@@ -313,18 +315,35 @@ class CMnistVisWrapper:
                     self.setLearnRate(options.learnRate)
                     print('Learning rate switched to %f' % options.learnRate)
 
-                fullDataset = self.mnistDataset.getNetSource('train')
                 fullTestDataset = self.mnistDataset.getNetSource('test')
-                if not options.trainImageNums is None:
-                    imageNums = options.trainImageNums
-                    if options.additTrainImageCount > 0:
-                        imageNums = np.concatenate([imageNums, np.random.randint(
-                                low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
-                    fullDataset = (fullDataset[0][imageNums - 1],
-                                   fullDataset[1][imageNums - 1])
+                if 0:
+                    # Old variant, without augmentation but with simple CMnistDataset support
+
+                    fullDataset = self.mnistDataset.getNetSource('train')
+                    if options.trainImageNums is None:
+                        trainDataset = fullDataset
+                    else:
+                        imageNums = options.trainImageNums
+                        if options.additTrainImageCount > 0:
+                            imageNums = np.concatenate([imageNums, np.random.randint(
+                                    low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
+                        trainDataset = (fullDataset[0][imageNums - 1],
+                                       fullDataset[1][imageNums - 1])
+                else:
+                    # Optionally augmented and optimized for this variant
+
+                    if options.trainImageNums is None:
+                        trainDataset = self.mnistDataset.getAugmentedImages(epochImageCount)
+                    else:
+                        imageNums = options.trainImageNums
+                        if options.additTrainImageCount > 0:
+                            fullDataset = self.mnistDataset.getNetSource('train')
+                            imageNums = np.concatenate([imageNums, np.random.randint(
+                                    low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
+                        trainDataset = self.mnistDataset.getAugmentedImagesForNums(imageNums)
 
                 infoStr = self.net.doLearning(1, callback,
-                                              fullDataset, fullTestDataset,
+                                              trainDataset, fullTestDataset,
                                               epochImageCount, self.curEpochNum)
                 self.curEpochNum += 1
                 epochNum += 1
@@ -638,6 +657,138 @@ class CMnistDataset:
                 (self.test.images, self.test.labels) = mnist.load_data()
         self.train.images = self.train.images / np.float32(255.0)
         self.test.images  = self.test.images  / np.float32(255.0)
+
+
+class CAugmentedMnistDataset:
+    def __init__(self, baseDataset):
+        self.baseDataset = baseDataset
+        self.train = None
+        self.test = None
+        self.imageGenerator = None
+        self.preparedDatasetFileName = 'Data/MnistAugVisDataset.dat'
+        self.loadData()
+
+    def getImage(self, imageNum, preprocessStage='net', type='train'):    # ImageNum here - 1-based
+        if self.test is None:
+            self.loadData()
+        return self.baseDataset.getImage(imageNum, preprocessStage, type)
+
+    def getNetSource(self, type='train', imageCount=None):
+        # if type == 'AugTrain':
+        #     fullDataset = self.baseDataset.getNetSource('train')
+        #     if imageCount is None:
+        #         imageCount = fullDataset[0].shape[0]
+        #     permut = np.random.permutation(fullDataset[0].shape[0])[:imageCount]
+        #
+        # else:
+            return self.baseDataset.getNetSource(type)
+
+    def getAugmentedImages(self, imageCount, type='train'):
+        fullDataset = self.baseDataset.getNetSource(type)
+        permut = np.random.permutation(fullDataset[0].shape[0])[:imageCount]
+        sourceImages = fullDataset[0][permut]
+        dataset = (self.augmentImages(sourceImages), fullDataset[1][permut])
+        return dataset
+
+    def getAugmentedImagesForNums(self, imageNums, type='train'):
+        fullDataset = self.baseDataset.getNetSource(type)
+        sourceImages = fullDataset[0][imageNums - 1]
+        dataset = (self.augmentImages(sourceImages), fullDataset[1][imageNums - 1])
+        return dataset
+
+    def augmentImages(self, sourceImages):
+        # return sourceImages
+        if 1:
+            # My own implementation
+            augImageList = []
+            print('Preparing augmented images')
+            for i in range(sourceImages.shape[0]):
+                # print('Augmenting %d' %i)
+                augImageList.append(self.augmentImage(sourceImages[i]))
+            print('Augmented images prepared')
+            return np.stack(augImageList, axis=0)
+        else:
+            # Also slow, also about 2000 images/s on my notebook in high-performance mode,
+            # not matter with rotation or without (only shifting)
+            from keras.preprocessing.image import ImageDataGenerator
+
+            if self.imageGenerator is None:
+                self.imageGenerator = ImageDataGenerator(# rotation_range=15,
+                            width_shift_range=sourceImages.shape[1] // 4, height_shift_range=sourceImages.shape[1] // 4,
+                            fill_mode='wrap')
+            print('Preparing augmented images')
+            it = self.imageGenerator.flow(sourceImages, batch_size=len(sourceImages), shuffle=False)
+            data = next(it)
+            print('Augmented images prepared')
+            return data
+
+    def augmentImage(self, sourceImage):
+        image = sourceImage
+        xMaxs = np.max(sourceImage, axis=(0, 2))        # xMaxs[1] = maximum for all y and x == 1
+        yMaxs = np.max(sourceImage, axis=(1, 2))
+        rand = random.randint(0, 15)
+        try:
+            if rand & 1:
+                # Shifting by x
+                if xMaxs[0] == 0 or xMaxs[-1] == 0:
+                    shifted = False
+                    while not shifted:
+                        pos = random.randint(1, self.imageWidth - 1)
+                        if pos < self.imageWidth // 2:
+                            if xMaxs[pos - 1] == 0 and xMaxs[0:pos].max() == 0:
+                                    image = np.pad(image[:, pos:], ((0, 0), (0, pos), (0, 0)),
+                                                   mode='constant', constant_values=0)
+                                    shifted = True
+                        else:
+                            if xMaxs[pos] == 0 and xMaxs[pos:].max() == 0:
+                                    image = np.pad(image[:, :pos], ((0, 0), (self.imageWidth - pos, 0), (0, 0)),
+                                                   mode='constant', constant_values=0)
+                                    shifted = True
+            else:
+                # Shifting by y
+                if yMaxs[0] == 0 or yMaxs[-1] == 0:
+                    shifted = False
+                    while not shifted:
+                        pos = random.randint(1, self.imageHeight - 1)
+                        if pos < self.imageHeight // 2:
+                            if yMaxs[pos - 1] == 0 and yMaxs[0:pos].max() == 0:
+                                    image = np.pad(image[pos:, :], ((0, pos), (0, 0), (0, 0)),
+                                                   mode='constant', constant_values=0)
+                                    shifted = True
+                        else:
+                            if yMaxs[pos] == 0 and yMaxs[pos:].max() == 0:
+                                    image = np.pad(image[:pos, :], ((self.imageHeight - pos, 0), (0, 0), (0, 0)),
+                                                   mode='constant', constant_values=0)
+                                    shifted = True
+
+            if rand & 2:
+                # Copying inner vertical line
+                if xMaxs[0] == 0:
+                    pos = random.randint(4, self.imageWidth - 4)
+                    while xMaxs[pos] == 0:
+                        pos = random.randint(2, self.imageWidth - 2)
+                    image = np.concatenate([image[:, 1 : pos + 1], image[:, pos:]], axis=1)
+            else:
+                # Copying inner horizontal line
+                if yMaxs[0] == 0:
+                    pos = random.randint(4, self.imageHeight - 4)
+                    while yMaxs[pos] == 0:
+                        pos = random.randint(2, self.imageHeight - 2)
+                    image = np.concatenate([image[1 : pos + 1, :], image[pos:, :]], axis=0)
+        except:
+            pass
+
+        return image
+
+
+    def loadData(self):
+        # self.baseDataset.loadData()
+        self.train = self.baseDataset.getNetSource('train')    # 60000 * 28 * 28 * 1
+        self.test = self.baseDataset.getNetSource('test')
+        self.imageWidth = self.train[0].shape[2]
+        self.imageHeight = self.train[0].shape[1]
+        # xMaxs = np.max(self.train[0], axis=(1, 3))
+        # yMaxs = np.max(self.train[0], axis=(2, 3))
 
 
 class CBaseLearningCallback:
