@@ -1,3 +1,4 @@
+#To check why at 3 training is bad. AT 2 is good now
 """ Result notes:
 Reinitialization of neirons works bad or doesn't give serious effect.
 It's bad that the resting neirons setups theirs surroundings to theirs old weights.
@@ -177,31 +178,6 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.loadNetStateList()
         self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
 
-    def fastInit(self):
-        self.curSavedBatchDatasetName = None
-        if 1:
-            try:
-                self.datasetComboBox.addItem("Train")
-                self.datasetComboBox.addItem("Test0")
-                self.datasetComboBox.addItem("Test1")
-                self.datasetComboBox.addItem("Test2")
-            except Exception as ex:
-                self.infoLabel.setText('Exception in fastInit: %s' % str(ex))
-                pass
-
-        self.curDiags = dict()
-        self.mousePressPos = None
-        self.curInitialBlocks = None
-        self.curEditedBlocks = None
-        self.prevDrawnResults = None
-
-        try:
-            self.plot()
-        except Exception as ex:
-            self.infoLabel.setText('Exception on plot: %s' % str(ex))
-            return
-        self.infoLabel.setText('Updated')
-
     def initUI(self):
         self.setGeometry(100, 40, 1100, 700)
         self.setWindowTitle(self.getTitleForWindow())
@@ -301,12 +277,12 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             # controlsRestrictorWidget.setMaximumWidth(800);
         curHorizWidget.addWidget(self.infoLabel)
 
-        # x += 200 + c_margin
-        self.datasetComboBox = QtGui.QComboBox(self)
-        # self.datasetComboBox.setGeometry(x, y, 200, c_buttonHeight)
-        self.datasetComboBox.setMaximumWidth(60)
-        self.datasetComboBox.currentIndexChanged.connect(self.onDatasetChanged)
-        curHorizWidget.addWidget(self.datasetComboBox)
+        # # x += 200 + c_margin
+        # self.datasetComboBox = QtGui.QComboBox(self)
+        # # self.datasetComboBox.setGeometry(x, y, 200, c_buttonHeight)
+        # self.datasetComboBox.setMaximumWidth(60)
+        # self.datasetComboBox.currentIndexChanged.connect(self.onDatasetChanged)
+        # curHorizWidget.addWidget(self.datasetComboBox)
 
         x += 150 + c_margin
         self.blockComboBox = QtGui.QComboBox(self)
@@ -1547,11 +1523,10 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
     def doCorrelationAnalyzis(self, toOtherModel):
         import CorrelatAnalyzis
 
-
         calculator = CorrelatAnalyzis.CCorrelationsCalculator(self, self.activationCache, self.netWrapper)
         options = calculator
         epochNum = self.getSelectedEpochNum()
-        firstImageCount = max(2000, self.getSelectedImageNum())
+        firstImageCount = max(1000, self.getSelectedImageNum())
         layerName = self.blockComboBox.currentText()
         options.towerCount = self.netWrapper.getTowerCount()
 
@@ -1569,7 +1544,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             ax = self.figure.add_subplot(self.gridSpec[0, 0])
             varianceDistrs = calculator.getTowersVarianceDistributions(imagesActs)
             for i in range(varianceDistrs.shape[0]):
-                ax.plot(varianceDistrs[i])
+                ax.plot(varianceDistrs[i], label='%d' % i)
+            ax.legend()
             ax.title.set_text('Variance distribution')
 
         try:
@@ -1582,13 +1558,27 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
             self.showProgress("Error on correlations: %s" % str(ex))
 
         self.canvas.draw()
+        self.saveCorrelationsImage(epochNum, firstImageCount, layerName)
+
+    def saveCorrelationsImage(self, epochNum, firstImageCount, layerName):
+        dirName = 'Data/%s_Correlations_%dImages' % \
+                 (layerName, firstImageCount)
+        if not os.path.exists(dirName):
+            os.makedirs(dirName)
+        fileName = '%s/Corr_Epoch%d.png' % \
+                 (dirName, epochNum)
+
+        prevDpi = matplotlib.rcParams['savefig.dpi']
+        self.figure.savefig(fileName, format='png', dpi=150)
+        # try:
+            # matplotlib.rcParams['savefig.dpi'] = 600
 
     def saveActsForCorrelations(self):
         epochNum = self.getSelectedEpochNum()
         firstImageCount = max(2000, self.getSelectedImageNum())
         if not os.path.exists('Data/Model2'):
             os.makedirs('Data/Model2')
-        for layerName in ['conv_2', 'conv_3', 'conv_4']:
+        for layerName in ['conv_2', 'conv_3', 'conv_4', 'dense_1']:
             imagesActs = self.netWrapper.getImagesActivations_Batch(
                 layerName, range(1, firstImageCount + 1), epochNum)
             with open('Data/Model2/Activations_%s.dat' % layerName, 'wb') as file:
@@ -1636,7 +1626,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         if self.lastAction in [self.onShowImagePressed,
                                self.onShowActivationsPressed, self.onShowActTopsPressed]:
             self.onSpinBoxValueChanged()
-        elif self.lastAction in [self.onShowActEstByImagesPressed,
+        elif self.lastAction in [self.onShowMultActTopsPressed, self.onShowActEstByImagesPressed,
                                  self.onShowGradientsPressed, self.onGradientsByImagesPressed,
                                  self.onCorrelationAnalyzisPressed, self.onCorrelationToOtherModelPressed] and \
                 self.getSelectedEpochNum() and self.getSelectedEpochNum() > 0:

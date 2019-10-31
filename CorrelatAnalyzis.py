@@ -61,7 +61,8 @@ class CCorrelationsCalculator:
 
     def showTowersCorrelations(self, imagesActs):
         towerChannelCount = imagesActs.shape[1] // self.towerCount
-        for towerInd1 in range(1): # self.towerCount - 1):
+        ax = self.mainWindow.getMainSubplot()
+        for towerInd1 in range(2): # self.towerCount - 1):
             tower1Acts = self.flattenConvActivations(
                     imagesActs[:, towerInd1 * towerChannelCount : (towerInd1 + 1) * towerChannelCount])
             _, s, v = np.linalg.svd(tower1Acts - np.mean(tower1Acts, axis=1, keepdims=True), full_matrices=False)
@@ -75,13 +76,14 @@ class CCorrelationsCalculator:
                 if towerInd2 == 1:
                     print(result.keys)
                 # ax = self.mainWindow.figure.add_subplot(5, 4, towerInd1 * 4 + towerInd2 + 2)
-                ax = self.mainWindow.getMainSubplot()
-                ax.plot(result['cca_coef1'])
+                ax.plot(result['cca_coef1'], label='%d-%d' % (towerInd1, towerInd2))
+        ax.legend()
 
     def show2ModelsCorrelations(self, imagesActs, imagesActs2):
         towerChannelCount1 = imagesActs.shape[1] // self.towerCount
         towerChannelCount2 = imagesActs2.shape[1] // self.towerCount
         areDimensionsDifferent = (imagesActs.shape[2:] != imagesActs2.shape[2:])
+        ax = self.mainWindow.getMainSubplot()
         for towerInd1 in range(2): # self.towerCount - 1):
             data = imagesActs[:, towerInd1 * towerChannelCount1 : (towerInd1 + 1) * towerChannelCount1]
             if areDimensionsDifferent:
@@ -104,9 +106,8 @@ class CCorrelationsCalculator:
                 result = cca_core.get_cca_similarity(tower1Acts, tower2Acts, epsilon=1e-10)
                 if towerInd2 == 1:
                     print(result.keys)
-                # ax = self.mainWindow.figure.add_subplot(5, 4, towerInd1 * 4 + towerInd2 + 2)
-                ax = self.mainWindow.getMainSubplot()
-                ax.plot(result['cca_coef1'])
+                ax.plot(result['cca_coef1'], label='%d-%d' % (towerInd1, towerInd2))
+        ax.legend()
 
     def getTowersVarianceDistributions(self, imagesActs):
         towerChannelCount = imagesActs.shape[1] // self.towerCount

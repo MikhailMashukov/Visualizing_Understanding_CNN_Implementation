@@ -33,8 +33,12 @@ class CAlexNetVisWrapper:
             layerNames.append('dense_%d' % (i + 1))
         return layerNames
 
+    def getTowerCount(self):
+        return 4       # Actually 2, 2 * 2 - in order to have what to compare
 
-    def getImageActivations(self, layer, imageNum):
+
+    def getImageActivations(self, layer, imageNum, epochNum=None):
+        # epochNum is not used here
         if isinstance(layer, int):
             layerName = 'conv_%d' % layer
         else:
@@ -52,7 +56,7 @@ class CAlexNetVisWrapper:
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
-    def getImagesActivations_Batch(self, layer, imageNums):
+    def getImagesActivations_Batch(self, layer, imageNums, epochNum=None):
         if isinstance(layer, int):
             layerName = 'conv_%d' % layer
         else:
@@ -200,7 +204,7 @@ class CAlexNetVisWrapper:
             return self.netsCache[highestLayer]
 
     def getSavedNetEpochs(self):
-        return []     # Not implemented yet
+        return [1]     # Not implemented yet
 
     # This network only saves caches for further faster starting up
     def saveState(self):
@@ -225,6 +229,15 @@ class CAlexNetVisWrapper:
 class CImageDataset:
     def __init__(self, cache):
         self.cache = cache
+        try:
+            import pandas
+    
+            #with open('Data/ILSVRC2012_classes.txt', mode='r'):
+            self.testLabels = pandas.read_table('Data/ILSVRC2012_classes.txt', 
+                    dtype=int, header=None, squeeze=True)
+        except Exception as ex:
+            print("Error on loading 'ILSVRC2012_classes.txt': %s" % str(ex))
+            self.testLabels = np.ones([50000])
 
     def getImageFilePath(self, imageNum):
         return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
@@ -257,6 +270,18 @@ class CImageDataset:
 
         self.cache.saveObject(itemCacheName, imageData)
         return imageData
+
+    # This method suits ILSVRC's data poorly
+    def getNetSource(self, type='train'):
+        # if self.test is None:
+        #     self.loadData()
+        # subset = self.train if type == 'train' else self.test
+        if type != 'test':
+            print('Warning: no AlexNet train images')
+        data = []
+        for imageInd in range(1000):
+            data.append(self.getImage(imageInd + 1, 'net'))
+        return (np.stack(data, axis=0), self.testLabels)
 
     def _getImageCacheName(self, imageNum, preprocessStage):
         return 'im_%d_%s' % (imageNum, preprocessStage)
