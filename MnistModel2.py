@@ -162,10 +162,12 @@ def CMnistModel3_Towers(weights_path=None):
             # t_conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
             # conv_2s.append(t_conv_2)
         else:
-            # t_conv_2 = BatchNormalization()(conv_1)
+            t_conv_2 = conv_1
+            # t_conv_2 = BatchNormalization()(t_conv_2)
+            t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
             t_conv_2 = Conv2D(mult * 4, 3, strides=(1, 1),
                               activation='relu' if towerInd < towerCount // 2 else 'tanh',
-                              name='conv_2_%d' % towerInd)(conv_1)
+                              name='conv_2_%d' % towerInd)(t_conv_2)
             t_conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
 
         if additLayerCount < 1:
@@ -224,7 +226,7 @@ def CMnistModel3_Towers(weights_path=None):
     dense_1 = BatchNormalization()(conv_last)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(mult * 32, activation='relu', activity_regularizer=keras.regularizers.l1(2e-6),
+    dense_1 = Dense(mult * 32, activation='relu', activity_regularizer=keras.regularizers.l1(1e-6),
                     name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)

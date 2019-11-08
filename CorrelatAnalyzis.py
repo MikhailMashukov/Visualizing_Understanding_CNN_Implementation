@@ -76,7 +76,8 @@ class CCorrelationsCalculator:
                 if towerInd2 == 1:
                     print(result.keys)
                 # ax = self.mainWindow.figure.add_subplot(5, 4, towerInd1 * 4 + towerInd2 + 2)
-                ax.plot(result['cca_coef1'], label='%d-%d' % (towerInd1, towerInd2))
+                ax.plot(result['cca_coef1'], label='%d-%d' % (towerInd1, towerInd2),
+                        linestyle='-' if towerInd1 == 0 else '--')
         ax.legend()
 
     def show2ModelsCorrelations(self, imagesActs, imagesActs2):

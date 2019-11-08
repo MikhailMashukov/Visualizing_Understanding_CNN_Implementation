@@ -26,7 +26,10 @@ anyway generates a potentially valuable result).
 Further ideas:
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
-  in a matrix network
+  in a matrix network;
+* to try max pooling with strides (1, 1) and 3 * 2 with strides (2, 1);
+* to try 3D max pooling for neighbour channels;
+* it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
 """
 
 
@@ -146,8 +149,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
-        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
+        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
+        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper5_DeeperTowers()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
         self.tensorFlowLock = _thread.allocate_lock()
@@ -1042,7 +1046,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
         if not self.exiting:
             resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
-            calculator.saveMultActTopsImage(resultImage)
+            calculator.saveMultActTopsImage(resultImage, processedImageCount)
 
     class TProgressIndicator:
         def __init__(self, mainWindow, calculator, threadInfo=None):
@@ -1565,8 +1569,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
                  (layerName, firstImageCount)
         if not os.path.exists(dirName):
             os.makedirs(dirName)
-        fileName = '%s/Corr_Epoch%d.png' % \
-                 (dirName, epochNum)
+        fileName = '%s/Corr_%s_Epoch%d.png' % \
+                 (dirName, layerName, epochNum)
 
         prevDpi = matplotlib.rcParams['savefig.dpi']
         self.figure.savefig(fileName, format='png', dpi=150)

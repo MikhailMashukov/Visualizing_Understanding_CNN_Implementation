@@ -535,8 +535,11 @@ class CMnistVisWrapper3_Towers(CMnistVisWrapper):
 
     @staticmethod
     def get_source_block_calc_func(layerName):
-        return CMnistVisWrapper.get_entire_image_block
-    # get_conv_*_source_block are incorrect here because source depends on tower
+        if 0:    # For smallerInputAreas == True
+            return CMnistVisWrapper.get_entire_image_block
+            # get_conv_*_source_block are incorrect here because source depends on tower
+        else:
+            return CMnistVisWrapper.get_source_block_calc_func(layerName)
 
 
 class CMnistVisWrapper4_Matrix(CMnistVisWrapper):
@@ -598,6 +601,54 @@ class CMnistVisWrapper4_Matrix(CMnistVisWrapper):
         return (0 if source_xy_0[0] < 0 else source_xy_0[0],
                 0 if source_xy_0[1] < 0 else source_xy_0[1],
                 source_xy_0[0] + size, source_xy_0[1] + size)
+
+
+class CMnistVisWrapper5_DeeperTowers(CMnistVisWrapper):
+    @property
+    def baseModel(self):
+        import MnistModel5
+
+        return MnistModel5.CMnistModel5_DeeperTowers()
+
+    def getNetLayersToVisualize(self):
+        return ['conv_11', 'conv_12', 'conv_13', 'conv_14', 'add_123', 'add_134',
+                'conv_21', 'conv_22', 'conv_23', 'conv_24', 'add_223', 'add_234',
+                'conv_2_adds', # 'conv_2_0', 'conv_3_0',
+                'dense_1', 'dense_2', 'dense_3', 'softmax']
+
+    def getComponentNetLayers(self):
+        l1 = ['conv_1_common']
+        l2 = []
+        towerCount = 8
+        for i in range(towerCount):
+            l1.append('conv_11_%d' % i)
+            l2.append('conv_21_%d' % i)
+            l2.append('conv_31_%d' % i)
+        return l1 + l2 + ['conv_3', 'conv_4', 'dense_1', 'dense_2']
+
+    def getTowerCount(self):
+        itemCacheName = 'tower_count'
+        towerCount = self.activationCache.getObject(itemCacheName)
+        if towerCount is None:
+            # try:
+                towerCount = self._getNet().model.towerCount
+                self.activationCache.saveObject(itemCacheName, towerCount)
+            # except:
+            #     towerCount = 4
+        return towerCount
+
+    @staticmethod
+    def get_source_block_calc_func(layerName):
+        if layerName == 'conv_11':
+            return CMnistVisWrapper.get_conv_1_source_block
+        elif layerName.find('conv_1') >= 0:
+            return CMnistVisWrapper.get_conv_2_source_block
+        elif layerName.find('conv_2') >= 0:
+            return CMnistVisWrapper.get_conv_3_source_block
+        elif layerName == 'conv_3':
+            return CMnistVisWrapper.get_conv_3_source_block
+        else:
+            return CMnistVisWrapper.get_entire_image_block
 
 
 
@@ -730,9 +781,9 @@ class CAugmentedMnistDataset:
         try:
             if rand & 1:
                 # Shifting by x
-                if xMaxs[0] == 0 or xMaxs[-1] == 0:
+                if xMaxs[0] == 0 or xMaxs[-1] == 0:     # Almost always (9999 / 10000) true for x, y and copying if x/yMaxs[0] == 0
                     shifted = False
-                    while not shifted:
+                    while not shifted:                  # In average 1.43 tries are made here
                         pos = random.randint(1, self.imageWidth - 1)
                         if pos < self.imageWidth // 2:
                             if xMaxs[pos - 1] == 0 and xMaxs[0:pos].max() == 0:
