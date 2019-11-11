@@ -64,6 +64,7 @@ import _thread
 
 # sys.path.append(r"../Qt_TradeSim")
 import AlexNetVisWrapper
+import ImageNetsVisWrappers
 import MnistNetVisWrapper
 import MultActTops
 from MyUtils import *
@@ -148,8 +149,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastAction = None
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
+        self.netWrapper = ImageNetsVisWrappers.CImageNetVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
-        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
+        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper5_DeeperTowers()
         self.activationCache = self.netWrapper.activationCache
@@ -166,7 +168,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # self.showControlWindow()
 
         self.iterNumLabel.setText('Epoch 0')
-        self.maxAnalyzeChanCount = 200
+        self.maxAnalyzeChanCount = 70
 
     def init(self):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
@@ -344,7 +346,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         # curHorizWidget.addWidget(lineEdit)
         spinBox = QtGui.QSpinBox(self)
         spinBox.setRange(1, 999999)
-        spinBox.setValue(500)
+        spinBox.setValue(200)
         spinBox.valueChanged.connect(lambda: self.onSpinBoxValueChanged())
         curHorizWidget.addWidget(spinBox)
         self.imageNumEdit = spinBox
@@ -631,8 +633,15 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         layerName = self.blockComboBox.currentText()
 
         if epochNum == self.AllEpochs:
+            epochNums = self.netWrapper.getSavedNetEpochs()
+            if len(epochNums) == 0:
+                self.showProgress('Activations error: no saved epochs')
+                epochNum = -10
+
+        if epochNum == self.AllEpochs:
             dataList = []
             t0 = datetime.datetime.now()
+
             for curEpochNum in self.netWrapper.getSavedNetEpochs():
                 dataList.append(self.netWrapper.getImagesActivations_Batch(layerName, [imageNum], curEpochNum)[0])
                 t = datetime.datetime.now()
@@ -1468,7 +1477,7 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         try:
             self.startAction(self.onShowWorstImagesPressed)
             epochNum = self.getSelectedEpochNum()    # TODO
-            firstImageCount = max(self.getSelectedImageNum(), 1000)
+            firstImageCount = max(1000, self.getSelectedImageNum())
             self.netWrapper.loadState(epochNum)     # TODO: to wrap into a NetWrapper's method
             (losses, predictions) = self.netWrapper._getNet().getImageLosses(1, firstImageCount)
 
@@ -1530,7 +1539,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         calculator = CorrelatAnalyzis.CCorrelationsCalculator(self, self.activationCache, self.netWrapper)
         options = calculator
         epochNum = self.getSelectedEpochNum()
-        firstImageCount = max(1000, self.getSelectedImageNum())
+        firstImageCount = max(1000 if self.netWrapper.name == 'mnist' else 200,
+                              self.getSelectedImageNum())
         layerName = self.blockComboBox.currentText()
         options.towerCount = self.netWrapper.getTowerCount()
 
@@ -1579,7 +1589,8 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
 
     def saveActsForCorrelations(self):
         epochNum = self.getSelectedEpochNum()
-        firstImageCount = max(2000, self.getSelectedImageNum())
+        firstImageCount = max(2000 if self.netWrapper.name == 'mnist' else 500,
+                              self.getSelectedImageNum())
         if not os.path.exists('Data/Model2'):
             os.makedirs('Data/Model2')
         for layerName in ['conv_2', 'conv_3', 'conv_4', 'dense_1']:
@@ -2835,6 +2846,7 @@ if __name__ == "__main__":
             # mainWindow.onDoItersPressed(1)
             # mainWindow.onReinitWorstNeironsPressed()
 
+            mainWindow.onShowImagePressed()
             # mainWindow.onDisplayIntermResultsPressed()
             # mainWindow.onDisplayPressed()
             # mainWindow.onShowActivationsPressed()
