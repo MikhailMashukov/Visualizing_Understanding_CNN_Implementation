@@ -149,9 +149,9 @@ class QtMainWindow(QtGui.QMainWindow): # , DeepMain.MainWrapper):
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
-        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
+        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
-        self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper5_DeeperTowers()
+        # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper5_DeeperTowers()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
         self.tensorFlowLock = _thread.allocate_lock()
