@@ -239,9 +239,6 @@ class CImageDataset:
             print("Error on loading 'ILSVRC2012_classes.txt': %s" % str(ex))
             self.testLabels = np.ones([50000])
 
-    def getImageFilePath(self, imageNum):
-        return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
-
     def getImage(self, imageNum, preprocessStage='net'):
         itemCacheName = self._getImageCacheName(imageNum, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)

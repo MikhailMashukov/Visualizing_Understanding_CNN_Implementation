@@ -14,14 +14,14 @@ from MnistNetVisWrapper import *
 # My own model for images recognition (classification)
 class CImageNetVisWrapper:
     def __init__(self, imageDataset=None, activationCache=None):
-        self.name = 'mnist'
+        self.name = 'image'
         self.weightsFileNameTempl = 'QtLogs/ImagesWeights_Epoch%d.h5'
         # self.gradientsFileNameTempl = 'QtLogs/ImagesGrads_Epoch%d.dat'
         self.imageCache = DataCache.CDataCache(256 * getCpuCoreCount())
         self.imageDataset = CImageNetPartDataset(self.imageCache) if imageDataset is None else imageDataset
         # self.imageDataset = CAugmentedMnistDataset(CImageNetPartDataset()) if imageDataset is None else imageDataset
         self.net = None
-        self.netPreprocessStageName = 'net'
+        self.netPreprocessStageName = 'net_channels_first'  # for self.net = alexnet.AlexNet()
         self.curEpochNum = 0
         self.isLearning = False
         self.curModelLearnRate = None
@@ -55,15 +55,16 @@ class CImageNetVisWrapper:
         model = self._getNet(layerName)
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
-        imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName)
+        imageData = self.imageDataset.getImage(imageNum, 'train', self.netPreprocessStageName)
         imageData = np.expand_dims(imageData, 0)
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
 
-        # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
-        if len(activations.shape) == 4:
-            activations = activations.transpose((0, -1, 1, 2))
-        elif len(activations.shape) == 3:
-            activations = activations.transpose((0, -1, 1))
+        if self.netPreprocessStageName == 'net':
+            # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
+            if len(activations.shape) == 4:
+                activations = activations.transpose((0, -1, 1, 2))
+            elif len(activations.shape) == 3:
+                activations = activations.transpose((0, -1, 1))
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
@@ -80,7 +81,7 @@ class CImageNetVisWrapper:
             if not cacheItem is None:
                 batchActs[i] = cacheItem[0]
             else:
-                imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName)
+                imageData = self.imageDataset.getImage(imageNum, 'train', self.netPreprocessStageName)
                 images.append(imageData)
                 # print('no data for ', itemCacheName)
         if not images:
@@ -95,11 +96,12 @@ class CImageNetVisWrapper:
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
         print("Predicted")
 
-        # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
-        if len(activations.shape) == 4:
-            activations = activations.transpose((0, -1, 1, 2))
-        elif len(activations.shape) == 3:
-            activations = activations.transpose((0, -1, 1))
+        if self.netPreprocessStageName == 'net':
+            # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
+            if len(activations.shape) == 4:
+                activations = activations.transpose((0, -1, 1, 2))
+            elif len(activations.shape) == 3:
+                activations = activations.transpose((0, -1, 1))
 
         predictedI = 0
         for i in range(len(imageNums)):
@@ -189,7 +191,7 @@ class CImageNetVisWrapper:
         import tensorflow as tf
         import keras.backend as K
 
-        if epochNum is None:
+        if epochNum is None or epochNum < 0:
             epochNum = self.curEpochNum
 
         model = self._getNet()
@@ -273,35 +275,37 @@ class CImageNetVisWrapper:
                     self.setLearnRate(options.learnRate)
                     print('Learning rate switched to %f' % options.learnRate)
 
-                fullTestDataset = self.imageDataset.getNetSource('test')
-                if 0:
-                    # Old variant, without augmentation but with simple CimageDataset support
+                trainImageNums = np.arange(1, self.imageDataset.getImageCount('train') + 1)
+                testImageNums = np.arange(1, self.imageDataset.getImageCount('test') + 1)
 
-                    fullDataset = self.imageDataset.getNetSource('train')
-                    if options.trainImageNums is None:
-                        trainDataset = fullDataset
-                    else:
-                        imageNums = options.trainImageNums
+                # fullTestDataset = self.imageDataset.getNetSource('test')
+                if 1:
+                #     # Old variant, without augmentation but with simple CimageDataset support
+                #
+                #     fullDataset = self.imageDataset.getNetSource('train')
+                    if not options.trainImageNums is None:
+                        trainImageNums = options.trainImageNums
                         if options.additTrainImageCount > 0:
-                            imageNums = np.concatenate([imageNums, np.random.randint(
-                                    low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
-                        trainDataset = (fullDataset[0][imageNums - 1],
-                                       fullDataset[1][imageNums - 1])
-                else:
-                    # Optionally augmented and optimized for this variant
-
-                    if options.trainImageNums is None:
-                        trainDataset = self.imageDataset.getAugmentedImages(epochImageCount)
-                    else:
-                        imageNums = options.trainImageNums
-                        if options.additTrainImageCount > 0:
-                            fullDataset = self.imageDataset.getNetSource('train')
-                            imageNums = np.concatenate([imageNums, np.random.randint(
-                                    low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
-                        trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
+                            trainImageNums = np.concatenate([trainImageNums, np.random.randint(
+                                    low=1, high=self.imageDataset.getImageCount('train'),
+                                    size=options.additTrainImageCount)])
+                #         trainDataset = (fullDataset[0][imageNums - 1],
+                #                        fullDataset[1][imageNums - 1])
+                # else:
+                #     # Optionally augmented and optimized for this variant
+                #
+                #     if options.trainImageNums is None:
+                #         trainDataset = self.imageDataset.getAugmentedImages(epochImageCount)
+                #     else:
+                #         imageNums = options.trainImageNums
+                #         if options.additTrainImageCount > 0:
+                #             fullDataset = self.imageDataset.getNetSource('train')
+                #             imageNums = np.concatenate([imageNums, np.random.randint(
+                #                     low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
+                #         trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
 
                 infoStr = self.net.doLearning(1, callback,
-                                              trainDataset, fullTestDataset,
+                                              trainImageNums, testImageNums,
                                               epochImageCount, self.curEpochNum)
                 self.curEpochNum += 1
                 epochNum += 1
@@ -415,17 +419,16 @@ class CImageNetVisWrapper:
     #     return MnistModel2.CMnistModel2()
 
     def _initMainNet(self):
-        import alexnet
+        # import alexnet
 
-        self.net = alexnet.AlexNet()
+        # self.net = alexnet.AlexNet()
         # self.netDataFormat = 'channels_first'
-        self.netPreprocessStageName = 'net_channels_first'
 
-        # import MnistNet
-        #
-        # self.net = MnistNet.CMnistRecognitionNet2(None, base_model=self.baseModel)
-        # # dataset = CMnistDataset()
-        # self.net.init(self.imageDataset, 'QtLogs')
+        import ImageNet
+
+        self.net = ImageNet.CImageRecognitionNet(None)
+        # dataset = CMnistDataset()
+        self.net.init(self.imageDataset, 'QtLogs/ImageNet')
         # # self.setLearnRate(0.1)
         # # if os.path.exists(self.weightsFileNameTempl):
         # #     self.net.model.load_weights(self.weightsFileNameTempl)
@@ -487,8 +490,8 @@ class CImageNetPartDataset:
     # def getImageFilePath(self, imageNum):
     #     return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
 
-    def getImage(self, imageNum, preprocessStage='net'):
-        itemCacheName = self._getImageCacheName(imageNum, preprocessStage)
+    def getImage(self, imageNum, subsetName='train', preprocessStage='net'):
+        itemCacheName = self._getImageCacheName(imageNum, subsetName, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)
         if not cacheItem is None:
             return cacheItem
@@ -496,9 +499,9 @@ class CImageNetPartDataset:
         import alexnet_utils
 
         if self.folders is None:
-            self._loadFilesTree()
+            self._loadData()
 
-        imgFileName = os.path.join(self.mainFolder, self.imagesFileNames[imageNum])
+        imgFileName = os.path.join(self.mainFolder, self.imagesFileNames[imageNum - 1])
 
         if preprocessStage == 'source':
             imageData = alexnet_utils.imread(imgFileName, mode='RGB')
@@ -521,20 +524,25 @@ class CImageNetPartDataset:
         self.cache.saveObject(itemCacheName, imageData)
         return imageData
 
-    def getImageCount(self):
+    def getImageCount(self, subsetName): # TODO
         if self.folders is None:
-            self._loadFilesTree()
+            self._loadData()
         return len(self.imageNumLabels)
 
-    def getImageLabel(self, imageNum):
+    def getImageLabel(self, imageNum, subsetName):
         return self.imageNumLabels[imageNum]
 
+    def getClassCount(self):
+        if self.folders is None:
+            self._loadData()
+        return len(self.folders)
+
     # This method suits ILSVRC's data poorly
-    def getNetSource(self, type='train'):
+    def getNetSource(self, subsetName='train'): # TODO: to remove
         # if self.test is None:
         #     self.loadData()
         # subset = self.train if type == 'train' else self.test
-        if type != 'test':
+        if subsetName != 'test':
             print('Warning: no AlexNet train images')
         data = []
         for imageInd in range(1000):
@@ -553,7 +561,7 @@ class CImageNetPartDataset:
         except Exception as ex:
             print("Error in CImageNetPartDataset._loadData: %s" % str(ex))
             self._loadFilesTree()
-            with open(self.foldersInfoCacheFileName, 'rb') as file:
+            with open(self.foldersInfoCacheFileName, 'wb') as file:
                 pickle.dump(self.folders, file)
                 pickle.dump(self.imageNumLabels, file)
                 pickle.dump(self.imagesFileNames, file)
@@ -590,6 +598,6 @@ class CImageNetPartDataset:
         # for fileName in glob.glob(fileMask):
         #     fileName = fileName.lower()
 
-    def _getImageCacheName(self, imageNum, preprocessStage):
-        return 'im_%d_%s' % (imageNum, preprocessStage)
+    def _getImageCacheName(self, imageNum, subsetName, preprocessStage):
+        return 'im_%d_%c_%s' % (imageNum, subsetName[1], preprocessStage)
 
