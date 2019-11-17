@@ -13,7 +13,7 @@ from alexnet_additional_layers import split_tensor, cross_channel_normalization
 from decode_predictions import decode_classnames_json, decode_classnumber
 
 
-def alexnet_model(weights_path=None):
+def alexnet_model(weights_path='Data/alexnet_weights.h5'):
     """
     Returns a keras model for AlexNet, achieving roughly 80% at ImageNet2012 validation set
     
@@ -22,9 +22,14 @@ def alexnet_model(weights_path=None):
     and only slightly modified to work with TF backend
     """
 
-    # K.set_image_dim_ordering('th')
-    K.set_image_data_format('channels_first')
-    inputs = Input(shape=(3, 227, 227))
+    if 1:
+        # K.set_image_dim_ordering('th')
+        K.set_image_data_format('channels_first')
+        inputs = Input(shape=(3, 227, 227))
+        chanAxis = 1
+    else:
+        inputs = Input(shape=(227, 227, 3))
+        chanAxis = 3
 
     conv_1 = Conv2D(96, 11, strides=4, activation='relu', name='conv_1')(inputs)
 
@@ -33,10 +38,10 @@ def alexnet_model(weights_path=None):
     conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)
     conv_2 = ZeroPadding2D((2, 2))(conv_2)
     new_convs =[Conv2D(128, 5, activation="relu", name='conv_2_' + str(i + 1))
-        (split_tensor(ratio_split=2, id_split=i)(conv_2)
+        (split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_2)
          ) for i in range(2)]
                 # 2 * 8 <- (shifted)    19 8 8 8 8 = 51
-    conv_2 =  Concatenate(axis=1, name="conv_2")(new_convs)
+    conv_2 =  Concatenate(axis=chanAxis, name="conv_2")(new_convs)
     # conv_2 = merge([ \
     #     Conv2D(128, 5, activation="relu", name='conv_2_' + str(i + 1))
     #     (split_tensor(ratio_split=2, id_split=i)(conv_2)
@@ -50,15 +55,15 @@ def alexnet_model(weights_path=None):
                 # 2 * 8 + 16 <-    67 16 16
 
     conv_4 = ZeroPadding2D((1, 1))(conv_3)
-    conv_4 = Concatenate(axis=1, name="conv_4")([
+    conv_4 = Concatenate(axis=chanAxis, name="conv_4")([
         Conv2D(192, 3, activation="relu", name='conv_4_' + str(i + 1))(
-            split_tensor(ratio_split=2, id_split=i)(conv_4)
+            split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_4)
         ) for i in range(2)])   # , mode='concat', concat_axis=1, name="conv_4")
 
     conv_5 = ZeroPadding2D((1, 1))(conv_4)
-    conv_5 = Concatenate(axis=1, name="conv_5")([
+    conv_5 = Concatenate(axis=chanAxis, name="conv_5")([
         Conv2D(128, 3, activation="relu", name='conv_5_' + str(i + 1))(
-            split_tensor(ratio_split=2, id_split=i)(conv_5)
+            split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_5)
         ) for i in range(2)])   # mode='concat', concat_axis=1, name="conv_5")
 
     dense_1 = MaxPooling2D((3, 3), strides=(2, 2), name="convpool_5")(conv_5)
@@ -73,9 +78,8 @@ def alexnet_model(weights_path=None):
 
     m = Model(input=inputs, output=prediction)
 
-    if weights_path is None:
-        weights_path = 'Data/alexnet_weights.h5'
-    m.load_weights(weights_path)
+    if not weights_path is None:
+        m.load_weights(weights_path)
     # Model was trained using Theano backend
     # This changes convolutional kernels from TF to TH, great accuracy improvement
     convert_all_kernels_in_model(m)

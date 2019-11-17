@@ -490,6 +490,9 @@ class CImageNetPartDataset:
     # def getImageFilePath(self, imageNum):
     #     return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
 
+    def getImageFolder(self):
+        return self.mainFolder
+
     readImageCount =0   #d_
     def getImage(self, imageNum, preprocessStage='net', subsetName='train'):
         self.readImageCount += 1
@@ -545,6 +548,8 @@ class CImageNetPartDataset:
 
     # This method suits ILSVRC's data poorly
     def getNetSource(self, subsetName='train'): # TODO: to remove
+        return (self.imagesFileNames, self.imageNumLabels)
+
         # if self.test is None:
         #     self.loadData()
         # subset = self.train if type == 'train' else self.test
@@ -598,6 +603,7 @@ class CImageNetPartDataset:
         randomizer = random.Random(seed)
         inds = np.arange(len(self.imageNumLabels))
         randomizer.shuffle(inds)
+        inds = np.concatenate(([0], inds))
         self.imageNumLabels = self.imageNumLabels[inds]
         self.imagesFileNames = self.imagesFileNames[inds]
 
@@ -607,3 +613,23 @@ class CImageNetPartDataset:
     def _getImageCacheName(self, imageNum, subsetName, preprocessStage):
         return 'im_%d_%c_%s' % (imageNum, subsetName[1], preprocessStage)
 
+
+# class CTfImageNetPartDataset:
+#     def __init__(self, cache):
+#         self.mainFolder = 'ImageNetPart'
+#         self.foldersInfoCacheFileName = 'Data/ImageNetPartCache.dat'
+#         self.cache = cache
+#         self.fullTfDataset = None
+#
+#     def _initFullTfDataset(self):
+#         import tensorflow as tf
+#
+#         self.fullTfDataset = tf.data.Dataset.list_files(self.mainFolder)
+#
+#
+#         # def process_path(file_path):
+#         #   label = tf.strings.split(file_path, '/')[-2]
+#         #   return tf.io.read_file(file_path), label
+#         #
+#         # list_ds = tf.data.Dataset.list_files(str(flowers_root/'*/*'))
+#         # labeled_ds = list_ds.map(process_path)

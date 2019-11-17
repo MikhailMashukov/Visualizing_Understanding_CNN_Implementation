@@ -18,7 +18,7 @@ class CImageRecognitionNet:
         # if base_model is None:
         #     print("None")
         self.base_model = base_model
-        self.batchSize = 64
+        self.batchSize = 32
         self.createModel()
         # super(CMnistRecognitionNet2, self).__init__()
 
@@ -55,7 +55,13 @@ class CImageRecognitionNet:
     def createModel(self):
         if not self.base_model:
             # self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
-            self.base_model = ImageModels.CImageModel()
+            if 0:
+                self.base_model = ImageModels.CImageModel()
+            else:
+                # import alexnet
+
+                # self.base_model = alexnet.alexnet_model(None)
+                self.base_model = ImageModels.MyAlexnetModel()
         self.model = self._sub_model() if self.highest_layer else self.base_model         # Use full network if no highest_layer
 
     def _sub_model(self):
@@ -128,31 +134,62 @@ class CImageRecognitionNet:
             #            self._transformLabelsForNet(trainDataset[1][permut]))
         classCount = self.imageDataset.getClassCount()
 
-        def _loadTrainImage(imageNum):
-            imageData = self.imageDataset.getImage(imageNum, 'train')
-            return (imageData, tf.keras.utils.to_categorical(
-                        np.array(self.imageDataset.getImageLabel(imageNum, 'train')), num_classes=classCount))
+        if 0:
+            def _loadTrainImage(imageNum):
+                imageData = self.imageDataset.getImage(imageNum, 'train')
+                return (imageData, tf.keras.utils.to_categorical(
+                            np.array(self.imageDataset.getImageLabel(imageNum, 'train')), num_classes=classCount))
 
-        def _tfLoadTrainImage(imageNum):
-            x = tf.py_function(_loadTrainImage, [imageNum], [tf.float32, tf.int32])
-            [image, label] = x
-            return image, label
+            def _tfLoadTrainImage(imageNum):
+                x = tf.py_function(_loadTrainImage, [imageNum], [tf.float32, tf.int32])
+                [image, label] = x
+                return image, label
 
-        # def _fixup_shape(images, labels):
-        #     images.set_shape([None, 227, 227, 3])
-        #     labels.set_shape([None, classCount])
-        #     # weights.set_shape([None])
-        #     return images, labels
-        # ds = tfds.load('dataset', split='train',   as_supervised=True)
+            # def _fixup_shape(images, labels):
+            #     images.set_shape([None, 227, 227, 3])
+            #     labels.set_shape([None, classCount])
+            #     # weights.set_shape([None])
+            #     return images, labels
+            # ds = tfds.load('dataset', split='train',   as_supervised=True)
 
-        tfTrainDataset = tf.data.Dataset.from_tensor_slices(curTrainDataset)
-        tfTrainDataset = tfTrainDataset.shuffle(epochImageCount * 2).map(_tfLoadTrainImage)
-        tfTrainDataset = tfTrainDataset.batch(self.batchSize).prefetch(2)  # .map(_fixup_shape)
-            # TODO: tfTrainDataset object caching
-        # for images, labels in tfTrainDataset.take(2):
-        #     print('My dataset labels shape', labels.numpy().shape)
+            tfTrainDataset = tf.data.Dataset.from_tensor_slices(curTrainDataset)
+            tfTrainDataset = tfTrainDataset.shuffle(epochImageCount * 2).map(_tfLoadTrainImage)
+            tfTrainDataset = tfTrainDataset.batch(self.batchSize).prefetch(2)  # .map(_fixup_shape)
+                # TODO: tfTrainDataset object caching
+            # for images, labels in tfTrainDataset.take(2):
+            #     print('My dataset labels shape', labels.numpy().shape)
 
         if 1:
+            imgGen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255, rotation_range=20)
+            flowFromDirParams = dict(directory=self.imageDataset.getImageFolder(), \
+                                     target_size=(227, 227), class_mode='categorical', seed=1, \
+                                     batch_size=self.batchSize) # , save_to_dir='Data/Augmented')
+            # flowFromDirParams = {'directory': self.imageDataset.getImageFolder(), \
+            #                     'target_size': (227, 227), 'class_mode': 'categorical', 'seed': 1, \
+            #                     'save_to_dir'': 'Data/Augmented'}
+                # https://keras.io/preprocessing/image/, the flow_from_directory section
+                # The dictionary containing the mapping from class names to class indices can be obtained via the attribute class_indices.
+            imgGenFlow = imgGen.flow_from_directory(**flowFromDirParams)
+            # images, labels = next(imgGen)
+
+            def generator():
+                return imgGen.flow_from_directory(**flowFromDirParams)
+
+            tfTrainDataset = tf.data.Dataset.from_generator(generator, # args=flowFromDirParams,
+                        output_types=(tf.float32, tf.float32), output_shapes=([32,227,227,3], [32,classCount]))
+            try:
+                # tfTrainDataset = tfTrainDataset.batch(self.batchSize)
+                # tfTrainDataset = tfTrainDataset.prefetch(2)
+                # tfTrainDataset = tfTrainDataset.repeat(2)
+                # tfTrainDataset = iter(tfTrainDataset)
+                tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
+                next(tfTrainDataset)  # dir(tfTrainDataset)
+                # next(tfTrainDataset.make_one_shot_iterator())
+            except:
+                pass
+
+
+        if 0:
             import tensorflow_datasets as tfds
 
             tfCifarDataset = tfds.image.Cifar100(data_dir='Data/TfdsCifar')
@@ -178,7 +215,7 @@ class CImageRecognitionNet:
         #     pass
 
 
-        if 1:
+        if 0:
             model2 = tf.keras.models.Sequential([
               tf.keras.layers.Flatten(input_shape=(227, 227, 3)),
               tf.keras.layers.Dense(16, activation='relu'),
@@ -188,7 +225,8 @@ class CImageRecognitionNet:
                           loss='sparse_categorical_crossentropy',
                           metrics=['accuracy'])
             # model2.fit(tfTrainDataset, epochs=1)
-            # model2.fit_generator(tfTrainDataset, epochs=1)
+            model2.fit_generator(tfTrainDataset, epochs=1,
+                        steps_per_epoch=epochImageCount // self.batchSize)     # Error The shape of labels (800,), received (32, 25).
 
         # curTestDatasetSize = epochImageCount // 6
         # if curTestDatasetSize >= testDataset[0].shape[0]:
@@ -222,8 +260,9 @@ class CImageRecognitionNet:
         history = self.model.fit_generator(tfTrainDataset, # TODO validation_data=curTestDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  steps_per_epoch=epochImageCount // self.batchSize,
-                                 verbose=2, callbacks=[tensorBoardCallback])
+                                 verbose=2) #, callbacks=[tensorBoardCallback])
             #, summaryCallback])
+            # Without make_one_shot_iterator - error fused convolution not supported
 
         try:
             if not history.history:
