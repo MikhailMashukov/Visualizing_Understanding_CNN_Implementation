@@ -490,11 +490,17 @@ class CImageNetPartDataset:
     # def getImageFilePath(self, imageNum):
     #     return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
 
-    def getImage(self, imageNum, subsetName='train', preprocessStage='net'):
+    readImageCount =0   #d_
+    def getImage(self, imageNum, preprocessStage='net', subsetName='train'):
+        self.readImageCount += 1
+        print('getImage %s %d' % (subsetName, self.readImageCount))
         itemCacheName = self._getImageCacheName(imageNum, subsetName, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)
         if not cacheItem is None:
             return cacheItem
+
+        if not subsetName in ['train', 'test']:
+            raise Exception("Invalid image subset '%s'" % subsetName)
 
         import alexnet_utils
 
@@ -504,13 +510,13 @@ class CImageNetPartDataset:
         imgFileName = os.path.join(self.mainFolder, self.imagesFileNames[imageNum - 1])
 
         if preprocessStage == 'source':
-            imageData = alexnet_utils.imread(imgFileName, mode='RGB')
+            imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
         elif  preprocessStage == 'cropped':   # Cropped and resized, as for alexnet
                 # but in uint8, without normalization and transposing back and forth.
                 # Float32 lead to incorrect colors in imshow
             img_size=(256, 256)
             crop_size=(227, 227)
-            imageData = alexnet_utils.imread(imgFileName, mode='RGB')
+            imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')   # For imageio.imread
             imageData = alexnet_utils.imresize(imageData, img_size)
             imageData = imageData[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
                 (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]

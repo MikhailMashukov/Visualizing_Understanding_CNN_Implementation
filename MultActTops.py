@@ -306,7 +306,10 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         return chanImageData
 
     def saveMultActTopsImage(self, imageData, processedImageCount=None):
-        from scipy.misc import imsave
+        try:
+            from scipy.misc import imsave
+        except:
+            from imageio import imsave      # For scipy >= 1.2, but imresize needs additional searching
 
         if processedImageCount is None:
             processedImageCount = self.imageToProcessCount

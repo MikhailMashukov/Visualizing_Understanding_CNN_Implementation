@@ -22,7 +22,7 @@ def preprocess_image_batch_grey_square(image_paths, square_x, square_y, img_size
 
     img_list = []
     for im_path in image_paths:
-        img = imread(im_path, mode='RGB')
+        img = imread(im_path, pilmode='RGB')   # For imageio.imread
         img = imresize(img, img_size)
         img = img.astype('float32')
 

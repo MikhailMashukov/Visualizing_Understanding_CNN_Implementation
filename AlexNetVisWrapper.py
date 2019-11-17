@@ -250,13 +250,13 @@ class CImageDataset:
         imgFileName = self.getImageFilePath(imageNum)
 
         if preprocessStage == 'source':
-            imageData = alexnet_utils.imread(imgFileName, mode='RGB')
+            imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
         elif  preprocessStage == 'cropped':   # Cropped and resized, as for alexnet
                 # but in uint8, without normalization and transposing back and forth.
                 # Float32 lead to incorrect colors in imshow
             img_size=(256, 256)
             crop_size=(227, 227)
-            imageData = alexnet_utils.imread(imgFileName, mode='RGB')
+            imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
             imageData = alexnet_utils.imresize(imageData, img_size)
             imageData = imageData[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
                 (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]

@@ -1,56 +1,78 @@
 import numpy as np
-# from imageio import imread, imresize    # For scipy >= 1.2, but imresize needs additional searching
-from scipy.misc import imread, imresize
 
-def imresize110(arr, size, interp='bilinear', mode=None):   # From scipy 1.1, to reimplement with scipy >= 1.2
-    """ .. warning::
+try:
+    from scipy.misc import imread, imresize
+except:
+    from imageio import imread      # For scipy >= 1.2, but imresize needs additional searching
 
-        This function uses `bytescale` under the hood to rescale images to use
-        the full (0, 255) range if ``mode`` is one of ``None, 'L', 'P', 'l'``.
-        It will also cast data for 2-D images to ``uint32`` for ``mode=None``
-        (which is the default).
+    def imresize110(arr, size, interp='bilinear', mode=None):   # From scipy 1.1, to reimplement with scipy >= 1.2
+        """ .. warning::
 
-    Parameters
-    ----------
-    arr : ndarray
-        The array of image to be resized.
-    size : int, float or tuple
-        * int   - Percentage of current size.
-        * float - Fraction of current size.
-        * tuple - Size of the output image (height, width).
+            This function uses `bytescale` under the hood to rescale images to use
+            the full (0, 255) range if ``mode`` is one of ``None, 'L', 'P', 'l'``.
+            It will also cast data for 2-D images to ``uint32`` for ``mode=None``
+            (which is the default).
 
-    interp : str, optional
-        Interpolation to use for re-sizing ('nearest', 'lanczos', 'bilinear',
-        'bicubic' or 'cubic').
-    mode : str, optional
-        The PIL image mode ('P', 'L', etc.) to convert `arr` before resizing.
-        If ``mode=None`` (the default), 2-D images will be treated like
-        ``mode='L'``, i.e. casting to long integer.  For 3-D and 4-D arrays,
-        `mode` will be set to ``'RGB'`` and ``'RGBA'`` respectively.
+        Parameters
+        ----------
+        arr : ndarray
+            The array of image to be resized.
+        size : int, float or tuple
+            * int   - Percentage of current size.
+            * float - Fraction of current size.
+            * tuple - Size of the output image (height, width).
 
-    Returns
-    -------
-    imresize : ndarray
-        The resized array of image.
+        interp : str, optional
+            Interpolation to use for re-sizing ('nearest', 'lanczos', 'bilinear',
+            'bicubic' or 'cubic').
+        mode : str, optional
+            The PIL image mode ('P', 'L', etc.) to convert `arr` before resizing.
+            If ``mode=None`` (the default), 2-D images will be treated like
+            ``mode='L'``, i.e. casting to long integer.  For 3-D and 4-D arrays,
+            `mode` will be set to ``'RGB'`` and ``'RGBA'`` respectively.
 
-    See Also
-    --------
-    toimage : Implicitly used to convert `arr` according to `mode`.
-    scipy.ndimage.zoom : More generic implementation that does not use PIL.
+        Returns
+        -------
+        imresize : ndarray
+            The resized array of image.
 
-    """
-    im = toimage(arr, mode=mode)
-    ts = type(size)
-    if issubdtype(ts, numpy.signedinteger):
-        percent = size / 100.0
-        size = tuple((array(im.size)*percent).astype(int))
-    elif issubdtype(type(size), numpy.floating):
-        size = tuple((array(im.size)*size).astype(int))
-    else:
-        size = (size[1], size[0])
-    func = {'nearest': 0, 'lanczos': 1, 'bilinear': 2, 'bicubic': 3, 'cubic': 3}
-    imnew = im.resize(size, resample=func[interp])
-    return fromimage(imnew)
+        See Also
+        --------
+        toimage : Implicitly used to convert `arr` according to `mode`.
+        scipy.ndimage.zoom : More generic implementation that does not use PIL.
+
+        """
+        im = toimage(arr, mode=mode)
+        ts = type(size)
+        if issubdtype(ts, numpy.signedinteger):
+            percent = size / 100.0
+            size = tuple((array(im.size)*percent).astype(int))
+        elif issubdtype(type(size), numpy.floating):
+            size = tuple((array(im.size)*size).astype(int))
+        else:
+            size = (size[1], size[0])
+        func = {'nearest': 0, 'lanczos': 1, 'bilinear': 2, 'bicubic': 3, 'cubic': 3}
+        imnew = im.resize(size, resample=func[interp])
+        return fromimage(imnew)
+
+    # imresize = imresize110
+
+    import PIL
+
+    def imresize(arr, size):  # , interp='bilinear', mode=None):
+        # print('resizing ', size)
+        img = PIL.Image.fromarray(arr)         # .convert('RGB')
+        img = img.resize(size, PIL.Image.BILINEAR)
+        # print('resize result: ', img.size)
+        return np.array(img)
+
+        return arr.resize(size, resample=PIL.Image.BICUBIC)
+
+        # images.append(np.array(PIL.Image.fromarray(
+        #         (source_image*255).astype(np.uint8).resize(
+        #             [source_image.shape[0]//downscale,
+        #              source_image.shape[1]//downscale], resample=PIL.Image.BICUBIC)
+        #     ))
 
 
 def preprocess_image_batch(image_paths, img_size=(256, 256), crop_size=(227, 227), color_mode="rgb", out=None):
@@ -69,7 +91,8 @@ def preprocess_image_batch(image_paths, img_size=(256, 256), crop_size=(227, 227
 
     img_list = []
     for im_path in image_paths:
-        img = imread(im_path, mode='RGB')
+        # img = imread(im_path, mode='RGB')
+        img = imread(im_path, pilmode='RGB')   # For imageio.imread
         img = imresize(img, img_size)
 
         img = img.astype('float32')
