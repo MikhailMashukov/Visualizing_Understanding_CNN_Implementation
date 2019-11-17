@@ -121,7 +121,8 @@ class CImageRecognitionNet:
                        # , self._transformLabelsForNet(trainDataset[1]))
         else:
             # assert not 'Not implemented'
-            permut = np.random.permutation(trainDatasetImageCount)[:epochImageCount]
+            permut = np.random.permutation(trainDatasetImageCount)  \
+                    [ : (epochImageCount // self.batchSize + 10) * self.batchSize]
             curTrainDataset = trainImageNums[permut]
             # curTrainDataset = (trainDataset[0][permut, :, :, :],
             #            self._transformLabelsForNet(trainDataset[1][permut]))
@@ -142,14 +143,52 @@ class CImageRecognitionNet:
         #     labels.set_shape([None, classCount])
         #     # weights.set_shape([None])
         #     return images, labels
+        # ds = tfds.load('dataset', split='train',   as_supervised=True)
 
         tfTrainDataset = tf.data.Dataset.from_tensor_slices(curTrainDataset)
         tfTrainDataset = tfTrainDataset.shuffle(epochImageCount * 2).map(_tfLoadTrainImage)
         tfTrainDataset = tfTrainDataset.batch(self.batchSize).prefetch(2)  # .map(_fixup_shape)
             # TODO: tfTrainDataset object caching
-        for images, labels in tfTrainDataset.take(2):
-            labels.numpy()
+        # for images, labels in tfTrainDataset.take(2):
+        #     print('My dataset labels shape', labels.numpy().shape)
 
+        if 1:
+            import tensorflow_datasets as tfds
+
+            tfCifarDataset = tfds.image.Cifar100(data_dir='Data/TfdsCifar')
+            tfCifarDataset.download_and_prepare()
+            for info in tfCifarDataset.as_dataset(split='train', as_supervised=True).take(4):
+                # label = info['label'].numpy()
+                label = info[1].numpy()
+                # print('Labels: ', label)
+            # tfTrainDataset = tfCifarDataset.as_dataset(split='train')
+            # tfds.show_examples(tfCifarDataset.info, tfTrainDataset)
+
+        # try:
+        #     tfDataset = tfds.image.Imagenet2012()
+        #     tfDataset.download_and_prepare(download_dir='Data/TfdsImageNet')
+        #     print('Imagenet dataset downloaded')
+        #
+        #     # for images, labels in tfDataset.take(10):
+        #     for images, labels in loaded:
+        #         images.numpy()
+        #         labels.numpy()
+        #         print('Labels: ', labels)
+        # except:
+        #     pass
+
+
+        if 1:
+            model2 = tf.keras.models.Sequential([
+              tf.keras.layers.Flatten(input_shape=(227, 227, 3)),
+              tf.keras.layers.Dense(16, activation='relu'),
+              tf.keras.layers.Dense(classCount, activation='softmax')
+            ])
+            model2.compile(optimizer='adam',
+                          loss='sparse_categorical_crossentropy',
+                          metrics=['accuracy'])
+            # model2.fit(tfTrainDataset, epochs=1)
+            # model2.fit_generator(tfTrainDataset, epochs=1)
 
         # curTestDatasetSize = epochImageCount // 6
         # if curTestDatasetSize >= testDataset[0].shape[0]:
@@ -175,9 +214,14 @@ class CImageRecognitionNet:
 
         # inp = [curTrainDataset[0], np.ones([curTrainDataset[0].shape[0], 4])]
         # valData = curTestDataset[0], np.ones([curTestDataset[0].shape[0], 4])], curTestDataset[1]]
-        history = self.model.fit(x=tfTrainDataset, # TODO validation_data=curTestDataset,
+        # history = self.model.fit(tfTrainDataset, # TODO validation_data=curTestDataset,
+        #                          epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
+        #                          # batch_size=self.batchSize,
+        #                          verbose=2, callbacks=[tensorBoardCallback])
+            # Exception 'PrefetchDataset' object is not an iterator
+        history = self.model.fit_generator(tfTrainDataset, # TODO validation_data=curTestDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
-                                 # batch_size=self.batchSize,
+                                 steps_per_epoch=epochImageCount // self.batchSize,
                                  verbose=2, callbacks=[tensorBoardCallback])
             #, summaryCallback])
 
