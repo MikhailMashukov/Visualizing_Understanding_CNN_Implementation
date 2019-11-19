@@ -1,155 +1,51 @@
-#To check why at 3 training is bad. AT 2 is good now
-""" Result notes:
-Reinitialization of neirons works bad or doesn't give serious effect.
-It's bad that the resting neirons setups theirs surroundings to theirs old weights.
-Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
-works in conjunction with some others, which gives theirs final good results. And this looses at
-reinitializations.
-After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
+# from VisJupyterNotUtils import *
+from VisQtMain import *
 
-With separated towers and full reinitialization or keeping of entire tower reinitializations
-seems to work better - good results restores very quickly and reaches source results more reliably.
-It looks as a good idea to reinitialize with small weights and to multiply the kept weights
-in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later
-15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
-more and more conv_2 filters got stucked on the same favorite images
-16_4_Train8e-4_Test0.95e-3: maybe with further training test results improve even better,
-(with the initial learning rate) as for 16_5.
-21_Correlations\21_3_BasedOn20_4_3 (8 towers): one tower correlates well with the 0 one, others - much less
-
-Activity regularization doesn't seem to give better generalization. Training becomes much slower,
-even with big networks. Number of active neirons really becomes smaller. Default coefficients l1/l2 0.01
-simply kill training, values should be like 1e-6 for both l1 and l2. They maybe depend on previous layers
-(if they also contain such regularization, the choice is smaller... maybe no, since each neiron
-anyway generates a potentially valuable result).
-
-Further ideas:
-* to train a usual each-to-each or towers conv. network, then estimate dissimilarity
-  of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
-  in a matrix network;
-* to try max pooling with strides (1, 1) and 3 * 2 with strides (2, 1);
-* to try 3D max pooling for neighbour channels;
-* it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
-"""
-
-
-# import copy
-import datetime
-import matplotlib
-matplotlib.use('AGG')
-matplotlib.rcParams['savefig.dpi'] = 600
-import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt4agg import FigureCanvas
-    # +FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
-# from matplotlib import cm
-import pickle
-import math
-import numpy as np
-try:
-    import PyQt4.Qt
-    from PyQt4 import QtCore, QtGui
-    from PyQt4.QtGui import QMainWindow
-except:
-    import PyQt5.Qt
-    from PyQt5 import QtCore, QtGui, QtWidgets
-    from PyQt5.QtWidgets import QMainWindow
-# from PySide import QtGui
-# import re
-    # from glumpy import app, glm   # In case of "GLFW not found" copy glfw3.dll to C:\Python27\Lib\site-packages\PyQt4\
-    # from glumpy.transforms import Position, Trackball, Viewport
-    # from glumpy.api.matplotlib import *
-    # import glumpy.app.window.key as keys
-import os
-# import random
-# import sys
-# import time
-import threading
-
-# sys.path.append(r"../Qt_TradeSim")
-import AlexNetVisWrapper
-import ImageNetsVisWrappers
-import MnistNetVisWrapper
-import MultActTops
-from MyUtils import *
-from VisUtils import *
-# from ControlWindow import *
-# from CppNetChecker import *
-# from NeuralNet import *
-# from PersistDiagram import *
-# from PriceHistory import *
-
-# Returns two groups most distant points count / 2 each
-# among N points in N * 2 coords array
-def getMostDistantPoints(coords, count):
-    # Converting to polar coordinates
-    center = np.mean(coords, axis=0)
-    deltas = coords - center[np.newaxis, :]
-    dists = np.sqrt(np.square(deltas[:, 0]) + np.square(deltas[:, 1]))       # R
-    angles = np.arctan(deltas[:, 1] / deltas[: , 0])                         # Theta
-    angles[deltas[:, 0] < 0] += math.pi
-
-    anglePartCount = 16
-    angleParts = np.array(np.floor((angles / math.pi + 0.5) / 2 * anglePartCount), dtype=int) % anglePartCount
-    assert angleParts.min() >= 0 and angleParts.max() < anglePartCount
-    countByAngles = [0] * anglePartCount
-    sortedByDistInds = dists.argsort()
-    moreDistantInds = sortedByDistInds[coords.shape[0] // 2 : ]
-    for i in moreDistantInds:
-        countByAngles[angleParts[i]] += 1
-
-    maxEst = 0
-    for i in range(anglePartCount // 2):
-        curEst = countByAngles[i] + countByAngles[i + anglePartCount // 2] + \
-                min(countByAngles[i], countByAngles[i + anglePartCount // 2])
-        if maxEst < curEst:
-            maxEst = curEst
-            selectedAngleParts = [i, i + anglePartCount // 2]
-            # selectedAngle = (i / float(anglePartCount) - 0.5) * math.pi
-
-    groups = [[], []]
-    groupSize = count // 2
-    anglePartDelta = 1
-    while len(groups[0]) < groupSize or len(groups[1]) < groupSize:
-        # if anglePartDelta == 0:
-        #     curAngleParts = selectedAngleParts
-        # else:
-        curAngleParts = [[(selectedAngleParts[0] + anglePartDelta) % anglePartCount,
-                              (selectedAngleParts[0] - anglePartDelta + anglePartCount) % anglePartCount],
-                             [(selectedAngleParts[1] + anglePartDelta) % anglePartCount,
-                              (selectedAngleParts[1] - anglePartDelta + anglePartCount) % anglePartCount]]
-        if anglePartDelta == 1:
-            curAngleParts[0].append(selectedAngleParts[0])
-            curAngleParts[1].append(selectedAngleParts[1])
-        for i in reversed(moreDistantInds):
-            if angleParts[i] in curAngleParts[0]:
-                if len(groups[0]) < groupSize:
-                    groups[0].append(i)
-                    # groups[0].append(coords[i])
-            elif angleParts[i] in curAngleParts[1]:
-                if len(groups[1]) < groupSize:
-                    groups[1].append(i)
-                    # groups[1].append(coords[i])
-        print('Angles %s: %d' % (str(curAngleParts[0]), len(groups[0])))
-        print('Angles 2 %s: %d' % (str(curAngleParts[1]), len(groups[1])))
-        anglePartDelta += 1
-
-    groups.append(moreDistantInds[-groupSize : ])
-    groups.append(moreDistantInds[-groupSize * 3 : -groupSize])
-    return groups
+# # import copy
+# import datetime
+# import matplotlib
+# matplotlib.use('AGG')
+# matplotlib.rcParams['savefig.dpi'] = 600
+# import matplotlib.pyplot as plt
+# from matplotlib.backends.backend_qt4agg import FigureCanvas
+#     # +FigureCanvasQTAgg as FigureCanvas
+# from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+# from matplotlib.figure import Figure
+# from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
+# # from matplotlib import cm
+# import pickle
+# import math
+# import numpy as np
+# import PyQt4.Qt
+# from PyQt4 import QtCore, QtGui
+# # from PySide import QtGui
+# # import re
+#     # from glumpy import app, glm   # In case of "GLFW not found" copy glfw3.dll to C:\Python27\Lib\site-packages\PyQt4\
+#     # from glumpy.transforms import Position, Trackball, Viewport
+#     # from glumpy.api.matplotlib import *
+#     # import glumpy.app.window.key as keys
+# import os
+# # import random
+# # import sys
+# # import time
+# import _thread
+#
+# # sys.path.append(r"../Qt_TradeSim")
+# import AlexNetVisWrapper
+# import ImageNetsVisWrappers
+# import MnistNetVisWrapper
+# import MultActTops
+# from MyUtils import *
+# from VisUtils import *
 
 
-class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
+# Part of QtMainWindow without GUI
+class NetControlObject():
     c_channelMargin = 2
     c_channelMargin_Top = 5
     AllEpochs = -2
 
     def __init__(self, parent=None):
-        QMainWindow.__init__(self, parent)
-        # super(QtMainWindow, self).__init__(parent)
-        # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)
         self.exiting = False
         self.cancelling = False
         self.lastAction = None
@@ -162,18 +58,13 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper5_DeeperTowers()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
-        self.tensorFlowLock = threading.allocate_lock()
+        self.tensorFlowLock = threading.Lock()
         # self.savedNetEpochs = None
         # self.curEpochNum = 0
         self.weightsBeforeReinit = None
         self.weightsReinitInds = None
         self.weightsReinitEpochNum = None
-        self.initUI()
-        # self.initAlexNetUI()
 
-        # self.showControlWindow()
-
-        self.iterNumLabel.setText('Epoch 0')
         self.maxAnalyzeChanCount = 70
 
     def init(self):
@@ -182,370 +73,33 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         # DeepMain.MainWrapper.startNeuralNetTraining()
         # self.net = self.netTrader.net
         # self.fastInit()
-        self.mousePressPos = None
 
         if not os.path.exists('Data/BestActs'):
             os.makedirs('Data/BestActs')
         # os.makedirs('Data/Weights')
         self.loadNetStateList()
-        self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
+        self.curEpochNum = self.savedNetEpochs[-1]
+        # self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
 
-    def initUI(self):
-        self.setGeometry(100, 40, 1100, 700)
-        self.setWindowTitle(self.getTitleForWindow())
-
-        c_buttonWidth = 50
-        c_buttonHeight = 30
-        c_margin = 10
-
-        # set the layout
-        self._main = QtWidgets.QWidget()
-        self.setCentralWidget(self._main)       # Additional _main object - workaround for not appearing FigureCanvas
-        layout = QtGui.QVBoxLayout(self._main)
-        layout.setContentsMargins(c_margin, c_margin, c_margin, c_margin)
-        layout.setSpacing(10)
-        # layout.addWidget(self.paramSpinBox)
-        self.layout = layout
-        # self.setLayout(layout)
-
-        # Widgets line 1 - "Iteration ..."
-        y = c_margin
-        x = c_margin
-        curHorizWidget = QtGui.QHBoxLayout()
-        self.iterNumLabel = QtGui.QLabel(self)
-        self.iterNumLabel.setMinimumWidth(250)
-        # self.iterNumLabel.setGeometry(x, y, 200, c_buttonHeight)
-        curHorizWidget.addWidget(self.iterNumLabel)
-
-        self.epochComboBox = QtGui.QComboBox(self)
-        self.epochComboBox.currentIndexChanged.connect(self.onEpochComboBoxChanged)
-        # self.epochComboBox.currentIndexChanged.connect(self.onSpinBoxValueChanged)
-        self.iterNumLabel.setMinimumWidth(150)
-        curHorizWidget.addWidget(self.epochComboBox)
-
-        button = QtGui.QPushButton('Load state', self)
-        button.clicked.connect(lambda: self.onLoadStatePressed())
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Save state', self)   # and/or caches
-        button.clicked.connect(lambda: self.saveState())
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Save act.', self)
-        button.clicked.connect(self.saveActsForCorrelations)
-        curHorizWidget.addWidget(button)
-
-        # # x += c_buttonWidth + c_margin
-        # button = QtGui.QPushButton('1 epoch', self)
-        # button.clicked.connect(lambda: self.onDoItersPressed(100))
-        # curHorizWidget.addWidget(button)
-
-        lineEdit = QtGui.QLineEdit(self)
-        # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
-        lineEdit.setText(str(self.netWrapper.getRecommendedLearnRate()))
-        lineEdit.setMaximumWidth(100)
-        curHorizWidget.addWidget(lineEdit)
-        self.learnRateEdit = lineEdit
-
-        spinBox = QtGui.QSpinBox(self)
-        spinBox.setRange(1, 1000000)
-        spinBox.setValue(150000)
-        spinBox.setSingleStep(100)
-        spinBox.setMaximumWidth(120)
-        curHorizWidget.addWidget(spinBox)
-        self.iterCountEdit = spinBox
-
-        button = QtGui.QPushButton('I&terations', self)
-        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountEdit.text())))
-        button.setToolTip('Run learning iterations')
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Spec. iter.', self)
-        button.clicked.connect(lambda: self.onSpecialDoItersPressed(int(self.iterCountEdit.text())))
-        button.setToolTip('Run iterations on selected samples')
-        curHorizWidget.addWidget(button)
-
-        # button = QtGui.QPushButton('+ learn. rate', self)
-        # button.clicked.connect(lambda: self.onIncreaseLearningRatePressed())
-        # curHorizWidget.addWidget(button)
-        #
-        button = QtGui.QPushButton('Reinit. worst n.', self)
-        button.clicked.connect(lambda: self.onReinitWorstNeironsPressed())
-        button.setToolTip('Reinitialize worst neirons')
-        curHorizWidget.addWidget(button)
-        layout.addLayout(curHorizWidget)
-
-        # Widgets line 2 - "Mouse move..."
-        y += c_buttonHeight + c_margin
-        x = c_margin
-        curHorizWidget = QtGui.QHBoxLayout()
-        self.infoLabel = QtGui.QLabel(self)
-        # self.infoLabel.setGeometry(x, y, self.width() - c_margin * 2, c_buttonHeight)
-        # self.infoLabel.setGeometry(x, y, 550, c_buttonHeight * 3)
-        self.infoLabel.setMinimumWidth(350)
-            # controlsRestrictorWidget = QtGui.QWidget();  # Example how to restrict width, but it doesn't work, parent already set
-            # controlsRestrictorWidget.setLayout(curHorizWidget);
-            # controlsRestrictorWidget.setMaximumWidth(800);
-        curHorizWidget.addWidget(self.infoLabel)
-
-        # # x += 200 + c_margin
-        # self.datasetComboBox = QtGui.QComboBox(self)
-        # # self.datasetComboBox.setGeometry(x, y, 200, c_buttonHeight)
-        # self.datasetComboBox.setMaximumWidth(60)
-        # self.datasetComboBox.currentIndexChanged.connect(self.onDatasetChanged)
-        # curHorizWidget.addWidget(self.datasetComboBox)
-
-        x += 150 + c_margin
-        self.blockComboBox = QtGui.QComboBox(self)
-        # self.blockComboBox.setGeometry(x, y, 300, c_buttonHeight)
-        self.blockComboBox.setMaximumWidth(100)
-        # frame = QtGui.QFrame()
-        # frame.add
-        self.blockComboBox.currentIndexChanged.connect(self.onBlockChanged)
-        curHorizWidget.addWidget(self.blockComboBox)
-
-        spinBox = QtGui.QSpinBox(self)
-        spinBox.setMaximumWidth(100)
-        spinBox.setRange(0, int(2e9))
-        spinBox.setValue(0)
-        spinBox.valueChanged.connect(lambda: self.onChanSpinBoxValueChanged())
-        curHorizWidget.addWidget(spinBox)
-        self.chanNumEdit = spinBox
-
-        button = QtGui.QPushButton('Show &channel act.', self)
-        button.clicked.connect(self.onShowChanActivationsPressed)
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Sorted &channel act.', self)
-        button.clicked.connect(self.onShowSortedChanActivationsPressed)
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Correlat. an.', self)
-        button.clicked.connect(self.onCorrelationAnalyzisPressed)
-        button.setToolTip('Performs current layer\'s activations correlation analyzis among towers')
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Correlat. to model 2', self)
-        button.clicked.connect(self.onCorrelationToOtherModelPressed)
-        button.setToolTip('Performs current layer\'s activations correlation analyzis to towers of another model')
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Set towers weights', self)
-        button.clicked.connect(self.onSetTowersWeightsPressed)
-        curHorizWidget.addWidget(button)
-        layout.addLayout(curHorizWidget)
-
-        # Widgets line 3
-        y += c_buttonHeight + c_margin
-        x = c_margin
-        curHorizWidget = QtGui.QHBoxLayout()
-        # self.style().toolTipTimeouts[curHorizWidget] = 0      # 'QCommonStyle' object has no attribute 'toolTipTimeouts'
-        # button = QtGui.QPushButton('test', self)
-        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        # button.clicked.connect(lambda: self.onTestPress())
-        # curHorizWidget.addWidget(button)
-
-        # lineEdit = QtGui.QLineEdit(self)
-        # lineEdit.setValidator(QtGui.QIntValidator(1, 999999))
-        # lineEdit.setText("1")
-        # curHorizWidget.addWidget(lineEdit)
-        spinBox = QtGui.QSpinBox(self)
-        spinBox.setRange(1, 999999)
-        spinBox.setValue(200)
-        spinBox.valueChanged.connect(lambda: self.onSpinBoxValueChanged())
-        curHorizWidget.addWidget(spinBox)
-        self.imageNumEdit = spinBox
-
-        button = QtGui.QPushButton('Show &image', self)
-        # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-        button.clicked.connect(self.onShowImagePressed)
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Show &act.', self)
-        button.clicked.connect(self.onShowActivationsPressed)
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Act. est. by images', self)
-        button.clicked.connect(self.onShowActEstByImagesPressed)
-        button.setToolTip('Show activations estimations, one column per image')
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('t-SNE', self)
-        button.clicked.connect(self.onShowImagesWithTSnePressed)
-        button.setToolTip('Show images, distributed in accordance with activations t-SNE')
-        curHorizWidget.addWidget(button)
-
-        # button = QtGui.QPushButton('Show act. tops', self)     # Doesn't give interesting results
-        # button.clicked.connect(self.onShowActTopsPressed)
-        # curHorizWidget.addWidget(button)
-
-        self.multActTopsButtonText = 'My &mult. act. tops'
-        button = QtGui.QPushButton(self.multActTopsButtonText, self)
-        self.multActTopsButton = button
-        button.clicked.connect(self.onShowMultActTopsPressed)
-        button.setToolTip('Show my activations tops by multiple images')
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Multith. act. tops', self)
-        button.clicked.connect(self.calcMultActTops_MultiThreaded)
-        button.setToolTip('Multithreaded preparation of activations tops for all epochs')
-        curHorizWidget.addWidget(button)
-
-        # button = QtGui.QPushButton('Show all images tops', self)
-        # button.clicked.connect(self.onShowActTopsFromCsvPressed)
-        # curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Average &grad.', self)
-        button.clicked.connect(self.onShowGradientsPressed)
-        button.setToolTip('Show average (by specified number of first images) gradients')
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Grad. by images', self)
-        button.clicked.connect(self.onGradientsByImagesPressed)
-        button.setToolTip('Show gradients by images, for one image at vertical line')
-        curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('Worst images', self)
-        button.clicked.connect(self.onShowWorstImagesPressed)
-        button.setToolTip('Show images with maximal prediction errors')
-        curHorizWidget.addWidget(button)
-
-        # button = QtGui.QPushButton('Pred. history', self)
-        # button.clicked.connect(self.onShowPredictionHistoryPressed)
-        # # button.setToolTip('')
-        # curHorizWidget.addWidget(button)
-
-        button = QtGui.QPushButton('&Cancel', self)
-        button.clicked.connect(self.onCancelPressed)
-        curHorizWidget.addWidget(button)
-        layout.addLayout(curHorizWidget)
-
-        # Widgets line 4
-        if 0:
-            curHorizWidget = QtGui.QHBoxLayout()
-            lineEdit = QtGui.QLineEdit(self)
-            lineEdit.setValidator(QtGui.QIntValidator(1, 99999))
-            curHorizWidget.addWidget(lineEdit)
-            lineEdit.setText("0")
-            self.startSampleIndLineEdit = lineEdit
-
-            lineEdit = QtGui.QLineEdit(self)
-            lineEdit.setValidator(QtGui.QIntValidator(1, 99999))
-            curHorizWidget.addWidget(lineEdit)
-            lineEdit.setText("300")
-            self.endSampleIndLineEdit = lineEdit
-
-            lineEdit = QtGui.QLineEdit(self)
-            lineEdit.setValidator(QtGui.QIntValidator(111, 999))
-            curHorizWidget.addWidget(lineEdit)
-            lineEdit.setText("322")
-            self.plotNumLineEdit = lineEdit
-
-            button = QtGui.QPushButton('Display', self)
-            # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
-            button.clicked.connect(lambda: self.onDisplayPressed())
-            curHorizWidget.addWidget(button)
-
-            button = QtGui.QPushButton('Display 6 grad.', self)
-            button.clicked.connect(lambda: self.onDisplay6Pressed())
-            curHorizWidget.addWidget(button)
-
-            button = QtGui.QPushButton('Display interm. res.', self)
-            button.clicked.connect(lambda: self.onDisplayIntermResultsPressed())
-            # button.mouseMoveEvent.connect(self.mouseMoveEvent)
-            # QtCore.QObject.connect(button, QtCore.SIGNAL("clicked()"), self.onDisplayIntermResultsPressed)
-            # QtCore.QObject.connect(button, QtCore.SIGNAL("mouseMoveEvent()"), self.mouseMoveEvent)
-            curHorizWidget.addWidget(button)
-            layout.addLayout(curHorizWidget)
-
-        # Drawings area
-        y += c_buttonHeight + c_margin
-        x = c_margin
-        if 0:
-            label = QtGui.QLabel(self)
-            label.setGeometry(x, y, self.width() - x - c_margin, self.height() - y - c_margin)
-
-            pixmap = QtGui.QPixmap(label.width(), label.height())
-            # QPaintDevice
-
-            self.pixmap = pixmap
-            self.imageLabel = label
-            label.setPixmap(pixmap)
-        else:
-            self.figure = Figure(figsize=(5, 3))
-            self.canvas = FigureCanvas(self.figure)
-            # self.canvas.setGeometry(x, y, self.width() - x - c_margin, self.height() - y - c_margin)
-            self.canvas.setSizePolicy(QtGui.QSizePolicy.Expanding, QtGui.QSizePolicy.Expanding)
-            # self.canvas.setVerticalPolicy(QtGui.QSizePolicy.Expanding)
-            # self.canvas.setSexpandingDirections
-            # self.oldMouseMoveEvent = self.canvas.mouseMoveEvent
-            self.canvas.mpl_connect('motion_notify_event', self.mouseMoveEvent)
-            self.canvas.mpl_connect('button_press_event', self.mousePressEvent)
-            self.canvas.mpl_connect('button_release_event', self.mouseReleaseEvent)
-            # self.canvas.mouseMoveEvent = (lambda event=event: self.mouseMoveEvent(event), self.oldMouseMoveEvent(event))
-
-            self.addToolBar(QtCore.Qt.BottomToolBarArea,
-                        NavigationToolbar(self.canvas, self))
-            # self.setCentralWidget(self.canvas)
-            curHorizWidget.addWidget(self.canvas)
-            layout.addWidget(self.canvas)
-
-        self.lastAction = None
-
-        button.setFocus()
-
-    # def initAlexNetUI(self):
-
-        for layerName in self.netWrapper.getNetLayersToVisualize():
-            self.blockComboBox.addItem(layerName)
-
-        self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
-                                                 #    hspace=0.3)
-
-        self.blockComboBox.setCurrentIndex(1)
-        # self.blockComboBox.setCurrentIndex(7)
-        # self.lastAction = self.onShowActTopsPressed   #d_
-
-    def getTitleForWindow(self):
-        path = os.getcwd()
-        try:
-            pathBlocks = os.path.split(path)
-            pathBlocks2 = os.path.split(pathBlocks[0])
-            path = '%s/%s' % (pathBlocks2[1], pathBlocks[1])
-        except:
-            pass
-
-        return 'Visualization %s %d' % (path, os.getpid())
+        self.curBlockInd = 1
+        # self.blockComboBox.setCurrentIndex(1)
+        self.curImageNum = 200
+        self.curChanNum = 0
 
     def showProgress(self, str, processEvents=True):
         print(str)
-        # self.setWindowTitle(str)
-        self.infoLabel.setText(str)
-        if processEvents:
-            PyQt4.Qt.QCoreApplication.processEvents()
+        # # self.setWindowTitle(str)
+        # self.infoLabel.setText(str)
+        # if processEvents:
+        #     PyQt4.Qt.QCoreApplication.processEvents()
 
     def startAction(self, actionFunc):
         self.lastAction = actionFunc
         self.lastActionStartTime = datetime.datetime.now()
         self.cancelling = False
 
-    # TODO def startVisualizationAction(self, actionFunc):
-    #     self.lastAction = actionFunc
-    #     self.lastActionStartTime = datetime.datetime.now()
-    #     self.cancelling = False
-
     def getSelectedEpochNum(self):
-        if self.netWrapper.isLearning:
-            return -5         # Ok to take the current epoch, tracked not by this object, but by the net wrapper
-        epochNum = -6
-        epochText = self.epochComboBox.currentText().lower()
-        if epochText.find('all') >= 0:
-            return self.AllEpochs
-        pos = epochText.find('epoch')
-        if pos >= 0:
-            epochNum = int(epochText[pos + len('epoch') : ])
-        return epochNum
+        return self.curEpochNum
 
     def getPrevLayerName(self, layerName):
         import re
@@ -558,11 +112,13 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
             raise Exception('Can\'t decode layer number')
 
     def getSelectedImageNum(self):
-        return self.imageNumEdit.value()
+        return self.curImageNum
+        # return self.imageNumEdit.value()
             # int(self.imageNumLineEdit.text())
 
     def getSelectedChannelNum(self):
-        return self.chanNumEdit.value()
+        return self.curChanNum
+        # return self.chanNumEdit.value()
 
     def getChannelsToAnalyze(self, data):
         if self.maxAnalyzeChanCount and data.shape[0] > self.maxAnalyzeChanCount:
@@ -604,10 +160,11 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         #     imageData[i // 2, 180:220, :] = [0, 0, i]
         # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
 
-        ax = self.figure.add_subplot(self.gridSpec[0, 0])       # GridSpec: [y, x]
-        self.showImage(ax, imageData)
-        # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
-        self.canvas.draw()
+        display(imageData)
+        # ax = self.figure.add_subplot(self.gridSpec[0, 0])       # GridSpec: [y, x]
+        # self.showImage(ax, imageData)
+        # # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
+        # self.canvas.draw()
 
     def clearFigure(self):
         self.figure.clear()
@@ -2036,13 +1593,11 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
 
     def loadNetStateList(self):
         try:
-            savedNetEpochs = self.netWrapper.getSavedNetEpochs()
-            self.epochComboBox.clear()
-            self.epochComboBox.addItem('---  All  ---')
-            for epochNum in savedNetEpochs:
-                self.epochComboBox.addItem('Epoch %d' % epochNum)
+            self.savedNetEpochs = self.netWrapper.getSavedNetEpochs()
         except Exception as ex:
             self.showProgress("Error in loadState: %s" % str(ex))
+            self.savedNetEpochs = []
+        self.savedNetEpochs = ['---  All  ---'] + self.savedNetEpochs
 
     def loadState(self, epochNum=None):
         try:
@@ -2431,444 +1986,27 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
 
 
 
+controlObj = NetControlObject()
+# controlObj.show()
 
+controlObj.init()
+#controlObj.loadCacheState()
 
+# controlObj.loadState(controlObj.getSelectedEpochNum())
+# controlObj.netWrapper.getGradients()
+# MnistNetVisWrapper.getGradients(controlObj.netWrapper.net.model)
+#controlObj.onDoItersPressed(1)
+# controlObj.onReinitWorstNeironsPressed()
 
-
-
-
-    def initWindow(self):
-        # self.window = window
-        self.frameNumber = 0  # Only used in set_position workaround
-        # self.transform = Trackball(Position())
-        # self.viewport = Viewport()
-        # self.viewport.clipping = False
-        # self.diagramOptions = DiagramOptions()
-        # self.diagramOptions.xDimInd = 0
-        # self.diagramOptions.xDimInd = 1
-        # self.diagramOptions.step = 0.2
-        # self.diagramOptions.stepCount = 40
-        # # self.lastOperation = None
-        # self.diagramDisplayMethod = self.displayAllWeightsDiagrams
-        #
-        # self.window.attach(self.transform)
-        # self.window.attach(self.viewport)
-
-
-    # def showControlWindow(self):
-    #     self.controlWin = ControlWindow(window, self)
-    #     self.showCurParameters()
-    #     self.controlWin.show()
-
-
-    # def takeScreenShot(self):
-    #     """ Takes a screenshot of the screen at give pos & size (rect). """
-    #     print('Taking screenshot...')
-    #     rect = self.GetRect()
-    #     # see http://aspn.activestate.com/ASPN/Mail/Message/wxpython-users/3575899
-    #     # created by Andrea Gavana
-    #
-    #     # Create a DC for the whole screen area
-    #     dcScreen = wx.ScreenDC()
-    #
-    #     # Create a Bitmap that will hold the screenshot image later on
-    #     # Note that the Bitmap must have a size big enough to hold the screenshot
-    #     # -1 means using the current default colour depth
-    #     bmp = wx.EmptyBitmap(rect.width, rect.height)
-    #
-    #     # Create a memory DC that will be used for actually taking the screenshot
-    #     memDC = wx.MemoryDC()
-    #
-    #     # Tell the memory DC to use our Bitmap
-    #     # all drawing action on the memory DC will go to the Bitmap now
-    #     memDC.SelectObject(bmp)
-    #
-    #     # Blit (in this case copy) the actual screen on the memory DC
-    #     # and thus the Bitmap
-    #     memDC.Blit(0,  # Copy to this X coordinate
-    #                0,  # Copy to this Y coordinate
-    #                rect.width,  # Copy this width
-    #                rect.height,  # Copy this height
-    #                dcScreen,  # From where do we copy?
-    #                rect.x,  # What's the X offset in the original DC?
-    #                rect.y  # What's the Y offset in the original DC?
-    #                )
-    #
-    #     # Select the Bitmap out of the memory DC by selecting a new
-    #     # uninitialized Bitmap
-    #     memDC.SelectObject(wx.NullBitmap)
-    #
-    #     img = bmp.ConvertToImage()
-    #     fileName = "myImage.png"
-    #     img.SaveFile(fileName, wx.BITMAP_TYPE_PNG)
-
-    def createAxes(self):
-        self.ticks = SegmentCollection(mode="agg", transform=self.transform, viewport=self.viewport,
-                                       linewidth='local', color='local')
-
-        xmin, xmax = 0, 1
-        ymin, ymax = 0, 1
-        z = 0
-        # Frame
-        P0 = [(xmin, ymin, z), (xmin, ymax, z), (xmax, ymax, z), (xmax, ymin, z)]
-        P1 = [(xmin, ymax, z), (xmax, ymax, z), (xmax, ymin, z), (xmin, ymin, z)]
-        self.ticks.append(P0, P1, linewidth=2)
-
-        # Grids
-        n = 11
-        P0 = np.zeros((n - 2, 3))
-        P1 = np.zeros((n - 2, 3))
-
-        P0[:, 0] = np.linspace(xmin, xmax, n)[1:-1]
-        P0[:, 1] = ymin
-        P0[:, 2] = z
-        P1[:, 0] = np.linspace(xmin, xmax, n)[1:-1]
-        P1[:, 1] = ymax
-        P1[:, 2] = z
-        self.ticks.append(P0, P1, linewidth=1, color=(0, 0, 0, .25))
-
-        P0 = np.zeros((n - 2, 3))
-        P1 = np.zeros((n - 2, 3))
-        P0[:, 0] = xmin
-        P0[:, 1] = np.linspace(ymin, ymax, n)[1:-1]
-        P0[:, 2] = z
-        P1[:, 0] = xmax
-        P1[:, 1] = np.linspace(ymin, ymax, n)[1:-1]
-        P1[:, 2] = z
-        self.ticks.append(P0, P1, linewidth=1, color=(0, 0, 0, .25))
-
-    def createPoints(self):
-        # Create a new collection of points
-        self.points = PointCollection(mode="agg", transform=self.transform, viewport=self.viewport, color="local")
-
-        # Add a view of the collection on the left subplot
-        # left.add_drawable(points)
-
-        # # Change xscale range on left subplot
-        # left.transform['zscale']['range'] = -0.5,+0.5
-        # # Set trackball view
-        # left.transform['trackball']["phi"] = 0
-        # left.transform['trackball']["theta"] = 0
-
-        # Add some points
-        # self.points.append(np.random.normal(0.0, 0.75, (100000, 3)))
-        # self.points.append(np.random.uniform(-0.5, 0.5, (10000, 3)))
-
-        # Show figure
-        # figure.show()
-
-    def showCurParameters(self):
-        params = np.zeros(self.neuralNet.getParamCount(), np.double)
-        self.neuralNet.getParamValues(params)
-        self.controlWin.setParamValues(params)
-
-    def displaySourceData(self, dataset):
-        input = dataset.data['input']
-        target = dataset.data['target']
-        # coords = np.zeros((3, 200), np.float32)
-        i = 0
-        self.points = PointCollection(mode="raw", transform=self.transform, viewport=self.viewport, color="local")
-        # for seq in dataset._provideSequences():
-        #     coords[0, i] = i / 10.0
-        #     coords[1, i] = i / 10.0 - 5
-        #     coords[2, i] = i / 10.0 * 3
-        #     i += 1
-
-        values = np.column_stack([input[:, 0], input[:, 1], target[:, 0]])
-        colors = np.column_stack([target[:, 0] * 4,
-                                  np.zeros(values.shape[0]),
-                                  target[:, 1] * 4,
-                                  # np.zeros([values.shape[0], 2]),
-                                  np.ones(values.shape[0]) * 0.7])
-        # color=np.random.uniform(0.0, 1, (p.shape[0], 4))
-        self.points.append(values, color=colors)
-
-    # def displayOutputsByAllWeights(self):
-    #     coords = np.array(self.neuralNet.buildOutputsByAllWeights(self.diagramOptions))
-    #     print("Min %f" % coords[:, :, 2].min())
-    #     minInds = coords[:, :, 2].argmin(axis=1)
-    #     # print(minInds)
-    #     self.lastAllWeightsResults = coords
-    #
-    #     color = np.array([0.5, 0.1, 1, 0.7])
-    #     # reshape(colors, color, coords.shape)
-    #     colors = np.zeros((coords.shape[0] * coords.shape[1], 4)) + color
-    #     # np.broadcast(colors, color, coords.shape)
-    #     for i1 in range(coords.shape[0]):
-    #         colors[i1 * coords.shape[1] + minInds[i1]] = (1, 0.1, 0.1, 0.7)
-    #
-    #     coords = reshape(coords, (coords.shape[0] * coords.shape[1], coords.shape[2]))
-    #     coords[:, 2] *= 5
-    #     self.points = PointCollection(mode="raw", transform=self.transform, viewport=self.viewport, color="local")
-    #     self.points.append(coords, color=colors)
-    #     self.resetTransform(2)
-
-    def displayOutputsDiagram(self):
-        coords = np.zeros((self.diagramOptions.stepCount * self.diagramOptions.stepCount, 3),
-                          np.double)
-        self.neuralNet.buildOutputsDiagram(coords, self.diagramOptions)
-        # print(coords)
-
-        minValue = coords[:, 2].min()
-        maxValue = coords[:, 2].max()
-        print("Conns %d, %d: min %f, max %f" % \
-              (self.diagramOptions.xDimInd, self.diagramOptions.yDimInd, minValue, maxValue))
-        if abs(minValue) > 0.5:
-            coords[:, 2] -= minValue
-            maxValue -= minValue
-        if (maxValue - minValue < 0.3):
-            coords[:, 2] /= max(maxValue - minValue, maxValue, 0.1)
-            minValue /= max(maxValue - minValue, maxValue, 0.1)
-
-        # vs = [self.transform.theta, self.transform.phi, self.transform.zoom]
-        # self.points2 = self.points
-        # self.points2.append(coords, color=(0, 0, 1, 0.5))
-        self.points = PointCollection(mode="raw", transform=self.transform, viewport=self.viewport, color="local")
-        self.points.append(coords, color=(0.5, 0, 1, 0.7))
-        self.resetTransform()
-        # self.transform.zoom = vs[2] + 0.00001
-        # self.transform.theta = vs[0]
-        # self.transform.phi = vs[1]
-        # self.window.attach(self.transform)
-        # self.window.attach(self.viewport)
-
-    def displayAllWeightsDiagrams(self):
-        diagramCount = self.neuralNet.getParamCount() / 2
-        pairedValueCount = self.diagramOptions.stepCount * self.diagramOptions.stepCount * \
-                diagramCount * 2
-        coords = np.zeros((pairedValueCount, 3), np.double)
-        valueCount = self.neuralNet.buildAllWeightsDiagrams(coords, self.diagramOptions)
-        # print(coords)
-        if valueCount != coords.shape[0]:
-            coords = coords[:valueCount, :]
-
-        minValue = coords[:, 2].min()
-        maxValue = coords[:, 2].max()
-        print("Min %f, max %f" % \
-              (minValue, maxValue))
-        if valueCount >= pairedValueCount:
-            coordsHalf2 = coords[pairedValueCount / 2 :, 2]
-            print("Test min %f, max %f" % \
-                  (coordsHalf2.min(), coordsHalf2.max()))
-
-        if abs(minValue) > 0.5:
-            coords[:, 2] -= minValue
-            maxValue -= minValue
-        if (maxValue - minValue < 0.3):
-            coords[:, 2] /= max(maxValue - minValue, maxValue, 0.1)
-            minValue /= max(maxValue - minValue, maxValue, 0.1)
-
-        coords[0, 0] -= self.diagramOptions.step
-        coords[1, 0] -= self.diagramOptions.step
-        coords /= 20
-        # self.points = PointCollection(mode="raw", transform=self.transform, viewport=self.viewport, color="local")
-        # for i in range(self.points.__len__() - 1, -1, -1):
-        self.points.clear()
-        if valueCount < pairedValueCount:
-            self.points.append(coords, color=(0.5, 0, 1, 0.7))
-        else:
-            self.points.append(coords[: pairedValueCount / 2 - 1, :], color=(0.5, 0, 0.8, 0.5))
-            self.points.append(coords[pairedValueCount / 2 :, :], color=(0.8, 0, 0.4, 0.5))
-        # self.points._update()
-        # self.resetTransform()
-
-    def onParamChanged(self, paramInd, value):
-        self.neuralNet.setParamValue(paramInd, value)
-        self.diagramDisplayMethod()
-
-    def changeBestWeight(self):
-        if self.lastAllWeightsResults is None:
-            return
-        self.neuralNet.changeBestWeight(self.lastAllWeightsResults, self.diagramOptions)
-
-    def changeTrainSetSize(self, mult):
-        newTrainSetSize = self.neuralNet.getTrainSetSize() * mult
-        print("Setting train size to " + str(newTrainSetSize))
-        self.neuralNet.setTrainSetSize(int(newTrainSetSize))
-
-    def onTrainingFinished(self):
-        print("Training finished")
-
-    def onNewTrainingData(self, learnResult, trainIterNum):
-        # t0 = datetime.datetime.now()
-        pass
-
-
-    def tryMultipleStarts(self):
-        paramCount = self.neuralNet.getParamCount()
-        bestResult = 3
-        bestTestResult = 3
-        for i in range(1000):
-            params = np.random.random((paramCount))
-            print("%d. Starting from parameters %s" % (i, params))
-            for j in range(paramCount):
-                self.neuralNet.setParamValue(j, params[j])
-            self.neuralNet.doLearning(10)
-
-            result = self.neuralNet.getSqError()
-            testResult = self.neuralNet.getTestSqError()
-            print("Result: %f, test %f" % (result , testResult))
-            if bestResult > result:
-                bestResult = result
-                print("Best result")
-            if bestTestResult > testResult:
-                bestTestResult = testResult
-                print("Best test result")
-
-            self.netChecker.checkNetResults(True)
-
-
-    def on_draw(self, dt):
-        if self.frameNumber < 5:
-            self.window.set_position(75, -5)  # Doesn't work in init nor in first on_draw call
-            self.frameNumber += 1
-
-        self.window.clear()
-        self.ticks.draw()
-        self.points.draw()
-        # paths.draw()
-
-    def on_key_press(self, key, modifiers):
-        if key == ord('1'):
-            self.resetTransform(1)
-        if key == ord('2'):
-            self.resetTransform(2)
-        if key == ord('9'):
-            for i in range(100):
-                self.changeBestWeight()
-                self.showCurParameters()
-                self.displayOutputsByAllWeights()
-            print("Weights: %s" % self.neuralNet.net.params)
-        elif key == ord('A'):
-            self.displayOutputsByAllWeights()
-        elif key == ord('D'):
-            self.displayOutputsDiagram()
-        elif key == ord('T'):
-            if modifiers == 0:
-                self.neuralNet.doLearning(10)
-            elif modifiers == keys.MOD_CTRL:
-                self.neuralNet.doLearning(2500)
-            self.showCurParameters()
-            self.diagramDisplayMethod()
-            # self.displayOutputsByAllWeights()
-        elif key == ord('M'):
-            self.changeBestWeight()
-            self.showCurParameters()
-            self.displayOutputsByAllWeights()
-
-        elif key == keys.SPACE:
-            self.diagramDisplayMethod()
-        elif key == keys.HOME:
-            self.diagramOptions.xDimInd = 0
-            self.diagramOptions.yDimInd = 1
-            self.diagramDisplayMethod()
-        elif key == keys.END:
-            self.diagramOptions.xDimInd = self.neuralNet.getParamCount() - 2
-            self.diagramOptions.yDimInd = self.neuralNet.getParamCount() - 1
-            self.diagramDisplayMethod()
-        elif key == keys.PAGEDOWN:
-            if modifiers == 0:
-                if self.diagramOptions.xDimInd >= 2:
-                    self.diagramOptions.xDimInd -= 2
-                    self.diagramOptions.yDimInd -= 2
-            elif modifiers == keys.MOD_CTRL:
-                self.diagramOptions.step /= 5
-            elif modifiers == keys.MOD_CTRL + keys.MOD_SHIFT:
-                self.diagramOptions.step /= 2
-            self.diagramDisplayMethod()
-        elif key == keys.PAGEUP:
-            if modifiers == 0:
-                if self.diagramOptions.yDimInd + 2 < self.neuralNet.getParamCount():
-                    self.diagramOptions.xDimInd += 2
-                    self.diagramOptions.yDimInd += 2
-            elif modifiers == keys.MOD_CTRL:
-                self.diagramOptions.step *= 5
-            elif modifiers == keys.MOD_CTRL + keys.MOD_SHIFT:
-                self.diagramOptions.step *= 2
-            self.diagramDisplayMethod()
-
-        elif key == keys.NUM_ADD or key == keys.PLUS:
-            self.changeTrainSetSize(2)
-        elif key == keys.NUM_SUBTRACT or key == keys.MINUS:
-            self.changeTrainSetSize(0.5)
-
-    def resetTransform(self, transformNum = 2):
-        # self.window.clear
-        # return
-
-        if transformNum == 1:
-            self.transform.theta = 90
-            self.transform.phi = 0
-        elif transformNum == 2:
-            self.transform.theta = 70
-            self.transform.phi = 270
-        self.transform.zoom = 10 * self.diagramOptions.step
-
-
-import signal
-
-app = None
-mainWindow = None
-
-def sigint_handler(*args):
-    # global app
-    global mainWindow
-
-    """Handler for the SIGINT signal."""
-    sys.stderr.write('Exiting\n')
-    # app.exiting = True
-    mainWindow.exiting = True
-    QtGui.QApplication.quit()
-
-if __name__ == "__main__":
-
-    # from tensorflow.python.tools.inspect_checkpoint import print_tensors_in_checkpoint_file
-
-    # List ALL tensors.
-    # print_tensors_in_checkpoint_file(file_name='State/checkpoint', tensor_name='', all_tensors=True)
-
-
-    # app.use('pyside')
-    app = QtGui.QApplication(sys.argv)
-    # app.exiting = False
-
-    signal.signal(signal.SIGINT, sigint_handler)
-    timer = QtCore.QTimer()
-    timer.start(500)
-    timer.timeout.connect(lambda: None)  # Let the interpreter run each 500 ms.
-
-    # window = app.Window(width=1000, height=760, color=(1, 1, 1, 0.5))
-    mainWindow = QtMainWindow()
-    mainWindow.show()
-    setProcessPriorityLow()
-    if 1:
-        mainWindow.init()
-        mainWindow.loadCacheState()
-
-        try:
-            # mainWindow.loadState(mainWindow.getSelectedEpochNum())
-            # mainWindow.netWrapper.getGradients()
-            # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
-            # mainWindow.onDoItersPressed(1)
-            # mainWindow.onReinitWorstNeironsPressed()
-
-            mainWindow.onShowImagePressed()
-            # mainWindow.onDisplayIntermResultsPressed()
-            # mainWindow.onDisplayPressed()
-            # mainWindow.onShowActivationsPressed()
-            # mainWindow.onShowMultActTopsPressed()
-            # mainWindow.onShowSortedChanActivationsPressed()
-            # mainWindow.onSpinBoxValueChanged()
-            # mainWindow.calcMultActTops_MultiThreaded()
-            # mainWindow.onGradientsByImagesPressed()
-            # mainWindow.onShowWorstImagesPressed()
-            # mainWindow.onShowImagesWithTSnePressed()
-            # mainWindow.onCorrelationToOtherModelPressed()
-            pass
-        except Exception as ex:
-            print('Exception in main procedure: %s' % str(ex))
-    else:
-        mainWindow.fastInit()
-    # mainWindow.paintRect()
-    sys.exit(app.exec_())
-    # mainWindow.saveState()
+# controlObj.onShowImagePressed()
+# controlObj.onDisplayIntermResultsPressed()
+# controlObj.onDisplayPressed()
+# controlObj.onShowActivationsPressed()
+# controlObj.onShowMultActTopsPressed()
+# controlObj.onShowSortedChanActivationsPressed()
+# controlObj.onSpinBoxValueChanged()
+# controlObj.calcMultActTops_MultiThreaded()
+# controlObj.onGradientsByImagesPressed()
+# controlObj.onShowWorstImagesPressed()
+# controlObj.onShowImagesWithTSnePressed()
+# controlObj.onCorrelationToOtherModelPressed()
