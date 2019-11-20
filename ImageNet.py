@@ -89,11 +89,11 @@ class CImageRecognitionNet:
 
     # # Pair - (imageNum, label)
     # def _loadTrainImage(self, pair):
-    #     imageData = self.imageDataset.getImage(pair[0], 'train')
+    #     imageData = self.imageDataset.getImage(pair[0], 'net', 'train')
     #     return (imageData, pair[1])
 
     # def _loadTrainImage(self, imageNum):
-    #     imageData = self.imageDataset.getImage(imageNum, 'train')
+    #     imageData = self.imageDataset.getImage(imageNum, 'net', 'train')
     #     return (imageData, self.imageDataset.getImageLabel(imageNum, 'train'))
     #
     # # @staticmethod
@@ -136,7 +136,7 @@ class CImageRecognitionNet:
 
         if 0:
             def _loadTrainImage(imageNum):
-                imageData = self.imageDataset.getImage(imageNum, 'train')
+                imageData = self.imageDataset.getImage(imageNum, 'net', 'train')
                 return (imageData, tf.keras.utils.to_categorical(
                             np.array(self.imageDataset.getImageLabel(imageNum, 'train')), num_classes=classCount))
 

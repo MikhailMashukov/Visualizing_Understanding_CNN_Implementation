@@ -21,7 +21,7 @@ class CImageNetVisWrapper:
         self.imageDataset = CImageNetPartDataset(self.imageCache) if imageDataset is None else imageDataset
         # self.imageDataset = CAugmentedMnistDataset(CImageNetPartDataset()) if imageDataset is None else imageDataset
         self.net = None
-        self.netPreprocessStageName = 'net_channels_first'  # for self.net = alexnet.AlexNet()
+        self.netPreprocessStageName = 'net'  # for self.net = alexnet.AlexNet()
         self.curEpochNum = 0
         self.isLearning = False
         self.curModelLearnRate = None
@@ -55,7 +55,7 @@ class CImageNetVisWrapper:
         model = self._getNet(layerName)
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
-        imageData = self.imageDataset.getImage(imageNum, 'train', self.netPreprocessStageName)
+        imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName)
         imageData = np.expand_dims(imageData, 0)
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
 
@@ -81,7 +81,7 @@ class CImageNetVisWrapper:
             if not cacheItem is None:
                 batchActs[i] = cacheItem[0]
             else:
-                imageData = self.imageDataset.getImage(imageNum, 'train', self.netPreprocessStageName)
+                imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName, 'train')
                 images.append(imageData)
                 # print('no data for ', itemCacheName)
         if not images:

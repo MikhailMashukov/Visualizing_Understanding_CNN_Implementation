@@ -162,7 +162,7 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper5_DeeperTowers()
         self.activationCache = self.netWrapper.activationCache
         self.imageDataset = self.netWrapper.getImageDataset()
-        self.tensorFlowLock = threading.allocate_lock()
+        self.tensorFlowLock = threading.Lock()
         # self.savedNetEpochs = None
         # self.curEpochNum = 0
         self.weightsBeforeReinit = None
@@ -1068,7 +1068,7 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
             self.mainWindow = mainWindow
             self.calculator = calculator
             self.threadInfo = threadInfo
-            # self.mainWindowLock = _thread.allocate_lock()
+            # self.mainWindowLock = threading.Lock()
 
         # Returns false if the process should be stopped.
         # Can show and save intermediate results. When called from showMultActTops this is not necessary

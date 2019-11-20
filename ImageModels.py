@@ -1,26 +1,49 @@
 import numpy as np
 import tensorflow as tf
 
-from keras.models import Model
-from keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
-        Activation, Input, merge, Add, Concatenate, Multiply
-from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
-from keras.layers.normalization import BatchNormalization
-from keras.layers.advanced_activations import ReLU
-from keras.layers.core import Lambda
-import keras.layers
+if 1:
+    from keras.models import Model
+    from keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
+            Activation, Input, merge, Add, Concatenate, Multiply
+    from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
+    from keras.layers.normalization import BatchNormalization
+    from keras.layers.advanced_activations import ReLU
+    from keras.layers.core import Lambda
+    import keras.layers
 
-from keras.optimizers import Adam, SGD
-from keras import backend as K
-import keras.callbacks
-import keras.initializers
-import keras.regularizers
+    from keras.optimizers import Adam, SGD
+    from keras import backend as K
+    import keras.callbacks
+    import keras.initializers
+    import keras.regularizers
+    from keras.utils import convert_all_kernels_in_model
+else:
+    # With tensorflow.keras I got
+    # TypeError: ('Keyword argument not understood:', 'input')
+    # on m = Model(input=inputs, output=prediction) in ImageModels.py on the VKI's server
+    # from tensorflow.python import keras
+    from tensorflow.keras.models import Model
+    from tensorflow.keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
+            Activation, Input, Add, Concatenate, Multiply
+    from tensorflow.keras.layers import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
+    from tensorflow.keras.layers import BatchNormalization
+    # from tensorflow.keras.layers.advanced_activations import ReLU
+    from tensorflow.keras.layers import Lambda
+    # import tensorflow.keras.layers
+
+    from tensorflow.keras.optimizers import Adam, SGD
+    from tensorflow.keras import backend as K
+    import tensorflow.keras.callbacks
+    import tensorflow.keras.initializers
+    import tensorflow.keras.regularizers
+    from tensorflow.keras.utils import convert_all_kernels_in_model
+
 
 # from alexnet_utils import preprocess_image_batch
 from alexnet_additional_layers import split_tensor, cross_channel_normalization
 # from decode_predictions import decode_classnames_json, decode_classnumber
 
-from MnistModel2 import *
+#from MnistModel2 import *
 
 # AlexNet, a bit modified for existing train images
 def MyAlexnetModel(classCount=25):
@@ -31,8 +54,6 @@ def MyAlexnetModel(classCount=25):
     https://github.com/heuritech/convnets-keras/blob/master/convnetskeras/convnets.py
     and only slightly modified to work with TF backend
     """
-
-    from keras.utils.layer_utils import convert_all_kernels_in_model
 
     if 0:
         # K.set_image_dim_ordering('th')

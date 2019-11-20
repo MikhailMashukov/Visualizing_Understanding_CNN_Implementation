@@ -1,5 +1,9 @@
-from keras.layers.core import Lambda
-from keras import backend as K
+if 1:
+    from keras.layers.core import Lambda
+    from keras import backend as K
+else:
+    from tensorflow.keras.layers import Lambda
+    from tensorflow.keras import backend as K
 
 """
 Both layers from

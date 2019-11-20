@@ -6,7 +6,7 @@ from keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
         Activation, Input, merge, Add, Concatenate, Multiply
 from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
 from keras.layers.normalization import BatchNormalization
-from keras.layers.advanced_activations import ReLU, ELU
+# from keras.layers.advanced_activations import ReLU, ELU
 import keras.layers
 
 from keras.optimizers import Adam, SGD

@@ -1,6 +1,9 @@
 # from VisJupyterNotUtils import *
 from VisQtMain import *
 
+from matplotlib.pyplot import figure, imshow, axis
+from matplotlib.image import imread
+
 # # import copy
 # import datetime
 # import matplotlib
@@ -79,6 +82,8 @@ class NetControlObject():
         # os.makedirs('Data/Weights')
         self.loadNetStateList()
         self.curEpochNum = self.savedNetEpochs[-1]
+        if str(self.curEpochNum).find('--') >= 0:
+            self.curEpochNum = NetControlObject.AllEpochs
         # self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
 
         self.curBlockInd = 1
@@ -195,6 +200,37 @@ class NetControlObject():
         imageNum = self.getSelectedImageNum()
         layerName = self.blockComboBox.currentText()
 
+        activations, drawMode, stdData = self.getActivationsData(epochNum, imageNum, layerName)
+
+        if epochNum == self.AllEpochs:
+            self.clearFigure()
+            ax = self.getMainSubplot()
+
+            im = ax.imshow(activations.transpose(), cmap='plasma')
+            colorBar = self.figure.colorbar(im, ax=ax)
+
+            if not stdData is None:
+                ax = self.figure.add_subplot(self.gridSpec[1, 0])
+                self.showImage(ax, stdData.transpose())
+        else:
+            self.figure.set_tight_layout(True)
+            ax = self.getMainSubplot()
+            ax.clear()
+
+            # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
+            if drawMode == 'map':
+                colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
+                data = layoutLayersToOneImage(np.sqrt(activations),
+                                              colCount, margin)
+                ax.imshow(data, cmap='plasma')
+            else:
+                ax.plot(activations)
+                if ax.get_ylim()[0] > ax.get_ylim()[1]:
+                    ax.invert_yaxis()
+
+        self.canvas.draw()
+
+    def getActivationsData(self, epochNum, imageNum, layerName):
         if epochNum == self.AllEpochs:
             epochNums = self.netWrapper.getSavedNetEpochs()
             if len(epochNums) == 0:
@@ -233,6 +269,7 @@ class NetControlObject():
                      str([int(v[0]) for v in np.where(activations == activations.max())])))
 
             drawMode = 'map'
+            stdData = None
             if len(activations.shape) == 2:   # Dense level scalars
                 if activations.shape[1] < 50:
                     drawMode = 'plot'
@@ -243,35 +280,7 @@ class NetControlObject():
             else:
                 activations = self.getChannelsToAnalyze(activations[0])
                 margin = self.c_channelMargin
-
-        if epochNum == self.AllEpochs:
-            self.clearFigure()
-            ax = self.getMainSubplot()
-
-            im = ax.imshow(activations.transpose(), cmap='plasma')
-            colorBar = self.figure.colorbar(im, ax=ax)
-
-            if not stdData is None:
-                ax = self.figure.add_subplot(self.gridSpec[1, 0])
-                self.showImage(ax, stdData.transpose())
-        else:
-            self.figure.set_tight_layout(True)
-            ax = self.getMainSubplot()
-            ax.clear()
-
-            # plt.subplots_adjust(left=0.01, right=data.shape[0], bottom=0.1, top=0.9)
-            if drawMode == 'map':
-                colCount = math.ceil(math.sqrt(activations.shape[0]) * 1.15 / 2) * 2
-                data = layoutLayersToOneImage(np.sqrt(activations),
-                                              colCount, margin)
-                ax.imshow(data, cmap='plasma')
-            else:
-                ax.plot(activations)
-                if ax.get_ylim()[0] > ax.get_ylim()[1]:
-                    ax.invert_yaxis()
-
-
-        self.canvas.draw()
+        return activations, drawMode, stdData
 
     def onShowActEstByImagesPressed(self):
         self.startAction(self.onShowActEstByImagesPressed)
@@ -2010,3 +2019,17 @@ controlObj.init()
 # controlObj.onShowWorstImagesPressed()
 # controlObj.onShowImagesWithTSnePressed()
 # controlObj.onCorrelationToOtherModelPressed()
+
+
+epochNum = 0
+imageNum = 0
+layerName = 'conv_2'
+
+colCount = 8
+margin = 2
+
+if __name__ == "__main__":
+    print(controlObj.getSelectedEpochNum())
+
+    activations, drawMode, stdData = controlObj.getActivationsData(epochNum, imageNum, layerName)
+    actImage = layoutLayersToOneImage(np.sqrt(activations), colCount, margin)
