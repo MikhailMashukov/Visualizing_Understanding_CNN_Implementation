@@ -3,6 +3,7 @@ from VisQtMain import *
 
 from matplotlib.pyplot import figure, imshow, axis
 from matplotlib.image import imread
+from itertools import islice
 
 # # import copy
 # import datetime
@@ -90,6 +91,7 @@ class NetControlObject():
         # self.blockComboBox.setCurrentIndex(1)
         self.curImageNum = 200
         self.curChanNum = 0
+        self.learnRate = 0.001
 
     def showProgress(self, str, processEvents=True):
         print(str)
@@ -120,6 +122,9 @@ class NetControlObject():
         return self.curImageNum
         # return self.imageNumEdit.value()
             # int(self.imageNumLineEdit.text())
+
+    def getLearnRate(self):
+        return self.learnRate
 
     def getSelectedChannelNum(self):
         return self.curChanNum
@@ -606,28 +611,29 @@ class NetControlObject():
             # calculator.saveMultActTopsImage(resultImage)
             return
 
-        self.needShowCurMultActTops = False
-        self.multActTopsButton.setText('Save current')
-        try:
-            self.multActTopsButton.clicked.disconnect()
-        except e:
-            pass
-        self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
+        # self.needShowCurMultActTops = False
+        # self.multActTopsButton.setText('Save current')
+        # try:
+        #     self.multActTopsButton.clicked.disconnect()
+        # except e:
+        #     pass
+        # self.multActTopsButton.clicked.connect(self.onShowCurMultActTopsPressed)
 
         # activations = self.getChannelsToAnalyze(self.netWrapper.getImageActivations(
         #           layerNum, 1, options.epochNum)[0])
         # print(activations)
 
-        try:
-            (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
-        finally:
-            self.multActTopsButton.setText(self.multActTopsButtonText)
-            self.multActTopsButton.clicked.disconnect()
-            self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
+        # try:
+        (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
+        # finally:
+        #     self.multActTopsButton.setText(self.multActTopsButtonText)
+        #     self.multActTopsButton.clicked.disconnect()
+        #     self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
 
         if not self.exiting:
             resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
             calculator.saveMultActTopsImage(resultImage, processedImageCount)
+        return resultImage
 
     class TProgressIndicator:
         def __init__(self, mainWindow, calculator, threadInfo=None):
@@ -1245,16 +1251,16 @@ class NetControlObject():
         #     restoreRestEpochCount = 40 - (curEpochNum - self.weightsReinitEpochNum)
         callback = QtMainWindow.TLearningCallback(self, curEpochNum)
         # callback.learnRate = float(self.learnRateEdit.text())
-        options = QtMainWindow.TLearnOptions(float(self.learnRateEdit.text()))
+        options = QtMainWindow.TLearnOptions(self.getLearnRate())
         if not trainImageNums is None:
             options.trainImageNums = np.array(trainImageNums, dtype=int)
-            options.additTrainImageCount = max(500, self.imageNumEdit.value()) - len(trainImageNums)
+            options.additTrainImageCount = max(500, self.getSelectedImageNum() - len(trainImageNums))
 
         infoStr = self.netWrapper.doLearning(iterCount, options, callback)
 
-        self.loadNetStateList()
-        self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
-        self.iterNumLabel.setText('Epoch %d finished' % self.netWrapper.curEpochNum)
+        # self.loadNetStateList()
+        # self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
+        self.showProgress('Epoch %d finished' % self.netWrapper.curEpochNum)
 
         # restIterCount = iterCount
         # while restIterCount > 0:
@@ -1274,10 +1280,10 @@ class NetControlObject():
         #     #     DeepMain.MainWrapper.saveState(self, "States/State_%d_%05d_%f/state.dat" % \
         #     #             (epochNum, trainIterNum, learnResult))
 
-        if self.lastAction in [self.onShowMultActTopsPressed]:
-            self.lastAction()
-        else:
-            self.onSpinBoxValueChanged()   # onDisplayPressed()
+        # if self.lastAction in [self.onShowMultActTopsPressed]:
+        #     self.lastAction()
+        # else:
+        #     self.onSpinBoxValueChanged()   # onDisplayPressed()
         self.showProgress(infoStr, False)
 
     # def onDoItersOnWorstPressed(self, iterCount):
@@ -1614,7 +1620,7 @@ class NetControlObject():
                 epochNum = -1      # When there is only one file and its epoch is unknown
             self.netWrapper.loadState(epochNum)
             # self.netWrapper.loadCacheState()
-            self.iterNumLabel.setText('Epoch %d' % self.netWrapper.curEpochNum)
+            self.showProgress('Epoch %d' % self.netWrapper.curEpochNum)
         except Exception as ex:
             self.showProgress("Error in loadState: %s" % str(ex))
 
@@ -1995,6 +2001,38 @@ class NetControlObject():
 
 
 
+def imshow_grid(data, height=None, width=None, normalize=False, padsize=1, padval=0):
+    '''
+    Take an array of shape (N, H, W) or (N, H, W, C)
+    and visualize each (H, W) image in a grid style (height x width).
+    '''
+    if normalize:
+        data -= data.min()
+        data /= data.max()
+
+    N = data.shape[0]
+    if height is None:
+        if width is None:
+            height = int(np.ceil(np.sqrt(N)))
+        else:
+            height = int(np.ceil( N / float(width) ))
+
+    if width is None:
+        width = int(np.ceil( N / float(height) ))
+
+    assert height * width >= N
+
+    # append padding
+    padding = ((0, (width*height) - data.shape[0]), (0, padsize), (0, padsize)) + ((0, 0),) * (data.ndim - 3)
+    data = np.pad(data, padding, mode='constant', constant_values=(padval, padval))
+
+    # tile the filters into an image
+    data = data.reshape((height, width) + data.shape[1:]).transpose((0, 2, 1, 3) + tuple(range(4, data.ndim + 1)))
+    data = data.reshape((height * data.shape[1], width * data.shape[3]) + data.shape[4:])
+
+    plt.imshow(data)
+
+
 controlObj = NetControlObject()
 # controlObj.show()
 
@@ -2022,7 +2060,7 @@ controlObj.init()
 
 
 epochNum = 0
-imageNum = 0
+imageNum = 5
 layerName = 'conv_2'
 
 colCount = 8
@@ -2031,5 +2069,38 @@ margin = 2
 if __name__ == "__main__":
     print(controlObj.getSelectedEpochNum())
 
-    activations, drawMode, stdData = controlObj.getActivationsData(epochNum, imageNum, layerName)
-    actImage = layoutLayersToOneImage(np.sqrt(activations), colCount, margin)
+    # activations, drawMode, stdData = controlObj.getActivationsData(epochNum, imageNum, layerName)
+    # actImage = layoutLayersToOneImage(np.sqrt(activations), colCount, margin)
+
+    tfDataset = controlObj.imageDataset.getTfDataset()
+    try:
+        tfTrainDataset = tfDataset.shuffle(100)
+        tfTrainDataset = tfTrainDataset.batch(16)
+        tfTrainDataset = tfTrainDataset.prefetch(2)
+        # for v in tfTrainDataset[:3]:
+        #     print(v)
+
+        from itertools import islice
+
+        # for v in list(tfDataset)[:3]:    # Endless
+        for v in islice(tfTrainDataset, 3):
+            x = v   # x[0].numpy()
+            print(v[0].shape)
+    except:
+        pass
+    try:
+        import tensorflow as tf
+
+        it = tf.compat.v1.data.make_one_shot_iterator(tfDataset)
+        for v in islice(it, 3):
+            print(v[0].shape)
+    except:
+        pass
+
+    try:
+        for v in list(it)[:3]:
+            print(v)
+    except:
+        pass
+
+    self.onShowMultActTopsPressed()

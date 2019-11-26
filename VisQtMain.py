@@ -24,6 +24,8 @@ simply kill training, values should be like 1e-6 for both l1 and l2. They maybe 
 anyway generates a potentially valuable result).
 
 Further ideas:
+* to implement division of neirons: each is divided onto two with close weights
+  and theirs output connections get about 1/2 of initial strength
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
   in a matrix network;

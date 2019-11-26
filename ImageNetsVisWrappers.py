@@ -304,6 +304,7 @@ class CImageNetVisWrapper:
                 #                     low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
                 #         trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
 
+                print('Train images: ', trainImageNums)
                 infoStr = self.net.doLearning(1, callback,
                                               trainImageNums, testImageNums,
                                               epochImageCount, self.curEpochNum)
@@ -546,6 +547,9 @@ class CImageNetPartDataset:
             self._loadData()
         return len(self.folders)
 
+    def getClassNameByInd(self, classInd):
+        return self.folders[classInd]
+
     # This method suits ILSVRC's data poorly
     def getNetSource(self, subsetName='train'): # TODO: to remove
         return (self.imagesFileNames, self.imageNumLabels)
@@ -560,6 +564,28 @@ class CImageNetPartDataset:
             data.append(self.getImage(imageInd + 1, 'net'))
         return (np.stack(data, axis=0), self.testLabels)
 
+    def getTfDataset(self, subsetName='train'):  # TODO: train/test split support
+        import tensorflow as tf
+
+        def _loadTrainImage(imageNum):
+            imageData = self.getImage(imageNum, 'net', 'train')
+            return imageData
+
+        def _tfLoadTrainImage(imageNum):
+            image = tf.py_function(_loadTrainImage, [imageNum], tf.float32)
+            return image
+
+        imageNums = np.arange(1, self.getImageCount(subsetName) + 1)
+        # path_ds = tf.data.Dataset.from_tensor_slices(self.imagesFileNames)
+        numDs = tf.data.Dataset.from_tensor_slices(imageNums)
+        image_ds = numDs.map(_tfLoadTrainImage, num_parallel_calls=1)
+        # for n, image in enumerate(load_image_ds.take(7)):
+        #     print(image)
+
+        label_ds = tf.data.Dataset.from_tensor_slices(self.imageNumLabels)
+        ds = tf.data.Dataset.zip((image_ds, label_ds))
+        ds = ds.repeat()
+        return ds
 
     def _loadData(self):
         import pickle
@@ -597,6 +623,7 @@ class CImageNetPartDataset:
                     if os.path.isfile(filePath):
                         self.imageNumLabels.append(curNumLabel)
                         self.imagesFileNames.append('%s/%s' % (folderName, fileName))
+        self.folders = np.array(self.folders)
         self.imageNumLabels = np.array(self.imageNumLabels)
         self.imagesFileNames = np.array(self.imagesFileNames)
         
@@ -604,6 +631,7 @@ class CImageNetPartDataset:
         inds = np.arange(len(self.imageNumLabels))
         randomizer.shuffle(inds)
         inds = np.concatenate(([0], inds))
+        # self.folders = self.folders[inds]
         self.imageNumLabels = self.imageNumLabels[inds]
         self.imagesFileNames = self.imagesFileNames[inds]
 

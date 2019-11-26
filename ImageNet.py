@@ -106,21 +106,10 @@ class CImageRecognitionNet:
     #     image.set_shape(im_shape)
     #     return image, label
 
-    # Each dataset = (list/np.array of image numbers, np.array of labels (numbers in [0, number of classes)))
-    def doLearning(self, epochCount, learningCallback,
-                   trainImageNums, testImageNums,   # trainDataset, testDataset,
-                   epochImageCount=None, initialEpochNum=0):
-        from keras.callbacks import TensorBoard
-
-        # epochCount = int(math.ceil(iterCount / 100))
-        # trainDataset = self.mnistDataset.getNetSource('train')
-        # testDataset = self.mnistDataset.getNetSource('test')
+    def _getTfDataset(self, trainImageNums, testImageNums,
+                      epochImageCount):
         trainDatasetImageCount = trainImageNums.shape[0]
-        if epochImageCount is None or epochImageCount > trainDatasetImageCount:
-            epochImageCount = trainDatasetImageCount
-        print("Running %d epoch(s) from %d, %d images each" % \
-                (epochCount, initialEpochNum, epochImageCount))
-        groupStartTime = datetime.datetime.now()
+        classCount = self.imageDataset.getClassCount()
 
         if epochImageCount == trainDatasetImageCount:
             curTrainDataset = trainImageNums
@@ -132,7 +121,18 @@ class CImageRecognitionNet:
             curTrainDataset = trainImageNums[permut]
             # curTrainDataset = (trainDataset[0][permut, :, :, :],
             #            self._transformLabelsForNet(trainDataset[1][permut]))
-        classCount = self.imageDataset.getClassCount()
+
+        # curTestDatasetSize = epochImageCount // 6
+        # if curTestDatasetSize >= testDataset[0].shape[0]:
+        #     curTestDataset = (testDataset[0],
+        #            self._transformLabelsForNet(testDataset[1]))
+        # else:
+        #     assert not 'Not implemented'
+        #     permut = np.random.permutation(testDataset[0].shape[0])[:curTestDatasetSize]
+        #     curTestDataset = (testDataset[0][permut, :, :, :],
+        #                    self._transformLabelsForNet(testDataset[1][permut]))
+        # # curTestDataset = (testDataset[0][:curTestDatasetSize],
+        # #            self._transformLabelsForNet(testDataset[1][:curTestDatasetSize]))
 
         if 0:
             def _loadTrainImage(imageNum):
@@ -159,7 +159,7 @@ class CImageRecognitionNet:
             # for images, labels in tfTrainDataset.take(2):
             #     print('My dataset labels shape', labels.numpy().shape)
 
-        if 1:
+        if 0:
             imgGen = tf.keras.preprocessing.image.ImageDataGenerator(rescale=1./255, rotation_range=20)
             flowFromDirParams = dict(directory=self.imageDataset.getImageFolder(), \
                                      target_size=(227, 227), class_mode='categorical', seed=1, \
@@ -171,15 +171,19 @@ class CImageRecognitionNet:
                 # The dictionary containing the mapping from class names to class indices can be obtained via the attribute class_indices.
             imgGenFlow = imgGen.flow_from_directory(**flowFromDirParams)
             # images, labels = next(imgGen)
+            # dataset.list_files
 
             def generator():
-                return imgGen.flow_from_directory(**flowFromDirParams)
+                return imgGen.flow_from_directory(**flowFromDirParams, batch_size=1)
 
+            # tfTrainDataset = tf.data.Dataset.from_generator(generator, # args=flowFromDirParams,
+            #             output_types=(tf.float32, tf.float32), output_shapes=([32,227,227,3], [32,classCount]))
             tfTrainDataset = tf.data.Dataset.from_generator(generator, # args=flowFromDirParams,
-                        output_types=(tf.float32, tf.float32), output_shapes=([32,227,227,3], [32,classCount]))
+                        output_types=(tf.float32, tf.float32), output_shapes=([227,227,3], [classCount]))
             try:
-                # tfTrainDataset = tfTrainDataset.batch(self.batchSize)
-                # tfTrainDataset = tfTrainDataset.prefetch(2)
+                tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
+                tfTrainDataset = tfTrainDataset.batch(self.batchSize)
+                tfTrainDataset = tfTrainDataset.prefetch(2)
                 # tfTrainDataset = tfTrainDataset.repeat(2)
                 # tfTrainDataset = iter(tfTrainDataset)
                 tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
@@ -214,6 +218,15 @@ class CImageRecognitionNet:
         # except:
         #     pass
 
+        if 1:
+            tfTrainDataset = self.imageDataset.getTfDataset()
+            # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
+            tfTrainDataset = tfTrainDataset.shuffle(100)    #d_ max(epochImageCount, 4000))
+            tfTrainDataset = tfTrainDataset.batch(self.batchSize)
+            tfTrainDataset = tfTrainDataset.prefetch(2)
+            # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
+            tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
+
 
         if 0:
             model2 = tf.keras.models.Sequential([
@@ -228,17 +241,31 @@ class CImageRecognitionNet:
             model2.fit_generator(tfTrainDataset, epochs=1,
                         steps_per_epoch=epochImageCount // self.batchSize)     # Error The shape of labels (800,), received (32, 25).
 
-        # curTestDatasetSize = epochImageCount // 6
-        # if curTestDatasetSize >= testDataset[0].shape[0]:
-        #     curTestDataset = (testDataset[0],
-        #            self._transformLabelsForNet(testDataset[1]))
-        # else:
-        #     assert not 'Not implemented'
-        #     permut = np.random.permutation(testDataset[0].shape[0])[:curTestDatasetSize]
-        #     curTestDataset = (testDataset[0][permut, :, :, :],
-        #                    self._transformLabelsForNet(testDataset[1][permut]))
-        # # curTestDataset = (testDataset[0][:curTestDatasetSize],
-        # #            self._transformLabelsForNet(testDataset[1][:curTestDatasetSize]))
+        # inp = [curTrainDataset[0], np.ones([curTrainDataset[0].shape[0], 4])]
+        # valData = curTestDataset[0], np.ones([curTestDataset[0].shape[0], 4])], curTestDataset[1]]
+        # history = self.model.fit(tfTrainDataset, # TODO validation_data=curTestDataset,
+        #                          epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
+        #                          # batch_size=self.batchSize,
+        #                          verbose=2, callbacks=[tensorBoardCallback])
+            # Exception 'PrefetchDataset' object is not an iterator
+
+        return tfTrainDataset
+
+    # Each dataset = (list/np.array of image numbers, np.array of labels (numbers in [0, number of classes)))
+    def doLearning(self, epochCount, learningCallback,
+                   trainImageNums, testImageNums,   # trainDataset, testDataset,
+                   epochImageCount=None, initialEpochNum=0):
+        from keras.callbacks import TensorBoard
+
+        # epochCount = int(math.ceil(iterCount / 100))
+        # trainDataset = self.mnistDataset.getNetSource('train')
+        # testDataset = self.mnistDataset.getNetSource('test')
+        trainDatasetImageCount = trainImageNums.shape[0]
+        if epochImageCount is None or epochImageCount > trainDatasetImageCount:
+            epochImageCount = trainDatasetImageCount
+        print("Running %d epoch(s) from %d, %d images each" % \
+                (epochCount, initialEpochNum, epochImageCount))
+        groupStartTime = datetime.datetime.now()
 
         tensorBoardCallback = TensorBoard(log_dir=self.logDir, histogram_freq=0,
                 write_graph=False, write_grads=False, write_images=0,    # batch_size=32,
@@ -250,13 +277,8 @@ class CImageRecognitionNet:
         #         learningCallback)
         # tensorBoardCallback.set_model(self.model)
 
-        # inp = [curTrainDataset[0], np.ones([curTrainDataset[0].shape[0], 4])]
-        # valData = curTestDataset[0], np.ones([curTestDataset[0].shape[0], 4])], curTestDataset[1]]
-        # history = self.model.fit(tfTrainDataset, # TODO validation_data=curTestDataset,
-        #                          epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
-        #                          # batch_size=self.batchSize,
-        #                          verbose=2, callbacks=[tensorBoardCallback])
-            # Exception 'PrefetchDataset' object is not an iterator
+        tfTrainDataset = self._getTfDataset(trainImageNums, testImageNums,
+                                            epochImageCount)
         history = self.model.fit_generator(tfTrainDataset, # TODO validation_data=curTestDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  steps_per_epoch=epochImageCount // self.batchSize,
