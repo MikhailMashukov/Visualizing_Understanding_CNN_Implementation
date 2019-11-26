@@ -91,7 +91,7 @@ class NetControlObject():
         # self.blockComboBox.setCurrentIndex(1)
         self.curImageNum = 200
         self.curChanNum = 0
-        self.learnRate = 0.001
+        self.learnRate = 0.0001
 
     def showProgress(self, str, processEvents=True):
         print(str)
@@ -1242,7 +1242,10 @@ class NetControlObject():
             savedEpochNums = self.netWrapper.getSavedNetEpochs()
             if savedEpochNums:
                 curEpochNum = savedEpochNums[-1]
-        if curEpochNum >= 0 and self.netWrapper.curEpochNum != curEpochNum:
+        print('Cur control object epoch %d, wrapper - %d' % \
+              (self.netWrapper.curEpochNum, curEpochNum))
+        # Here we don\'t reload state' % \
+        if curEpochNum >= 0 and self.netWrapper.curEpochNum < curEpochNum:     # != curEpochNum
             self.netWrapper.loadState(curEpochNum)
 
         # if self.weightsReinitEpochNum is None:
@@ -2072,13 +2075,20 @@ if __name__ == "__main__":
     # activations, drawMode, stdData = controlObj.getActivationsData(epochNum, imageNum, layerName)
     # actImage = layoutLayersToOneImage(np.sqrt(activations), colCount, margin)
 
-    tfDataset = controlObj.imageDataset.getTfDataset()
     try:
-        tfTrainDataset = tfDataset.shuffle(100)
-        tfTrainDataset = tfTrainDataset.batch(16)
-        tfTrainDataset = tfTrainDataset.prefetch(2)
-        # for v in tfTrainDataset[:3]:
-        #     print(v)
+        if 0:
+            tfDataset = controlObj.imageDataset.getTfDataset()
+            tfTrainDataset = tfDataset.shuffle(100)
+            tfTrainDataset = tfTrainDataset.batch(16)
+            tfTrainDataset = tfTrainDataset.prefetch(2)
+            # for v in tfTrainDataset[:3]:
+            #     print(v)
+        else:
+            controlObj.netWrapper._initMainNet()
+            trainImageNums = np.arange(1, controlObj.imageDataset.getImageCount('train') + 1)
+            testImageNums = np.arange(1, controlObj.imageDataset.getImageCount('test') + 1)
+            tfTrainDataset = controlObj.netWrapper.net._getTfDataset(
+                            trainImageNums, testImageNums, 1000)
 
         from itertools import islice
 
@@ -2086,8 +2096,9 @@ if __name__ == "__main__":
         for v in islice(tfTrainDataset, 3):
             x = v   # x[0].numpy()
             print(v[0].shape)
-    except:
-        pass
+    except Exception as ex:
+        print("Error: %s" % str(ex))
+
     try:
         import tensorflow as tf
 

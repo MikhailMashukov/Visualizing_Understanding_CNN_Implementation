@@ -219,13 +219,24 @@ class CImageRecognitionNet:
         #     pass
 
         if 1:
-            tfTrainDataset = self.imageDataset.getTfDataset()
+            def _loadTrainImage(imageNum, label):
+                imageData = self.imageDataset.getImage(imageNum, 'net', 'train')
+                return (imageData, tf.keras.utils.to_categorical(
+                            label, num_classes=classCount))
+
+            def _tfLoadTrainImage(imageNum, label):
+                x = tf.py_function(_loadTrainImage, [imageNum, label], [tf.float32, tf.int32])
+                # [image, label] = x
+                return x
+
+            tfTrainDataset = self.imageDataset.getTfDataset()   # .take(100).repeat()
+            tfTrainDataset = tfTrainDataset.map(_tfLoadTrainImage, num_parallel_calls=4)
             # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
-            tfTrainDataset = tfTrainDataset.shuffle(100)    #d_ max(epochImageCount, 4000))
+            tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
             tfTrainDataset = tfTrainDataset.batch(self.batchSize)
-            tfTrainDataset = tfTrainDataset.prefetch(2)
+            tfTrainDataset = tfTrainDataset.prefetch(3)
             # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
-            tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
+            # tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
 
 
         if 0:
@@ -263,8 +274,8 @@ class CImageRecognitionNet:
         trainDatasetImageCount = trainImageNums.shape[0]
         if epochImageCount is None or epochImageCount > trainDatasetImageCount:
             epochImageCount = trainDatasetImageCount
-        print("Running %d epoch(s) from %d, %d images each" % \
-                (epochCount, initialEpochNum, epochImageCount))
+        # print("Running %d epoch(s) from %d, %d images each" % \
+        #         (epochCount, initialEpochNum, epochImageCount))
         groupStartTime = datetime.datetime.now()
 
         tensorBoardCallback = TensorBoard(log_dir=self.logDir, histogram_freq=0,
@@ -279,6 +290,7 @@ class CImageRecognitionNet:
 
         tfTrainDataset = self._getTfDataset(trainImageNums, testImageNums,
                                             epochImageCount)
+        tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
         history = self.model.fit_generator(tfTrainDataset, # TODO validation_data=curTestDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  steps_per_epoch=epochImageCount // self.batchSize,

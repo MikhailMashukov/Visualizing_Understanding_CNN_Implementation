@@ -304,7 +304,7 @@ class CImageNetVisWrapper:
                 #                     low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
                 #         trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
 
-                print('Train images: ', trainImageNums)
+                # print('Train images: ', trainImageNums)
                 infoStr = self.net.doLearning(1, callback,
                                               trainImageNums, testImageNums,
                                               epochImageCount, self.curEpochNum)
@@ -374,9 +374,14 @@ class CImageNetVisWrapper:
         # except Exception as ex:
         #     print("Error in loadState: %s" % str(ex))
 
-    def getCacheStatusInfo(self):
-        return '%.2f MBs' % \
+    def getCacheStatusInfo(self, detailed=False):
+        str = '%.2f MBs' % \
                 (self.activationCache.getUsedMemory() / (1 << 20))
+        if detailed:
+            cache = self.imageCache
+            str = 'acts: %s, images: %s, %.2f MBs' % \
+                    (str, cache.getDetailedUsageInfo(), cache.getUsedMemory() / (1 << 20))
+        return str
 
     @staticmethod
     def get_source_block_calc_func(layerName):
@@ -434,7 +439,7 @@ class CImageNetVisWrapper:
         # # if os.path.exists(self.weightsFileNameTempl):
         # #     self.net.model.load_weights(self.weightsFileNameTempl)
         # # self.net.model._make_predict_function()
-        self.net.batchSize = max(8 * getCpuCoreCount(), 32)
+        self.net.batchSize = max(8 * getCpuCoreCount(), 64)
 
         self.netsCache = dict()
 
@@ -473,6 +478,7 @@ class CImageNetPartDataset:
         self.mainFolder = 'ImageNetPart'
         self.foldersInfoCacheFileName = 'Data/ImageNetPartCache.dat'
         self.cache = cache
+        self.cachePackedImages = True       # Cache images in int8
         self.folders = None          # List of folder names     # dict(folder) -> list of file names
         # self.imagesFolders = None    # ImageNum -> folder name
         self.imageNumLabels = None   # ImageNum -> label [0, category count)
@@ -497,10 +503,12 @@ class CImageNetPartDataset:
     readImageCount =0   #d_
     def getImage(self, imageNum, preprocessStage='net', subsetName='train'):
         self.readImageCount += 1
-        print('getImage %s %d' % (subsetName, self.readImageCount))
+        # print('getImage %s %d' % (subsetName, self.readImageCount))
         itemCacheName = self._getImageCacheName(imageNum, subsetName, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)
         if not cacheItem is None:
+            if self.cachePackedImages:
+                return np.array(cacheItem, dtype=np.float32)
             return cacheItem
 
         if not subsetName in ['train', 'test']:
@@ -526,10 +534,29 @@ class CImageNetPartDataset:
                 (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]
             # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
         else:
-            imageData = alexnet_utils.preprocess_image_batch([imgFileName])[0]
-            if preprocessStage == 'net':
-                imageData = imageData.transpose((1, 2, 0))
-            # else preprocessStage == 'net_channels_first'
+            if self.cachePackedImages:
+                imageData = self.getImage(imageNum, 'cropped', subsetName)
+                imageData = np.array(imageData, dtype=np.float32)
+                imageData[:, :, 0] -= 123.68
+                imageData[:, :, 1] -= 116.779
+                imageData[:, :, 2] -= 103.939
+                if preprocessStage != 'net':
+                    imageData = imageData.transpose((2, 0, 1))
+                return imageData
+            else:
+                imageData = alexnet_utils.preprocess_image_batch([imgFileName])[0]
+
+                if preprocessStage == 'net':
+                    imageData = imageData.transpose((1, 2, 0))
+                # else preprocessStage == 'net_channels_first'
+
+        # if self.cachePackedImages:
+        #     a = np.array(imageData, dtype=np.uint8)
+        #     print('Image min %.3f, max %.3f,    int min %d, max %d' % \
+        #           (imageData.min(), imageData.max(), a.min(), a.max()))
+        #     self.cache.saveObject(itemCacheName, a)
+        # else:
+        #     self.cache.saveObject(itemCacheName, imageData)
 
         self.cache.saveObject(itemCacheName, imageData)
         return imageData
@@ -578,12 +605,12 @@ class CImageNetPartDataset:
         imageNums = np.arange(1, self.getImageCount(subsetName) + 1)
         # path_ds = tf.data.Dataset.from_tensor_slices(self.imagesFileNames)
         numDs = tf.data.Dataset.from_tensor_slices(imageNums)
-        image_ds = numDs.map(_tfLoadTrainImage, num_parallel_calls=1)
+        # image_ds = numDs.map(_tfLoadTrainImage, num_parallel_calls=1)
         # for n, image in enumerate(load_image_ds.take(7)):
         #     print(image)
 
         label_ds = tf.data.Dataset.from_tensor_slices(self.imageNumLabels)
-        ds = tf.data.Dataset.zip((image_ds, label_ds))
+        ds = tf.data.Dataset.zip((numDs, label_ds))
         ds = ds.repeat()
         return ds
 
@@ -639,7 +666,10 @@ class CImageNetPartDataset:
         #     fileName = fileName.lower()
 
     def _getImageCacheName(self, imageNum, subsetName, preprocessStage):
-        return 'im_%d_%c_%s' % (imageNum, subsetName[1], preprocessStage)
+        return 'im_%d_%c_%s' %\
+               (imageNum, subsetName[1], preprocessStage)
+        # return 'im_%d_%c_%s_%s' %\
+        #        (imageNum, subsetName[1], preprocessStage, 'i8' if self.cachePackedImages else 'f32')
 
 
 # class CTfImageNetPartDataset:

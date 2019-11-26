@@ -46,6 +46,10 @@ class CDataCache:
     def getUsedMemory(self):
         return self.usedMemory
 
+    def getDetailedUsageInfo(self):
+        return '%d object(s), %d + %d in LRU lists' % \
+                (len(self.data), len(self.lrus[0]), len(self.lrus[1]))
+
     def clear(self):
         with self.lock:
             self.data = dict()
