@@ -415,7 +415,7 @@ class CImageNetVisWrapper:
 
     @staticmethod
     def get_entire_image_block(_, y):
-        return (0, 0, 28, 28)
+        return (0, 0, 227, 227)
 
 
     # @property
@@ -472,13 +472,61 @@ class CImageNetVisWrapper:
             return self.netsCache[highestLayer]
 
 
-
 class CImageNetPartDataset:
     def __init__(self, cache):
-        self.mainFolder = 'ImageNetPart'
-        self.foldersInfoCacheFileName = 'Data/ImageNetPartCache.dat'
+        self.trainSubset = CImageNetSubset('train', cache, self)
+        self.testSubset = CImageNetSubset('test', cache, self)
+        self.subsets = { 'train': self.trainSubset, 'test': self.testSubset }
+
+    def getSubset(self, subsetName):
+        return self.subsets[subsetName]
+
+    def getImageFolder(self, subsetName='train'):
+        return self.subsets[subsetName].mainFolder
+
+    def getImage(self, imageNum, preprocessStage='net', subsetName='train'):
+        return self.subsets[subsetName].getImage(imageNum, preprocessStage)
+
+    def getImageCount(self, subsetName):
+        return self.subsets[subsetName].getImageCount()
+
+    def getImageLabel(self, imageNum, subsetName='train'):
+        return self.subsets[subsetName].getImageLabel(imageNum)
+
+    def getClassCount(self):
+        return self.trainSubset.getClassCount()
+
+    def getClassNameLabel(self, label):
+        return self.trainSubset.getClassNameLabel(label)
+
+    def getTfDataset(self, subsetName='train'):
+        return self.trainSubset.getTfDataset()
+
+    def getNetSource(self, subsetName='train'): # TODO: to remove
+        return self.subsets[subsetName].getNetSource()
+
+
+    def checkAllSubsetsMatch(self):
+        folders = None
+        for subsetName, subset in self.subsets.items():
+            if not subset.isLoaded():
+                subset._loadData()
+
+            if folders is None:
+                folders = subset.folders
+            else:
+                if list(folders) != list(subset.folders):
+                    raise Exception('%s images subset folders mismatch' % subsetName)
+
+
+class CImageNetSubset:
+    def __init__(self, subsetName, cache, parent):
+        self.subsetName = subsetName
+        self.mainFolder = 'ImageNetPart/%s' % self.subsetName
+        self.foldersInfoCacheFileName = 'Data/ImageNet%sCache.dat' % self.subsetName
         self.cache = cache
         self.cachePackedImages = True       # Cache images in int8
+        self.parent = parent
         self.folders = None          # List of folder names     # dict(folder) -> list of file names
         # self.imagesFolders = None    # ImageNum -> folder name
         self.imageNumLabels = None   # ImageNum -> label [0, category count)
@@ -497,29 +545,26 @@ class CImageNetPartDataset:
     # def getImageFilePath(self, imageNum):
     #     return 'ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
 
-    def getImageFolder(self):
-        return self.mainFolder
-
     readImageCount =0   #d_
-    def getImage(self, imageNum, preprocessStage='net', subsetName='train'):
+    def getImage(self, imageNum, preprocessStage='net'):
         self.readImageCount += 1
         # print('getImage %s %d' % (subsetName, self.readImageCount))
-        itemCacheName = self._getImageCacheName(imageNum, subsetName, preprocessStage)
+        itemCacheName = self._getImageCacheName(imageNum, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)
         if not cacheItem is None:
             if self.cachePackedImages:
                 return np.array(cacheItem, dtype=np.float32)
             return cacheItem
 
-        if not subsetName in ['train', 'test']:
-            raise Exception("Invalid image subset '%s'" % subsetName)
+        # if not subsetName in ['train', 'test']:
+        #     raise Exception("Invalid image subset '%s'" % subsetName)
 
         import alexnet_utils
 
         if self.folders is None:
             self._loadData()
 
-        imgFileName = os.path.join(self.mainFolder, self.imagesFileNames[imageNum - 1])
+        imgFileName = os.path.join(self.mainFolder, self.imagesFileNames[imageNum])
 
         if preprocessStage == 'source':
             imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
@@ -535,11 +580,15 @@ class CImageNetPartDataset:
             # imageData[:, [1, 4, 7], :] = [[255, 0, 0], [0, 200 ,0], [0, 0, 145]]
         else:
             if self.cachePackedImages:
-                imageData = self.getImage(imageNum, 'cropped', subsetName)
+                imageData = self.getImage(imageNum, 'cropped')
+                imageData = np.array(imageData, dtype=np.int32)
+                imageData[:, :, 0] -= 123
+                imageData[:, :, 1] -= 116
+                imageData[:, :, 2] -= 103
                 imageData = np.array(imageData, dtype=np.float32)
-                imageData[:, :, 0] -= 123.68
-                imageData[:, :, 1] -= 116.779
-                imageData[:, :, 2] -= 103.939
+                # imageData[:, :, 0] -= 123.68
+                # imageData[:, :, 1] -= 116.779
+                # imageData[:, :, 2] -= 103.939
                 if preprocessStage != 'net':
                     imageData = imageData.transpose((2, 0, 1))
                 return imageData
@@ -561,24 +610,27 @@ class CImageNetPartDataset:
         self.cache.saveObject(itemCacheName, imageData)
         return imageData
 
-    def getImageCount(self, subsetName): # TODO
-        if self.folders is None:
+    def isLoaded(self):
+        return not self.folders is None
+
+    def getImageCount(self):
+        if not self.isLoaded():
             self._loadData()
         return len(self.imageNumLabels)
 
-    def getImageLabel(self, imageNum, subsetName):
+    # Labels here are class indices (0-based)
+    def getImageLabel(self, imageNum):
         return self.imageNumLabels[imageNum]
 
     def getClassCount(self):
-        if self.folders is None:
+        if not self.isLoaded():
             self._loadData()
         return len(self.folders)
 
-    def getClassNameByInd(self, classInd):
-        return self.folders[classInd]
+    def getClassNameLabel(self, label):
+        return self.folders[label]
 
-    # This method suits ILSVRC's data poorly
-    def getNetSource(self, subsetName='train'): # TODO: to remove
+    def getNetSource(self): # TODO: to remove
         return (self.imagesFileNames, self.imageNumLabels)
 
         # if self.test is None:
@@ -591,18 +643,18 @@ class CImageNetPartDataset:
             data.append(self.getImage(imageInd + 1, 'net'))
         return (np.stack(data, axis=0), self.testLabels)
 
-    def getTfDataset(self, subsetName='train'):  # TODO: train/test split support
+    def getTfDataset(self):
         import tensorflow as tf
 
-        def _loadTrainImage(imageNum):
-            imageData = self.getImage(imageNum, 'net', 'train')
+        def _loadImage(imageNum):
+            imageData = self.getImage(imageNum, 'net')
             return imageData
 
-        def _tfLoadTrainImage(imageNum):
-            image = tf.py_function(_loadTrainImage, [imageNum], tf.float32)
+        def _tfLoadImage(imageNum):
+            image = tf.py_function(_loadImage, [imageNum], tf.float32)
             return image
 
-        imageNums = np.arange(1, self.getImageCount(subsetName) + 1)
+        imageNums = np.arange(1, self.getImageCount() + 1)
         # path_ds = tf.data.Dataset.from_tensor_slices(self.imagesFileNames)
         numDs = tf.data.Dataset.from_tensor_slices(imageNums)
         # image_ds = numDs.map(_tfLoadTrainImage, num_parallel_calls=1)
@@ -623,7 +675,7 @@ class CImageNetPartDataset:
                 self.imageNumLabels = pickle.load(file)
                 self.imagesFileNames = pickle.load(file)
         except Exception as ex:
-            print("Error in CImageNetPartDataset._loadData: %s" % str(ex))
+            print("Error in %s CImageNetPartDataset._loadData: %s" % (self.subsetName, str(ex)))
             self._loadFilesTree()
             with open(self.foldersInfoCacheFileName, 'wb') as file:
                 pickle.dump(self.folders, file)
@@ -638,7 +690,9 @@ class CImageNetPartDataset:
         self.folders = []
         self.imageNumLabels = []
         self.imagesFileNames = []
-        for folderName in os.listdir(self.mainFolder):
+        sortedFolders = [folderName for folderName in os.listdir(self.mainFolder)]
+        sortedFolders.sort()
+        for folderName in sortedFolders:
             folderPath = os.path.join(self.mainFolder, folderName)
             if os.path.isdir(folderPath):
                 print('Scanning images folder %s' % folderName)
@@ -665,9 +719,12 @@ class CImageNetPartDataset:
         # for fileName in glob.glob(fileMask):
         #     fileName = fileName.lower()
 
-    def _getImageCacheName(self, imageNum, subsetName, preprocessStage):
+        if self.subsetName == 'train':
+            self.parent.checkAllSubsetsMatch()
+
+    def _getImageCacheName(self, imageNum, preprocessStage):
         return 'im_%d_%c_%s' %\
-               (imageNum, subsetName[1], preprocessStage)
+               (imageNum, self.subsetName[1], preprocessStage)
         # return 'im_%d_%c_%s_%s' %\
         #        (imageNum, subsetName[1], preprocessStage, 'i8' if self.cachePackedImages else 'f32')
 

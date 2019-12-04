@@ -46,7 +46,7 @@ from alexnet_additional_layers import split_tensor, cross_channel_normalization
 #from MnistModel2 import *
 
 # AlexNet, a bit modified for existing train images
-def MyAlexnetModel(classCount=25):
+def MyAlexnetModel(classCount=24):
     """
     Returns a keras model for AlexNet, achieving roughly 80% at ImageNet2012 validation set
 
@@ -106,7 +106,7 @@ def MyAlexnetModel(classCount=25):
     dense_2 = Dropout(0.5)(dense_1)
     dense_2 = Dense(4096, activation='relu', name='dense_2')(dense_2)
     dense_3 = Dropout(0.5)(dense_2)
-    dense_3 = Dense(25, name='dense_3')(dense_3)   # Class count
+    dense_3 = Dense(classCount, name='dense_3')(dense_3)   # Class count
     prediction = Activation("softmax", name="softmax")(dense_3)
 
     m = Model(input=inputs, output=prediction)

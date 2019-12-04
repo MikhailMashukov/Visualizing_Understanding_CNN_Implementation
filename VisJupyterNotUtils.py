@@ -2062,7 +2062,7 @@ controlObj.init()
 # controlObj.onCorrelationToOtherModelPressed()
 
 
-epochNum = 0
+epochNum = 7
 imageNum = 5
 layerName = 'conv_2'
 
@@ -2076,42 +2076,42 @@ if __name__ == "__main__":
     # actImage = layoutLayersToOneImage(np.sqrt(activations), colCount, margin)
 
     try:
-        if 0:
-            tfDataset = controlObj.imageDataset.getTfDataset()
-            tfTrainDataset = tfDataset.shuffle(100)
-            tfTrainDataset = tfTrainDataset.batch(16)
-            tfTrainDataset = tfTrainDataset.prefetch(2)
-            # for v in tfTrainDataset[:3]:
-            #     print(v)
-        else:
-            controlObj.netWrapper._initMainNet()
-            trainImageNums = np.arange(1, controlObj.imageDataset.getImageCount('train') + 1)
-            testImageNums = np.arange(1, controlObj.imageDataset.getImageCount('test') + 1)
-            tfTrainDataset = controlObj.netWrapper.net._getTfDataset(
-                            trainImageNums, testImageNums, 1000)
+    # if 1:
+        for imageNum in range(5, 7):
+            image = controlObj.imageDataset.getImage(imageNum, 'cropped').astype(np.uint8)
+        #     print(image.shape, image.dtype)
+            print('%d - %s' % (controlObj.imageDataset.getImageLabel(imageNum),
+                               controlObj.imageDataset.getClassNameLabel(imageNum)))
+            imshow(image);
+            plt.show()
 
-        from itertools import islice
+            activations = controlObj.netWrapper.getImageActivations('dense_3', imageNum, epochNum)
+            print(activations, 'max', activations.max(),
+                  controlObj.imageDataset.getClassNameLabel(int(np.argmax(activations))))
 
-        # for v in list(tfDataset)[:3]:    # Endless
-        for v in islice(tfTrainDataset, 3):
-            x = v   # x[0].numpy()
-            print(v[0].shape)
+        if 0:     # Reading dataset
+            if 0:
+                tfDataset = controlObj.imageDataset.getTfDataset()
+                tfTrainDataset = tfDataset.shuffle(100)
+                tfTrainDataset = tfTrainDataset.batch(16)
+                tfTrainDataset = tfTrainDataset.prefetch(2)
+                # for v in tfTrainDataset[:3]:
+                #     print(v)
+            else:
+                controlObj.netWrapper._initMainNet()
+                trainImageNums = np.arange(1, controlObj.imageDataset.getImageCount('train') + 1)
+                testImageNums = np.arange(1, controlObj.imageDataset.getImageCount('test') + 1)
+                tfTrainDataset = controlObj.netWrapper.net._getTfDataset(
+                                trainImageNums, testImageNums, 1000)
+
+            from itertools import islice
+
+            # for v in list(tfDataset)[:3]:    # Endless
+            for v in islice(tfTrainDataset, 3):
+                x = v   # x[0].numpy()
+                print(v[0].shape)
     except Exception as ex:
-        print("Error: %s" % str(ex))
+        raise
+        # print("Error: %s" % str(ex))
 
-    try:
-        import tensorflow as tf
-
-        it = tf.compat.v1.data.make_one_shot_iterator(tfDataset)
-        for v in islice(it, 3):
-            print(v[0].shape)
-    except:
-        pass
-
-    try:
-        for v in list(it)[:3]:
-            print(v)
-    except:
-        pass
-
-    self.onShowMultActTopsPressed()
+    controlObj.onShowMultActTopsPressed()

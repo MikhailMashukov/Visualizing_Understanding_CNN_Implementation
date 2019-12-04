@@ -229,7 +229,7 @@ class CImageRecognitionNet:
                 # [image, label] = x
                 return x
 
-            tfTrainDataset = self.imageDataset.getTfDataset()   # .take(100).repeat()
+            tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
             tfTrainDataset = tfTrainDataset.map(_tfLoadTrainImage, num_parallel_calls=4)
             # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
             tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
