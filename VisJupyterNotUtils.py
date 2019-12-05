@@ -123,6 +123,9 @@ class NetControlObject():
         # return self.imageNumEdit.value()
             # int(self.imageNumLineEdit.text())
 
+    def getSelectedLayerName(self):
+        return self.curLayerName
+
     def getLearnRate(self):
         return self.learnRate
 
@@ -174,7 +177,7 @@ class NetControlObject():
         # ax = self.figure.add_subplot(self.gridSpec[0, 0])       # GridSpec: [y, x]
         # self.showImage(ax, imageData)
         # # ax.imshow(imageData, extent=(-100, 127, -100, 127), aspect='equal')
-        # self.canvas.draw()
+        # self.drawFigure()
 
     def clearFigure(self):
         self.figure.clear()
@@ -182,15 +185,18 @@ class NetControlObject():
         self.figure.set_tight_layout(True)
 
     def getMainSubplot(self):
-        if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
-            self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
-        return self.mainSubplotAxes
+        fig = figure( figsize=(600, 300))
+        return fig.add_subplot()
+        # if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
+        #     self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
+        # return self.mainSubplotAxes
 
     def showImage(self, ax, imageData):
         # ax.clear()    # Including clear here is handy, but not obvious
+        # print('Showing image ', imageData.shape)
         if len(imageData.shape) >= 3:
             if imageData.shape[2] > 1:
-                return ax.imshow(imageData) # , aspect='equal')
+                return ax.imshow(imageData.astype(np.uint8)) # , aspect='equal')
             else:
                 imageData = np.squeeze(imageData, axis=2)
                 # if imageData.dtype == np.float32:
@@ -199,11 +205,15 @@ class NetControlObject():
         else:
             return ax.imshow(imageData, cmap='Greys_r')
 
+    def drawFigure(self):
+        # self.canvas.draw()
+        plt.show()
+
     def onShowActivationsPressed(self):
         self.startAction(self.onShowActivationsPressed)
         epochNum = self.getSelectedEpochNum()
         imageNum = self.getSelectedImageNum()
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
 
         activations, drawMode, stdData = self.getActivationsData(epochNum, imageNum, layerName)
 
@@ -233,7 +243,7 @@ class NetControlObject():
                 if ax.get_ylim()[0] > ax.get_ylim()[1]:
                     ax.invert_yaxis()
 
-        self.canvas.draw()
+        self.drawFigure()
 
     def getActivationsData(self, epochNum, imageNum, layerName):
         if epochNum == self.AllEpochs:
@@ -291,7 +301,7 @@ class NetControlObject():
         self.startAction(self.onShowActEstByImagesPressed)
         epochNum = self.getSelectedEpochNum()
         firstImageCount = max(100, self.getSelectedImageNum())
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
 
         imagesActs = self.netWrapper.getImagesActivations_Batch(
                 layerName, range(1, firstImageCount + 1), epochNum)
@@ -317,7 +327,7 @@ class NetControlObject():
         self.startAction(self.onShowImagesWithTSnePressed)
         epochNum = self.getSelectedEpochNum()
         firstImageCount = max(300, self.getSelectedImageNum())
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
 
         imagesActs = self.netWrapper.getImagesActivations_Batch(
                 layerName, range(1, firstImageCount + 1), epochNum)
@@ -380,7 +390,7 @@ class NetControlObject():
             labels = np.array(self.imageDataset.getNetSource()[1][:firstImageCount], dtype=float)
             ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='plasma')
 
-            self.canvas.draw()
+            self.drawFigure()
             self.showProgress('T-SNE: %d iterations displayed' % iterCount)
 
             if self.cancelling or self.exiting:
@@ -432,7 +442,7 @@ class NetControlObject():
             # labels = np.array(self.imageDataset.getNetSource()[1][:firstImageCount], dtype=float)
             # ax.scatter(tsneCoords[:, 0], tsneCoords[:, 1], c=labels, alpha=0.6, cmap='plasma')
 
-            self.canvas.draw()
+            self.drawFigure()
             self.showProgress('T-SNE: %d iterations displayed' % iterCount)
             if self.cancelling or self.exiting:
                 return
@@ -515,7 +525,7 @@ class NetControlObject():
         imageNum = self.getSelectedImageNum()
         sourceImageData = self.imageDataset.getImage(imageNum, 'cropped')
         # alexNetImageData = self.imageDataset.getImage(imageNum, 'net')
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
         activations = self.netWrapper.getImageActivations(layerName, imageNum)
         activations = self.getChannelsToAnalyze(activations[0])
         if len(activations.shape) == 1:
@@ -564,7 +574,7 @@ class NetControlObject():
         ax = self.figure.add_subplot(self.gridSpec[1, 0])
         ax.clear()
         self.showImage(ax, data)
-        self.canvas.draw()
+        self.drawFigure()
 
     def onShowActTopsFromCsvPressed(self):
         # Fast, based on data produced by activations.py
@@ -582,10 +592,10 @@ class NetControlObject():
         if options.epochNum is None:
             epochNums = self.netWrapper.getSavedNetEpochs()
             options.epochNum = epochNums[-1]
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
         options.layerName = layerName
         options.embedImageNums = True
-        options.imageToProcessCount = max(200 if self.netWrapper.name == 'mnist' else 20, \
+        options.imageToProcessCount = max(100 if self.netWrapper.name == 'mnist' else 20, \
                     self.getSelectedImageNum())
 
         # Getting activations to get channel count. They should be reread from cache later
@@ -597,21 +607,26 @@ class NetControlObject():
         #     activations1 = self.net.getCombinedLayerImageActivations(layerName, 1, options.epochNum)
         activations1 = self.getChannelsToAnalyze(activations1[0])
         (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
+        print('options.chanCount', options.chanCount)
 
         calculator.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
         return calculator
 
-    def onShowMultActTopsPressed(self):
-        # My own implementation, from scratch, with images subblocks precision
-        self.startAction(self.onShowMultActTopsPressed)
+    def buildMultActTops(self):
+        # My own implementation, from scratch, with images subblocks precision.
+        # Drawing of images plot from Python is very slow in JupyterLab for some reason.
+        # So we only prepare it here and calling imshow in the notebook
+        self.startAction(self.buildMultActTops)
         calculator = self.fillMainMultActTopsOptions()
         if calculator.checkMultActTopsInCache():
             # No need to collect activations, everything will be taken from cache
-            resultImage = calculator.showMultActTops(None)
-            # calculator.saveMultActTopsImage(resultImage)
-            return
+            # resultImage = calculator.showMultActTops(None)
+            resultImage = calculator.buildMultActTopsImage(None)
 
-        # self.needShowCurMultActTops = False
+            # calculator.saveMultActTopsImage(resultImage)
+            return resultImage
+
+        self.needShowCurMultActTops = False
         # self.multActTopsButton.setText('Save current')
         # try:
         #     self.multActTopsButton.clicked.disconnect()
@@ -631,7 +646,9 @@ class NetControlObject():
         #     self.multActTopsButton.clicked.connect(self.onShowMultActTopsPressed)
 
         if not self.exiting:
-            resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
+            # resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
+            resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+
             calculator.saveMultActTopsImage(resultImage, processedImageCount)
         return resultImage
 
@@ -767,7 +784,7 @@ class NetControlObject():
             self.startAction(self.onShowChanActivationsPressed)
             epochNum = self.getSelectedEpochNum()
             imageNum = self.getSelectedImageNum()
-            layerName = self.blockComboBox.currentText()
+            layerName = self.getSelectedLayerName()
             chanNum = self.getSelectedChannelNum()
             activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
             activations = activations[0][chanNum]
@@ -823,7 +840,7 @@ class NetControlObject():
             im = ax.imshow(convImageData, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
             # self.figure.get_colorbar(ax=ax)
-            self.canvas.draw()
+            self.drawFigure()
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
 
@@ -900,7 +917,7 @@ class NetControlObject():
             self.showWeights(self.figure.add_subplot(self.gridSpec[1, 0]), weights[:, :, prevChansOrder],
                              colCount * 2)
 
-            self.canvas.draw()
+            self.drawFigure()
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
 
@@ -915,7 +932,7 @@ class NetControlObject():
         self.startAction(self.onShowGradientsPressed)
         epochNum = self.getSelectedEpochNum()
         firstImageCount = self.getSelectedImageNum()
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
 
         data2 = None
         print("Getting data")
@@ -947,7 +964,7 @@ class NetControlObject():
         self.startAction(self.onGradientsByImagesPressed)
         epochNum = self.getSelectedEpochNum()
         firstImageCount = max(self.getSelectedImageNum(), 100)
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
 
         data2 = None
         dataList = []
@@ -1048,7 +1065,7 @@ class NetControlObject():
             colorBar = self.figure.colorbar(im, ax=ax)
 
         print("Plots Updated")
-        self.canvas.draw()
+        self.drawFigure()
         print("Done")
 
     def onShowWorstImagesPressed(self):
@@ -1093,7 +1110,7 @@ class NetControlObject():
             ax.clear()
             im = ax.imshow(lossData, cmap='plasma')
             colorBar = self.figure.colorbar(im, ax=ax)
-            self.canvas.draw()
+            self.drawFigure()
 
             self.showProgress("Images: %s" % ', '.join([str(int(num)) for num in imageNums[:10]]))
             np.savetxt('Data/WorstImageNums.txt', imageNums, fmt='%d', delimiter='')
@@ -1119,7 +1136,7 @@ class NetControlObject():
         epochNum = self.getSelectedEpochNum()
         firstImageCount = max(1000 if self.netWrapper.name == 'mnist' else 200,
                               self.getSelectedImageNum())
-        layerName = self.blockComboBox.currentText()
+        layerName = self.getSelectedLayerName()
         options.towerCount = self.netWrapper.getTowerCount()
 
         imagesActs = self.netWrapper.getImagesActivations_Batch(
@@ -1149,7 +1166,7 @@ class NetControlObject():
         except Exception as ex:
             self.showProgress("Error on correlations: %s" % str(ex))
 
-        self.canvas.draw()
+        self.drawFigure()
         self.saveCorrelationsImage(epochNum, firstImageCount, layerName)
 
     def saveCorrelationsImage(self, epochNum, firstImageCount, layerName):
@@ -1721,7 +1738,7 @@ class NetControlObject():
         ax.plot(np.arange(sampleBlock.shape[1]), sampleBlock[0], color=(0.3, 0.3, 0.8, 0.5), linestyle = 'dashed')
         ax.plot(np.arange(sampleBlock.shape[1]), sampleBlock[1], color=(0.7, 0.3, 0.3, 0.5))
         ax.plot(np.arange(sampleBlock.shape[1]), sampleBlock[2], color=(0.3, 0.7, 0.3, 0.5))
-        self.canvas.draw()
+        self.drawFigure()
 
     def getClosestY(self, editBlockInd, x, y):
         intX = int(x + 0.5)
@@ -1788,7 +1805,7 @@ class NetControlObject():
         #            cmap="YlGn", hatch='/', alpha=0.5)
         del self.curDiags[ax.axes]
         ax.scatter(np.arange(testSamplesActuals.shape[0]), testActualClassNums, alpha=0.5)
-        self.canvas.draw()
+        self.drawFigure()
 
     def drawSamplesResults(self, datasetName):
         if self.net:
@@ -1874,7 +1891,7 @@ class NetControlObject():
             (_, actualClassNums) = np.where(samplesActuals==1)
             ax.scatter(np.arange(actualClassNums.shape[0]), actualClassNums, alpha=0.5)
 
-        self.canvas.draw()
+        self.drawFigure()
 
     def drawSamplesIntermResults(self, block, intermBlockInd, plotNum = 111,
                                  arePrevResults = False, clearExisting = True):
@@ -1919,7 +1936,7 @@ class NetControlObject():
                 ax.text(block.shape[0] + 0.5, j, int(absMeanByOutput[j] * 1e5),
                         ha="center", va="center", color="b", fontsize=7)
 
-        self.canvas.draw()
+        self.drawFigure()
 
     def onDisplayPressed(self):
         # self.onDatasetChanged(self.datasetComboBox.currentIndex())
@@ -2062,9 +2079,10 @@ controlObj.init()
 # controlObj.onCorrelationToOtherModelPressed()
 
 
-epochNum = 7
+epochNum = -3
 imageNum = 5
 layerName = 'conv_2'
+controlObj.curLayerName = layerName
 
 colCount = 8
 margin = 2
@@ -2076,8 +2094,7 @@ if __name__ == "__main__":
     # actImage = layoutLayersToOneImage(np.sqrt(activations), colCount, margin)
 
     try:
-    # if 1:
-        for imageNum in range(5, 7):
+        for imageNum in range(5, 5):
             image = controlObj.imageDataset.getImage(imageNum, 'cropped').astype(np.uint8)
         #     print(image.shape, image.dtype)
             print('%d - %s' % (controlObj.imageDataset.getImageLabel(imageNum),
@@ -2114,4 +2131,4 @@ if __name__ == "__main__":
         raise
         # print("Error: %s" % str(ex))
 
-    controlObj.onShowMultActTopsPressed()
+    controlObj.buildMultActTops()

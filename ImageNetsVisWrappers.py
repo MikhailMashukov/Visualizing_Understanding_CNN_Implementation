@@ -10,6 +10,7 @@ import numpy as np
 import DataCache
 from MyUtils import *
 from MnistNetVisWrapper import *
+import AlexNetVisWrapper
 
 # My own model for images recognition (classification)
 class CImageNetVisWrapper:
@@ -92,9 +93,9 @@ class CImageNetVisWrapper:
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
         imageData = np.stack(images, axis=0)
-        print("Predict data prepared")
+        # print("Predict data prepared")
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
-        print("Predicted")
+        # print("Predicted")
 
         if self.netPreprocessStageName == 'net':
             # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
@@ -386,37 +387,19 @@ class CImageNetVisWrapper:
     @staticmethod
     def get_source_block_calc_func(layerName):
         if layerName == 'conv_1':
-            return CMnistVisWrapper.get_conv_1_source_block
+            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_1_source_block
         elif layerName == 'conv_2':
-            return CMnistVisWrapper.get_conv_2_source_block
+            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_2_source_block
         elif layerName == 'conv_3':
-            return CMnistVisWrapper.get_conv_3_source_block
+            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
+        elif layerName == 'conv_4':
+            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
+        elif layerName == 'conv_5':
+            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
+        elif layerName[:6] == 'dense_':
+            return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
         else:
-            return CMnistVisWrapper.get_entire_image_block
-
-    # Returns source pixels block, corresponding to the layer conv_1 pixel (x, y)
-    @staticmethod
-    def get_conv_1_source_block(x, y):
-        source_xy_0 = (x * 2, y * 2)
-        size = 5
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_2_source_block(x, y):
-        source_xy_0 = (x * 2, y * 2)
-        size = 9
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_3_source_block(x, y):
-        source_xy_0 = (x * 4, y * 4)
-        size = 11 + 4 * 2
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_entire_image_block(_, y):
-        return (0, 0, 227, 227)
-
+            return None
 
     # @property
     # def baseModel(self):
@@ -500,7 +483,7 @@ class CImageNetPartDataset:
         return self.trainSubset.getClassNameLabel(label)
 
     def getTfDataset(self, subsetName='train'):
-        return self.trainSubset.getTfDataset()
+        return self.subsets[subsetName].getTfDataset()
 
     def getNetSource(self, subsetName='train'): # TODO: to remove
         return self.subsets[subsetName].getNetSource()
@@ -516,6 +499,7 @@ class CImageNetPartDataset:
                 folders = subset.folders
             else:
                 if list(folders) != list(subset.folders):
+                    print(list(folders), '\n%15s' % '', list(subset.folders))
                     raise Exception('%s images subset folders mismatch' % subsetName)
 
 
@@ -616,10 +600,12 @@ class CImageNetSubset:
     def getImageCount(self):
         if not self.isLoaded():
             self._loadData()
-        return len(self.imageNumLabels)
+        return len(self.imageNumLabels) - 1
 
-    # Labels here are class indices (0-based)
+    # Labels here are class indices (0-based), imageNum is 1-based
     def getImageLabel(self, imageNum):
+        if not self.isLoaded():
+            self._loadData()
         return self.imageNumLabels[imageNum]
 
     def getClassCount(self):
@@ -660,8 +646,10 @@ class CImageNetSubset:
         # image_ds = numDs.map(_tfLoadTrainImage, num_parallel_calls=1)
         # for n, image in enumerate(load_image_ds.take(7)):
         #     print(image)
+        # if self.subsetName == 'test':
+        #     print(imageNums)
 
-        label_ds = tf.data.Dataset.from_tensor_slices(self.imageNumLabels)
+        label_ds = tf.data.Dataset.from_tensor_slices(self.imageNumLabels[1:])
         ds = tf.data.Dataset.zip((numDs, label_ds))
         ds = ds.repeat()
         return ds
@@ -721,30 +709,11 @@ class CImageNetSubset:
 
         if self.subsetName == 'train':
             self.parent.checkAllSubsetsMatch()
+        # else:
+        #     print(self.imagesFileNames[:5], self.imageNumLabels[:5])
 
     def _getImageCacheName(self, imageNum, preprocessStage):
         return 'im_%d_%c_%s' %\
                (imageNum, self.subsetName[1], preprocessStage)
         # return 'im_%d_%c_%s_%s' %\
         #        (imageNum, subsetName[1], preprocessStage, 'i8' if self.cachePackedImages else 'f32')
-
-
-# class CTfImageNetPartDataset:
-#     def __init__(self, cache):
-#         self.mainFolder = 'ImageNetPart'
-#         self.foldersInfoCacheFileName = 'Data/ImageNetPartCache.dat'
-#         self.cache = cache
-#         self.fullTfDataset = None
-#
-#     def _initFullTfDataset(self):
-#         import tensorflow as tf
-#
-#         self.fullTfDataset = tf.data.Dataset.list_files(self.mainFolder)
-#
-#
-#         # def process_path(file_path):
-#         #   label = tf.strings.split(file_path, '/')[-2]
-#         #   return tf.io.read_file(file_path), label
-#         #
-#         # list_ds = tf.data.Dataset.list_files(str(flowers_root/'*/*'))
-#         # labeled_ds = list_ds.map(process_path)

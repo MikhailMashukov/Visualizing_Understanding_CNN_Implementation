@@ -106,7 +106,7 @@ class CImageRecognitionNet:
     #     image.set_shape(im_shape)
     #     return image, label
 
-    def _getTfDataset(self, trainImageNums, testImageNums,
+    def _getTfDatasets(self, trainImageNums, testImageNums,
                       epochImageCount):
         trainDatasetImageCount = trainImageNums.shape[0]
         classCount = self.imageDataset.getClassCount()
@@ -230,13 +230,35 @@ class CImageRecognitionNet:
                 return x
 
             tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
+            tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
             tfTrainDataset = tfTrainDataset.map(_tfLoadTrainImage, num_parallel_calls=4)
             # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
-            tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
             tfTrainDataset = tfTrainDataset.batch(self.batchSize)
             tfTrainDataset = tfTrainDataset.prefetch(3)
             # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
             # tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
+
+
+            # curTestDatasetSize = epochImageCount // 6
+            # if curTestDatasetSize >= len(testImageNums):
+            #     curTestDatasetSize = len(testImageNums)
+
+            def _loadTestImage(imageNum, label):
+                imageData = self.imageDataset.getImage(imageNum, 'net', 'test')
+                return (imageData, tf.keras.utils.to_categorical(
+                            label, num_classes=classCount))
+
+            def _tfLoadTestImage(imageNum, label):
+                x = tf.py_function(_loadTestImage, [imageNum, label], [tf.float32, tf.int32])
+                # [image, label] = x
+                return x
+
+            tfTestDataset = self.imageDataset.getTfDataset('test')   # .take(100).repeat()
+            tfTestDataset = tfTestDataset.shuffle(max(epochImageCount, 2000))
+            # tfTestDataset = tfTestDataset.take(curTestDatasetSize)
+            tfTestDataset = tfTestDataset.map(_tfLoadTestImage, num_parallel_calls=4)
+            tfTestDataset = tfTestDataset.batch(self.batchSize)
+            tfTestDataset = tfTestDataset.prefetch(2)
 
 
         if 0:
@@ -260,7 +282,7 @@ class CImageRecognitionNet:
         #                          verbose=2, callbacks=[tensorBoardCallback])
             # Exception 'PrefetchDataset' object is not an iterator
 
-        return tfTrainDataset
+        return tfTrainDataset, tfTestDataset
 
     # Each dataset = (list/np.array of image numbers, np.array of labels (numbers in [0, number of classes)))
     def doLearning(self, epochCount, learningCallback,
@@ -288,12 +310,18 @@ class CImageRecognitionNet:
         #         learningCallback)
         # tensorBoardCallback.set_model(self.model)
 
-        tfTrainDataset = self._getTfDataset(trainImageNums, testImageNums,
-                                            epochImageCount)
+        curTestDatasetSize = epochImageCount // 6
+        if curTestDatasetSize >= len(testImageNums):
+            curTestDatasetSize = len(testImageNums)
+        tfTrainDataset, tfTestDataset = self._getTfDatasets(trainImageNums, testImageNums,
+                epochImageCount)
         tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
-        history = self.model.fit_generator(tfTrainDataset, # TODO validation_data=curTestDataset,
+        tfTestDataset = tf.compat.v1.data.make_one_shot_iterator(tfTestDataset)
+
+        history = self.model.fit_generator(tfTrainDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  steps_per_epoch=epochImageCount // self.batchSize,
+                                 validation_data=tfTestDataset, validation_steps=curTestDatasetSize // self.batchSize,
                                  verbose=2) #, callbacks=[tensorBoardCallback])
             #, summaryCallback])
             # Without make_one_shot_iterator - error fused convolution not supported

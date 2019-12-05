@@ -93,8 +93,9 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                     valsToSave = np.pad(valsToSave, ((1, 0), (0, 0)), constant_values=imageNum)
                     bestSourceCoords[chanInd].append(valsToSave)
                     # print('-ch-')
-                if imageNum % 16 == 0:
-                    t = datetime.datetime.now()
+                t = datetime.datetime.now()
+                # if imageNum % 16 == 0:
+                if (t - prevT).total_seconds() >= 3:
                     if lastActionStartTime:
                         timeInfo = ', %.2f ms/image' % \
                             ((t - lastActionStartTime).total_seconds() * 1000 / imageNum)
@@ -254,9 +255,12 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         # except Exception as ex:
         #     print('Exception on subplot deletion: %s' % str(ex))
         ax = self.mainWindow.getMainSubplot()
-        ax.clear()
+        try:
+            ax.clear()
+        except:
+            pass   # Not supported in NetControlObject()
         self.mainWindow.showImage(ax, imageData)
-        self.mainWindow.canvas.draw()
+        self.mainWindow.drawFigure()
         print("Canvas drawn")
 
         # import pickle
@@ -311,6 +315,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         except:
             from imageio import imsave      # For scipy >= 1.2, but imresize needs additional searching
 
+        print('Saving ', imageData.shape)
         if processedImageCount is None:
             processedImageCount = self.imageToProcessCount
         if len(imageData.shape) == 3 and imageData.shape[2] == 1:
@@ -322,7 +327,9 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         # fileName = 'Data/top%d_%s_epoch%d_%dChan_%dImages.png' % \
         fileName = '%s/Top%d_Epoch%d.png' % \
                  (dirName, self.topCount, self.epochNum)
+        print('saving 2')
         imsave(fileName, imageData, format='png')
+        print('saved')
 
         # self.figure.savefig('Results/top%d_%s_%dChannels_%dImages.png' %
         #                         (self.topCount, layerName, activations.shape[0], imageCount),
@@ -367,7 +374,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         ax = self.getMainSubplot()
         ax.clear()
         self.showImage(ax, data)
-        self.canvas.draw()
+        self.drawFigure()
         return data.shape[0:2]
 
 

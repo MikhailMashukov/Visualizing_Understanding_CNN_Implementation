@@ -102,9 +102,9 @@ def MyAlexnetModel(classCount=24):
     dense_1 = MaxPooling2D((3, 3), strides=(2, 2), name="convpool_5")(conv_5)
 
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(4096, activation='relu', name='dense_1')(dense_1)
+    dense_1 = Dense(512, activation='relu', name='dense_1')(dense_1)
     dense_2 = Dropout(0.5)(dense_1)
-    dense_2 = Dense(4096, activation='relu', name='dense_2')(dense_2)
+    dense_2 = Dense(256, activation='relu', name='dense_2')(dense_2)
     dense_3 = Dropout(0.5)(dense_2)
     dense_3 = Dense(classCount, name='dense_3')(dense_3)   # Class count
     prediction = Activation("softmax", name="softmax")(dense_3)

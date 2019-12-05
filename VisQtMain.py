@@ -12,9 +12,9 @@ seems to work better - good results restores very quickly and reaches source res
 It looks as a good idea to reinitialize with small weights and to multiply the kept weights
 in order to compensate decreasing of total outputs. But I tried this only with 8 towers and later
 15_2_32Towers_BatchNorm_NoDropout_RatherQuicklyTrain1.5e-4_Test1.2e-3:
-more and more conv_2 filters got stucked on the same favorite images
+  more and more conv_2 filters got stucked on the same favorite images
 16_4_Train8e-4_Test0.95e-3: maybe with further training test results improve even better,
-(with the initial learning rate) as for 16_5.
+  (with the initial learning rate) as for 16_5.
 21_Correlations\21_3_BasedOn20_4_3 (8 towers): one tower correlates well with the 0 one, others - much less
 
 Activity regularization doesn't seem to give better generalization. Training becomes much slower,
@@ -23,9 +23,15 @@ simply kill training, values should be like 1e-6 for both l1 and l2. They maybe 
 (if they also contain such regularization, the choice is smaller... maybe no, since each neiron
 anyway generates a potentially valuable result).
 
+AlexNet experiments:
+VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned quickly, loss function didn't lower much
+  until epoch 48 10000 images each, then in about 30 epochs lowered maybe 30 times. Seems overtrained on upper levels -
+  bad test predictions, but best activations on lower levels looks like they detect features
+
 Further ideas:
 * to implement division of neirons: each is divided onto two with close weights
-  and theirs output connections get about 1/2 of initial strength
+  and theirs output connections get about 1/2 of initial strength;
+* to investigate how weights of particular neirons changed during training;
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
   in a matrix network;
