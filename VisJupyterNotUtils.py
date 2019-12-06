@@ -4,6 +4,7 @@ from VisQtMain import *
 from matplotlib.pyplot import figure, imshow, axis
 from matplotlib.image import imread
 from itertools import islice
+from alexnet_utils import imresize
 
 # # import copy
 # import datetime
@@ -648,6 +649,8 @@ class NetControlObject():
         if not self.exiting:
             # resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
             resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+            if resultImage.shape[0] > 10000:
+                resultImage = imresize(resultImage, resultImage.shape // 3)
 
             calculator.saveMultActTopsImage(resultImage, processedImageCount)
         return resultImage
@@ -2087,11 +2090,49 @@ controlObj.curLayerName = layerName
 colCount = 8
 margin = 2
 
+import alexnet_utils
+import random
+
+def prepareBatch(imageNums, labels):
+    # import tensorflow as tf
+
+    img_size=(256, 256)
+    crop_size=(227, 227)
+    images = [controlObj.imageDataset.getImage(4, 'source', 'train') \
+              for imageNum in imageNums]
+    # images = [alexnet_utils.imresize(image, img_size) for image in images]
+    # images = np.array(images)
+    # images[:, :, :, 0] -= 123.68
+    # images[:, :, :, 1] -= 116.779
+    # images[:, :, :, 2] -= 103.939
+    print(len(images), images[0].shape, images[0].dtype)
+    rands = np.random.randint(1, high=img_size[0] - crop_size[0], size=(len(images) * 2))
+    randI = 0
+    images2 = []
+    for image in images:
+        image = alexnet_utils.imresize(image, img_size)
+#                         image = next(datagen.flow(np.expand_dims(image, axis=0), batch_size=1))[0]
+#                         image = image[rands[randI] : rands[randI] + crop_size[0],
+#                                       rands[randI + 1] : rands[randI + 1] + crop_size[1], :]
+#                         image[:, :, 0] -= 123
+#                         image[:, :, 1] -= 116
+#                         image[:, :, 2] -= 103
+        images2.append(image)
+        randI += 2
+    print(images2[0].dtype)
+    return np.stack(images2), labels
+
+
 if __name__ == "__main__":
     print(controlObj.getSelectedEpochNum())
 
     # activations, drawMode, stdData = controlObj.getActivationsData(epochNum, imageNum, layerName)
     # actImage = layoutLayersToOneImage(np.sqrt(activations), colCount, margin)
+
+    i1 = controlObj.imageDataset.getImage(4, 'source')
+    i2 = controlObj.imageDataset.getImage(4, 'cropped')
+    i3 = controlObj.imageDataset.getImage(4, 'net')
+    print(prepareBatch(range(1, 9), range(1, 9)))
 
     try:
         for imageNum in range(5, 5):

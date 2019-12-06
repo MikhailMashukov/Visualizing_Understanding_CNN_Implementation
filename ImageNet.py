@@ -219,25 +219,103 @@ class CImageRecognitionNet:
         #     pass
 
         if 1:
-            def _loadTrainImage(imageNum, label):
-                imageData = self.imageDataset.getImage(imageNum, 'net', 'train')
-                return (imageData, tf.keras.utils.to_categorical(
-                            label, num_classes=classCount))
+            from keras.preprocessing.image import ImageDataGenerator
 
-            def _tfLoadTrainImage(imageNum, label):
-                x = tf.py_function(_loadTrainImage, [imageNum, label], [tf.float32, tf.int32])
-                # [image, label] = x
-                return x
+            datagen = ImageDataGenerator(horizontal_flip=True, zoom_range=0.1, rotation_range=30)
+                # With all 3 at first 16 mini-epochs and only horizontal_flip after - 89% accuracy on train
+                # and 69% on test
+            if 0:
+                # First, debugged variant
+                def _loadTrainImage(imageNum, label):
+                    imageData = self.imageDataset.getImage(imageNum, 'net', 'train')
+                    return (imageData, tf.keras.utils.to_categorical(
+                                label, num_classes=classCount))
 
-            tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
-            tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
-            tfTrainDataset = tfTrainDataset.map(_tfLoadTrainImage, num_parallel_calls=4)
-            # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
-            tfTrainDataset = tfTrainDataset.batch(self.batchSize)
-            tfTrainDataset = tfTrainDataset.prefetch(3)
-            # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
-            # tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
+                def _tfLoadTrainImage(imageNum, label):
+                    x = tf.py_function(_loadTrainImage, [imageNum, label], [tf.float32, tf.int32])
+                    # [image, label] = x
+                    return x
 
+                # def augmentImage(x, y):
+                #     # x = tf.image.resize_with_crop_or_pad(
+                #     #     x, HEIGHT + 8, WIDTH + 8)
+                #     # x = tf.image.random_crop(x, [HEIGHT, WIDTH, NUM_CHANNELS])
+                #     x = tf.image.random_flip_left_right(x)
+                #     return x, y
+
+                def augmentatBatch(images, labels):
+                    augImages, labels = next(datagen.flow(images, labels, batch_size=images.shape[0]))
+                    print(augImages.shape, labels.shape)
+                    return augImages, labels
+
+                def tfAugmentatBatch(images, labels):
+                    augImages, labels = tf.py_function(augmentatBatch, [images, labels], [tf.float32, tf.int32])
+                    return augImages, labels
+
+                tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
+                tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
+                tfTrainDataset = tfTrainDataset.map(_tfLoadTrainImage, num_parallel_calls=4)
+                # tfTrainDataset = tfTrainDataset.map(augmentatImage, num_parallel_calls=4)
+                # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
+                tfTrainDataset = tfTrainDataset.batch(self.batchSize)
+                # tfTrainDataset = datagen.flow(tfTrainDataset, batch_size=self.batchSize)
+                tfTrainDataset = tfTrainDataset.map(tfAugmentatBatch, num_parallel_calls=4)
+                tfTrainDataset = tfTrainDataset.prefetch(3)
+                # tfTrainDataset = tfTrainDataset.make_one_shot_iterator()
+                # tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
+            else:
+                import alexnet_utils
+                import random
+
+                img_size=(256, 256)
+                crop_size=(227, 227)
+
+                def getImageCacheName(imageNum):
+                    return 'im_%d_t_resized' %\
+                           (imageNum)
+
+                def prepareBatch(imageNums, labels):
+                    images = []
+#                     cache = self.imageDataset.trainSubset.cache
+                    rands = np.random.randint(1, high=img_size[0] - crop_size[0], size=(self.batchSize * 2))
+                    randI = 0
+                    for imageNum in imageNums:
+                        image = self.imageDataset.getImage(imageNum, 'resized256', 'train').astype(np.float32)
+#                         itemCacheName = getImageCacheName(imageNum)
+#                         image = cache.getObject(itemCacheName)
+#                         if image is None:
+# #                         if 1:
+#                             image = self.imageDataset.getImage(imageNum, 'source', 'train')
+#                             image = alexnet_utils.imresize(image, img_size)
+                        image[:, :, 0] -= 123
+                        image[:, :, 1] -= 116
+                        image[:, :, 2] -= 103
+#                             cache.saveObject(itemCacheName, image)
+
+#                         image = image.astype(np.float32)
+                        image = next(datagen.flow(np.expand_dims(image, axis=0), batch_size=1))[0]
+                        image = image[rands[randI] : rands[randI] + crop_size[0],
+                                      rands[randI + 1] : rands[randI + 1] + crop_size[1], :]
+                        images.append(image)
+                        randI += 2
+#                     images[:, :, :, 0] -= 123.68
+#                     images[:, :, :, 1] -= 116.779
+#                     images[:, :, :, 2] -= 103.939
+#                     print(len(images), images[0].shape, images[0].dtype)
+
+                    images = np.stack(images)
+                    return images, tf.keras.utils.to_categorical(
+                                labels, num_classes=classCount)
+
+                def tfPrepareBatch(imageNums, labels):
+                    images, labels = tf.py_function(prepareBatch, [imageNums, labels], [tf.int32, tf.int32])
+                    return images, labels
+
+                tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
+                tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 12000))
+                tfTrainDataset = tfTrainDataset.batch(self.batchSize)
+                tfTrainDataset = tfTrainDataset.map(tfPrepareBatch, num_parallel_calls=4)
+                tfTrainDataset = tfTrainDataset.prefetch(3)
 
             # curTestDatasetSize = epochImageCount // 6
             # if curTestDatasetSize >= len(testImageNums):
@@ -256,7 +334,7 @@ class CImageRecognitionNet:
             tfTestDataset = self.imageDataset.getTfDataset('test')   # .take(100).repeat()
             tfTestDataset = tfTestDataset.shuffle(max(epochImageCount, 2000))
             # tfTestDataset = tfTestDataset.take(curTestDatasetSize)
-            tfTestDataset = tfTestDataset.map(_tfLoadTestImage, num_parallel_calls=4)
+            tfTestDataset = tfTestDataset.map(_tfLoadTestImage, num_parallel_calls=3)
             tfTestDataset = tfTestDataset.batch(self.batchSize)
             tfTestDataset = tfTestDataset.prefetch(2)
 

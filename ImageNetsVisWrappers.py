@@ -309,6 +309,7 @@ class CImageNetVisWrapper:
                 infoStr = self.net.doLearning(1, callback,
                                               trainImageNums, testImageNums,
                                               epochImageCount, self.curEpochNum)
+                print(self.getCacheStatusInfo(True))
                 self.curEpochNum += 1
                 epochNum += 1
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
@@ -536,8 +537,9 @@ class CImageNetSubset:
         itemCacheName = self._getImageCacheName(imageNum, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)
         if not cacheItem is None:
-            if self.cachePackedImages:
-                return np.array(cacheItem, dtype=np.float32)
+            # if self.cachePackedImages:
+            #     # print('cached', cacheItem.shape, cacheItem.dtype)
+            #     return np.array(cacheItem, dtype=np.float32)
             return cacheItem
 
         # if not subsetName in ['train', 'test']:
@@ -549,14 +551,21 @@ class CImageNetSubset:
             self._loadData()
 
         imgFileName = os.path.join(self.mainFolder, self.imagesFileNames[imageNum])
+        img_size=(256, 256)
+        crop_size=(227, 227)
 
         if preprocessStage == 'source':
             imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+        elif  preprocessStage == 'resized256':   # Resized, for alexnet, in uint8
+            imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+            imageData = alexnet_utils.imresize(imageData, img_size)
+            # imageData[:, :, 0] -= 123
+            # imageData[:, :, 1] -= 116
+            # imageData[:, :, 2] -= 103
         elif  preprocessStage == 'cropped':   # Cropped and resized, as for alexnet
                 # but in uint8, without normalization and transposing back and forth.
                 # Float32 lead to incorrect colors in imshow
             img_size=(256, 256)
-            crop_size=(227, 227)
             imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')   # For imageio.imread
             imageData = alexnet_utils.imresize(imageData, img_size)
             imageData = imageData[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
@@ -565,11 +574,10 @@ class CImageNetSubset:
         else:
             if self.cachePackedImages:
                 imageData = self.getImage(imageNum, 'cropped')
-                imageData = np.array(imageData, dtype=np.int32)
+                imageData = np.array(imageData, dtype=np.float32)
                 imageData[:, :, 0] -= 123
                 imageData[:, :, 1] -= 116
                 imageData[:, :, 2] -= 103
-                imageData = np.array(imageData, dtype=np.float32)
                 # imageData[:, :, 0] -= 123.68
                 # imageData[:, :, 1] -= 116.779
                 # imageData[:, :, 2] -= 103.939
@@ -632,13 +640,13 @@ class CImageNetSubset:
     def getTfDataset(self):
         import tensorflow as tf
 
-        def _loadImage(imageNum):
-            imageData = self.getImage(imageNum, 'net')
-            return imageData
-
-        def _tfLoadImage(imageNum):
-            image = tf.py_function(_loadImage, [imageNum], tf.float32)
-            return image
+        # def _loadImage(imageNum):
+        #     imageData = self.getImage(imageNum, 'net')
+        #     return imageData
+        #
+        # def _tfLoadImage(imageNum):
+        #     image = tf.py_function(_loadImage, [imageNum], tf.float32)
+        #     return image
 
         imageNums = np.arange(1, self.getImageCount() + 1)
         # path_ds = tf.data.Dataset.from_tensor_slices(self.imagesFileNames)
