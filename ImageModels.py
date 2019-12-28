@@ -43,7 +43,7 @@ else:
 from alexnet_additional_layers import split_tensor, cross_channel_normalization
 # from decode_predictions import decode_classnames_json, decode_classnumber
 
-#from MnistModel2 import *
+from MnistModel2 import *
 
 # AlexNet, a bit modified for existing train images
 def MyAlexnetModel(classCount=24):
@@ -124,15 +124,15 @@ def MyAlexnetModel(classCount=24):
 
     return m
 
-def CImageModel():
+def CImageModel(classCount=24):
     import tensorflow as tf
 
     # K.set_image_dim_ordering('th')
     # K.set_image_data_format('channels_first')
-    inputs = Input(shape=(28, 28, 1))
+    inputs = Input(shape=(227, 227, 3))
 
     towerCount = 2
-    mult = 4
+    mult = 8
     additLayerCounts = (0, 0)  # (2, 2)
     towerWeightsKerasVar = tf.compat.v1.Variable(np.ones([towerCount * 2 + 2]) * 5 / 9,
                                                  dtype=tf.float32, name='tower_weights')
@@ -144,9 +144,8 @@ def CImageModel():
     # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
 
-    conv_1 = Conv2D(mult * 9, 5, strides=(2, 2), activation='relu',
+    conv_1 = Conv2D(mult * 8, 8, strides=(3, 3), activation='relu',
                     name='conv_11')(inputs)
-        # 12 * 12
 
     conv_1s = []     # Lists only for creating concatenated level for simple data extraction
     add_23s = []
@@ -155,10 +154,12 @@ def CImageModel():
         t_conv_2 = conv_1
         # t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = Conv2D(mult * 4, 3, strides=(1, 1),
+        t_conv_2 = Conv2D(mult * 4, 5, strides=(2, 2),
                           activation='relu' if towerInd == 0 else 'sigmoid',
                           name='conv_12_%d' % towerInd)(t_conv_2)
-            # 10 * 10
+            # Source pixels: 11111111222333     Output size - roughly 35 * 35
+            # # 111112233
+            # #     333334455
 
         if additLayerCounts[0] < 1:
             last_tower_conv = t_conv_2
@@ -172,7 +173,6 @@ def CImageModel():
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_13_%d' % towerInd,
                               kernel_initializer=MyInitializer)(t_conv_3)
-                # Output - 4 * 4
             # conv_3s.append(t_conv_3)
             t_conv_3 = Add(name='add_123_%d' % towerInd)([t_conv_2, t_conv_3])
             add_23s.append(t_conv_3)
@@ -201,25 +201,23 @@ def CImageModel():
 
         last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerInd)(towerWeights)])
         last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
-            # 5 * 5
 
     conv_2 = Concatenate(axis=3, name='conv_1_adds')(last_tower_convs)
-        # This layer produces 8*1 gradients tensor, so special conv_2/3 was added
     conv_2 = cross_channel_normalization(name="cross_chan_norm_1u")(conv_2)
-    conv_2 = Conv2D(mult * 12, 2, strides=(1, 1),
+    conv_2 = Conv2D(mult * 16, 3, strides=(1, 1),
                        activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                        name='conv_21')(conv_2)
-        # 4 * 4
+        # Input - 17 * 17
 
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_2
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = Conv2D(mult * 8, 2, strides=(1, 1),
+        t_conv_2 = Conv2D(mult * 8, 3, strides=(1, 1),
                           activation='relu' if towerInd == 0 else 'sigmoid',
                           name='conv_22_%d' % towerInd)(t_conv_2)
-            # 3 * 3
+            # Output - 13 * 13
 
         if additLayerCounts[1] < 1:
             last_tower_conv = t_conv_2
@@ -260,12 +258,12 @@ def CImageModel():
                 # add_34s.append(t_conv_4)
 
         last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerCount + towerInd)(towerWeights)])
-        # last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
-        last_tower_convs.append(last_tower_conv)
+        last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
+        # last_tower_convs.append(last_tower_conv)
 
     conv_last = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
     conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
-    # conv_2 = Conv2D(32, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_1)
+    conv_3 = Conv2D(mult * 16, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_last)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
 
     # conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
@@ -274,19 +272,19 @@ def CImageModel():
     # conv_next = Conv2D(20, 3, strides=1, activation='relu', name='conv_3')(conv_next)
     # conv_next = DepthwiseConv2D(3, depth_multiplier=2, activation='relu', name='conv_3')(conv_next)
 
-    dense_1 = BatchNormalization()(conv_last)
+    dense_1 = BatchNormalization()(conv_3)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(mult * 32, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+    dense_1 = Dense(mult * 64, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                     name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)
     dense_2 = Dropout(0.4)(dense_1)
-    dense_2 = Dense(mult * 12, name='dense_2')(dense_2)
+    dense_2 = Dense(mult * 32, name='dense_2')(dense_2)
 
     # dense_3 = BatchNormalization()(dense_2)
     dense_3 = Dropout(0.4)(dense_2)
-    dense_3 = Dense(25, name='dense_3')(dense_3)     # Class count
+    dense_3 = Dense(classCount, name='dense_3')(dense_3)     # Class count
     # y = K.variable(value=2.0)
     # meaner=Lambda(lambda x: K.mean(x, axis=1) )
     # p = Lambda(f, output_shape=lambda input_shape: g(input_shape), **kwargs)

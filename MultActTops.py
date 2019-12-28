@@ -101,8 +101,8 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                             ((t - lastActionStartTime).total_seconds() * 1000 / imageNum)
                     else:
                         timeInfo = ''
-                    timeInfo += ', last 16 - %.2f' % \
-                            ((t - prevT).total_seconds() * 1000 / 16)
+                    # timeInfo += ', last 16 - %.2f' % \
+                    #         ((t - prevT).total_seconds() * 1000 / 16)
                     prevT = t
                     infoStr = 'Stage 1: image %d%s, %s in cache' % \
                             (imageNum, timeInfo, self.netWrapper.getCacheStatusInfo())
@@ -201,6 +201,8 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         if processedImageCount is None:
             processedImageCount = self.imageToProcessCount
         sourceBlockCalcFunc = self.netWrapper.get_source_block_calc_func(self.layerName)
+        if not sourceBlockCalcFunc:
+            raise ValueError("No source_block_calc_func for layer '%s'" % self.layerName)
         # if not bestSourceCoords or len(bestSourceCoords[0]) == 0:
         #     return
         resultList = []
@@ -293,6 +295,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                 sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
                 curImageNum = int(curVal[0])
                 imageData = self.imageDataset.getImage(curImageNum, 'cropped')
+#                 print('curVal ', curVal, ', sourceBlock ', sourceBlock, imageData.shape)
                 blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
                 if blockData.shape[0] == 0 or blockData.shape[1] == 0:
                     # Reproduced with incorrect sorting in calcBestSourceCoords
@@ -315,7 +318,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         except:
             from imageio import imsave      # For scipy >= 1.2, but imresize needs additional searching
 
-        print('Saving ', imageData.shape)
+        # print('Saving ', imageData.shape)
         if processedImageCount is None:
             processedImageCount = self.imageToProcessCount
         if len(imageData.shape) == 3 and imageData.shape[2] == 1:
@@ -325,11 +328,10 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         if not os.path.exists(dirName):
             os.makedirs(dirName)
         # fileName = 'Data/top%d_%s_epoch%d_%dChan_%dImages.png' % \
-        fileName = '%s/Top%d_Epoch%d.png' % \
-                 (dirName, self.topCount, self.epochNum)
-        print('saving 2')
+        fileName = '%s/Top%d_%s_Epoch%d.png' % \
+                 (dirName, self.topCount, self.layerName, self.epochNum)
         imsave(fileName, imageData, format='png')
-        print('saved')
+        print("Image saved to '%s'" % fileName)
 
         # self.figure.savefig('Results/top%d_%s_%dChannels_%dImages.png' %
         #                         (self.topCount, layerName, activations.shape[0], imageCount),

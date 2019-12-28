@@ -385,22 +385,76 @@ class CImageNetVisWrapper:
                     (str, cache.getDetailedUsageInfo(), cache.getUsedMemory() / (1 << 20))
         return str
 
+    if 0:
+        @staticmethod
+        def get_source_block_calc_func(layerName):     # For AlexNet
+            if layerName == 'conv_1':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_1_source_block
+            elif layerName == 'conv_2':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_2_source_block
+            elif layerName == 'conv_3':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
+            elif layerName == 'conv_4':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
+            elif layerName == 'conv_5':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
+            elif layerName[:6] == 'dense_':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
+            else:
+                return None
+    else:
+        @staticmethod
+        def get_source_block_calc_func(layerName):     # For CImageModel with towers
+            if layerName == 'conv_11':
+                return CImageNetVisWrapper.get_conv_1_source_block
+            elif layerName == 'conv_12':
+                return CImageNetVisWrapper.get_conv_12_source_block
+            elif layerName == 'conv_13':
+                return CImageNetVisWrapper.get_conv_13_source_block
+            elif layerName == 'conv_21':
+                return CImageNetVisWrapper.get_conv_21_source_block
+            elif layerName == 'conv_3':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
+            elif layerName == 'conv_4':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
+            elif layerName == 'conv_5':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
+            elif layerName[:6] == 'dense_':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
+            else:
+                return None
+
     @staticmethod
-    def get_source_block_calc_func(layerName):
-        if layerName == 'conv_1':
-            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_1_source_block
-        elif layerName == 'conv_2':
-            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_2_source_block
-        elif layerName == 'conv_3':
-            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
-        elif layerName == 'conv_4':
-            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
-        elif layerName == 'conv_5':
-            return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
-        elif layerName[:6] == 'dense_':
-            return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
-        else:
-            return None
+    def get_conv_1_source_block(x, y):
+        source_xy_0 = (x * 3, y * 3)
+        size = 8
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_12_source_block(x, y):
+        source_xy_0 = (x * 6, y * 6)
+        size = 20   # 8 + 3 * 4
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    # @staticmethod
+    # def get_conv_13_source_block(x, y):
+    #     source_xy_0 = (x - 2, y - 2)
+    #     size = 13  # 9 + 2 * 2
+    #     return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+    #             0 if source_xy_0[1] < 0 else source_xy_0[1],
+    #             source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_21_source_block(x, y):
+        source_xy_0 = (x * 12, y * 12)
+        size = 32   # 20 + 6 * 2
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_22_source_block(x, y):
+        source_xy_0 = (x * 12, y * 12)
+        size = 56   # 32 + 12 * 2
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
 
     # @property
     # def baseModel(self):
@@ -449,10 +503,9 @@ class CImageNetVisWrapper:
             return self.net
         else:
             if not highestLayer in self.netsCache:
-                import MnistNet
+                import ImageNet
 
-                self.netsCache[highestLayer] = MnistNet.CMnistRecognitionNet2(highestLayer, base_model=self.net.model)
-                # self.netsCache[highestLayer].model._make_predict_function()
+                self.netsCache[highestLayer] = ImageNet.CImageRecognitionNet(highestLayer, base_model=self.net.model)
             return self.netsCache[highestLayer]
 
 

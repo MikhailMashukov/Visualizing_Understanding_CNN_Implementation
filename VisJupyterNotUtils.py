@@ -649,8 +649,11 @@ class NetControlObject():
         if not self.exiting:
             # resultImage = calculator.showMultActTops(bestSourceCoords, processedImageCount)
             resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+            print(resultImage.shape)
             if resultImage.shape[0] > 10000:
-                resultImage = imresize(resultImage, resultImage.shape // 3)
+                print('New shape: ', (resultImage.shape[1] // 3, resultImage.shape[0] // 3))
+                resultImage = imresize(resultImage,
+                        (resultImage.shape[1] // 3, resultImage.shape[0] // 3))
 
             calculator.saveMultActTopsImage(resultImage, processedImageCount)
         return resultImage
