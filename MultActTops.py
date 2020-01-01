@@ -5,17 +5,8 @@ import matplotlib
 matplotlib.use('AGG')
 matplotlib.rcParams['savefig.dpi'] = 600
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt4agg import FigureCanvas
-    # +FigureCanvasQTAgg as FigureCanvas
-from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
-from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
-# from matplotlib import cm
-# import pickle
 import math
 import numpy as np
-# import PyQt4.Qt
-# from PyQt4 import QtCore, QtGui
 import os
 # import random
 # import sys
@@ -30,7 +21,7 @@ from MyUtils import *
 from VisUtils import *
 
 class TMultActOpsOptions:
-    topCount = 25
+    topCount = 36   # GeForce hanged up with 64
     oneImageMaxTopCount = 4
     minDist = 3
     batchSize = 16 * getCpuCoreCount()

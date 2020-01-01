@@ -7,6 +7,7 @@ import os
 # import time
 import numpy as np
 
+import DeepOptions
 import DataCache
 from MyUtils import *
 from MnistNetVisWrapper import *
@@ -37,7 +38,8 @@ class CImageNetVisWrapper:
         return self.imageDataset
 
     def getNetLayersToVisualize(self):
-        return ['conv_1', 'conv_2', 'conv_3', 'dense_1', 'dense_2']
+        return ['conv_11', 'conv_12', 'conv_13', 'conv_21', 'conv_22', 'conv_23', 'conv_3'
+                'dense_1', 'dense_2', 'dense_3']
 
     def getComponentNetLayers(self):
         return self.getNetLayersToVisualize()
@@ -309,10 +311,11 @@ class CImageNetVisWrapper:
                 infoStr = self.net.doLearning(1, callback,
                                               trainImageNums, testImageNums,
                                               epochImageCount, self.curEpochNum)
-                print(self.getCacheStatusInfo(True))
                 self.curEpochNum += 1
                 epochNum += 1
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
+                if epochNum < 10 or epochNum % 10 == 0:
+                    print(self.getCacheStatusInfo(True))
                 self.saveState(self.curEpochNum % 8 == 0)
                 # self.saveCurGradients()
                 callback.onEpochEnd(self.curEpochNum, infoStr)
@@ -508,6 +511,16 @@ class CImageNetVisWrapper:
                 self.netsCache[highestLayer] = ImageNet.CImageRecognitionNet(highestLayer, base_model=self.net.model)
             return self.netsCache[highestLayer]
 
+# class CImageNetVisWrapper_6_VKI(CImageNetVisWrapper):
+#     def _initMainNet(self):
+#         import ImageNet_6_VKI
+#
+#         self.net = ImageNet_6_VKI.CImageRecognitionNet(None)
+#         self.net.init(self.imageDataset, 'QtLogs/ImageNet')
+#         self.net.batchSize = max(8 * getCpuCoreCount(), 64)
+#
+#         self.netsCache = dict()
+
 
 class CImageNetPartDataset:
     def __init__(self, cache):
@@ -560,7 +573,8 @@ class CImageNetPartDataset:
 class CImageNetSubset:
     def __init__(self, subsetName, cache, parent):
         self.subsetName = subsetName
-        self.mainFolder = 'ImageNetPart/%s' % self.subsetName
+        self.mainFolder = '%s/%s' % (DeepOptions.imagesMainFolder, self.subsetName)
+        # print('Subset folder: ', self.mainFolder)
         self.foldersInfoCacheFileName = 'Data/ImageNet%sCache.dat' % self.subsetName
         self.cache = cache
         self.cachePackedImages = True       # Cache images in int8
@@ -603,6 +617,7 @@ class CImageNetSubset:
         if self.folders is None:
             self._loadData()
 
+        # print(imageNum, len(self.imagesFileNames), self.mainFolder)
         imgFileName = os.path.join(self.mainFolder, self.imagesFileNames[imageNum])
         img_size=(256, 256)
         crop_size=(227, 227)
@@ -740,6 +755,7 @@ class CImageNetSubset:
         self.imageNumLabels = []
         self.imagesFileNames = []
         sortedFolders = [folderName for folderName in os.listdir(self.mainFolder)]
+        # print('sortedFolders ', sortedFolders)
         sortedFolders.sort()
         for folderName in sortedFolders:
             folderPath = os.path.join(self.mainFolder, folderName)

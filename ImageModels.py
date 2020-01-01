@@ -131,9 +131,9 @@ def CImageModel(classCount=24):
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(227, 227, 3))
 
-    towerCount = 2
-    mult = 8
-    additLayerCounts = (0, 0)  # (2, 2)
+    towerCount = 3
+    mult = 12
+    additLayerCounts = (0, 2)  # (2, 2)
     towerWeightsKerasVar = tf.compat.v1.Variable(np.ones([towerCount * 2 + 2]) * 5 / 9,
                                                  dtype=tf.float32, name='tower_weights')
     towerWeightsKerasVar._trainable = False    # "Doesn't help against Tensor.op is meaningless when eager execution is enabled."
@@ -160,6 +160,7 @@ def CImageModel(classCount=24):
             # Source pixels: 11111111222333     Output size - roughly 35 * 35
             # # 111112233
             # #     333334455
+        t_conv_2 = SpatialDropout2D(0.3)(t_conv_2)
 
         if additLayerCounts[0] < 1:
             last_tower_conv = t_conv_2
@@ -189,7 +190,7 @@ def CImageModel(classCount=24):
                                   kernel_initializer=MyInitializer)(t_conv_4)
                     # Output - 4 * 4
                 # conv_4s.append(t_conv_4)
-                t_conv_4 = Multiply()([t_conv_4, get_tensor_array_element(towerInd * 2)(towerWeights)])
+                t_conv_4 = Multiply()([t_conv_4, get_tensor_array_element(towerCount * 2)(towerWeights)])
                     # Switches off level 14
                 t_conv_4 = Add(name='add_134_%d' % towerInd)([t_conv_3, t_conv_4])
                 # t_conv_4 = Multiply()([ReLU()(t_conv_4), get_tensor_array_element(towerInd)(towerWeights)])
@@ -201,23 +202,26 @@ def CImageModel(classCount=24):
 
         last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerInd)(towerWeights)])
         last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
+        # last_tower_convs.append(fractional_max_pool(1.42)(last_tower_conv))
 
     conv_2 = Concatenate(axis=3, name='conv_1_adds')(last_tower_convs)
     conv_2 = cross_channel_normalization(name="cross_chan_norm_1u")(conv_2)
-    conv_2 = Conv2D(mult * 16, 3, strides=(1, 1),
+    conv_2 = Conv2D(mult * 32, 3, strides=(1, 1),
                        activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                        name='conv_21')(conv_2)
         # Input - 17 * 17
+    conv_2 = SpatialDropout2D(0.3)(conv_2)
 
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_2
-        t_conv_2 = BatchNormalization()(t_conv_2)
+        # t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = Conv2D(mult * 8, 3, strides=(1, 1),
+        t_conv_2 = Conv2D(mult * 16, 3, strides=(1, 1),
                           activation='relu' if towerInd == 0 else 'sigmoid',
                           name='conv_22_%d' % towerInd)(t_conv_2)
             # Output - 13 * 13
+        # t_conv_2 = SpatialDropout2D(0.3)(t_conv_2)
 
         if additLayerCounts[1] < 1:
             last_tower_conv = t_conv_2
@@ -227,7 +231,7 @@ def CImageModel(classCount=24):
             # t_conv_3 = Dropout(0.3)(t_conv_2)
             t_conv_3 = cross_channel_normalization(name='cross_chan_norm_2%d' % towerInd)(t_conv_2)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = Conv2D(mult * 8, 2, padding='same', strides=(1, 1),
+            t_conv_3 = Conv2D(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_23_%d' % towerInd,
                               kernel_initializer=MyInitializer)(t_conv_3)
@@ -235,19 +239,21 @@ def CImageModel(classCount=24):
             t_conv_3 = Add(name='add_223_%d' % towerInd)([t_conv_2, t_conv_3])
             # add_23s.append(t_conv_3)
         # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
+            t_conv_3 = SpatialDropout2D(0.3)(t_conv_3)
 
             if additLayerCounts[1] < 2:
                 last_tower_conv = t_conv_3
             else:
-                t_conv_4 = BatchNormalization()(t_conv_3)
+                # t_conv_4 = BatchNormalization()(t_conv_3)
                 # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
-                t_conv_4 = Conv2D(mult * 8, 2, padding='same', strides=(1, 1),
+                t_conv_4 = Conv2D(mult * 16, 3, padding='same', strides=(1, 1),
                                   activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(0.03),
                                   name='conv_24_%d' % towerInd,
-                                  kernel_initializer=MyInitializer)(t_conv_4)
+                                  kernel_initializer=MyInitializer)(t_conv_3)
                     # Output - 4 * 4
+                # t_conv_4 = SpatialDropout2D(0.3)(t_conv_4)
                 # conv_4s.append(t_conv_4)
-                t_conv_4 = Multiply()([t_conv_4, get_tensor_array_element(towerInd * 2 + 1)(towerWeights)])
+                t_conv_4 = Multiply()([t_conv_4, get_tensor_array_element(towerCount * 2 + 1)(towerWeights)])
                     # Switches off level 14
                 t_conv_4 = Add(name='add_234_%d' % towerInd)([t_conv_3, t_conv_4])
                 # t_conv_4 = Multiply()([ReLU()(t_conv_4), get_tensor_array_element(towerInd)(towerWeights)])
@@ -258,12 +264,12 @@ def CImageModel(classCount=24):
                 # add_34s.append(t_conv_4)
 
         last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerCount + towerInd)(towerWeights)])
-        last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
-        # last_tower_convs.append(last_tower_conv)
+        # last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
+        last_tower_convs.append(last_tower_conv)
 
     conv_last = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
-    conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
-    conv_3 = Conv2D(mult * 16, 3, strides=(1, 1), activation='relu', name='conv_2')(conv_last)
+    # conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
+    conv_last = Conv2D(mult * 16, 3, strides=(1, 1), activation='relu', name='conv_3')(conv_last)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
 
     # conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
@@ -272,15 +278,16 @@ def CImageModel(classCount=24):
     # conv_next = Conv2D(20, 3, strides=1, activation='relu', name='conv_3')(conv_next)
     # conv_next = DepthwiseConv2D(3, depth_multiplier=2, activation='relu', name='conv_3')(conv_next)
 
-    dense_1 = BatchNormalization()(conv_3)
+    dense_1 = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
+    dense_1 = BatchNormalization()(dense_1)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(mult * 64, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+    dense_1 = Dense(mult * 32, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                     name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)
     dense_2 = Dropout(0.4)(dense_1)
-    dense_2 = Dense(mult * 32, name='dense_2')(dense_2)
+    dense_2 = Dense(mult * 16, name='dense_2')(dense_2)
 
     # dense_3 = BatchNormalization()(dense_2)
     dense_3 = Dropout(0.4)(dense_2)

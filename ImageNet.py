@@ -11,6 +11,11 @@ import ImageModels
 from MnistModel2 import get_tensor_array_element
 from MyUtils import getCpuCoreCount
 
+gpus = tf.config.experimental.list_physical_devices('GPU')
+if gpus:
+    for gpu in gpus:
+        tf.config.experimental.set_memory_growth(gpu, True)      # Limiting usage to only necessary memory
+
 # Net based on model, closer by style to alexnet
 class CImageRecognitionNet:
     def __init__(self, highest_layer=None, base_model=None):
@@ -31,13 +36,13 @@ class CImageRecognitionNet:
         # self.test_ds = tf.data.Dataset.from_tensor_slices(
         #         self.mnistDataset.getNetSource('test')).batch(32)
 
-        # self.train_writer = tf.compat.v1.summary.FileWriter(self.logDir + '/train', sess.graph)
-        # self.tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.logDir, histogram_freq=1)
-        self.train_writer = tf.summary.create_file_writer(self.logDir + '/train')
-        self.test_writer  = tf.summary.create_file_writer(self.logDir + '/test')
-        # self.watcher = tw.Watcher(filename=self.logDir + '/watch.log')
-        # self.watch_stream = self.watcher.create_stream(name='metric1')
-        # self.watcher.make_notebook()
+        # # self.train_writer = tf.compat.v1.summary.FileWriter(self.logDir + '/train', sess.graph)
+        # # self.tensorboard_callback = tf.keras.callbacks.TensorBoard(log_dir=self.logDir, histogram_freq=1)
+        # self.train_writer = tf.summary.create_file_writer(self.logDir + '/train')
+        # self.test_writer  = tf.summary.create_file_writer(self.logDir + '/test')
+        # # self.watcher = tw.Watcher(filename=self.logDir + '/watch.log')
+        # # self.watch_stream = self.watcher.create_stream(name='metric1')
+        # # self.watcher.make_notebook()
 
         # self.createModel()
 
@@ -58,6 +63,10 @@ class CImageRecognitionNet:
             if 1:
                 self.base_model = ImageModels.CImageModel()
             else:
+                # import ImageModels_6_VKI
+                #
+                # self.base_model = ImageModels_6_VKI.CImageModel()
+
                 # import alexnet
 
                 # self.base_model = alexnet.alexnet_model(None)

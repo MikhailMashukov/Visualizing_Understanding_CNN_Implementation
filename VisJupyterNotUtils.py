@@ -1,6 +1,3 @@
-# from VisJupyterNotUtils import *
-from VisQtMain import *
-
 from matplotlib.pyplot import figure, imshow, axis
 from matplotlib.image import imread
 from itertools import islice
@@ -29,19 +26,20 @@ from alexnet_utils import imresize
 #     # from glumpy.transforms import Position, Trackball, Viewport
 #     # from glumpy.api.matplotlib import *
 #     # import glumpy.app.window.key as keys
-# import os
+import os
 # # import random
 # # import sys
 # # import time
 # import _thread
 #
-# # sys.path.append(r"../Qt_TradeSim")
-# import AlexNetVisWrapper
-# import ImageNetsVisWrappers
-# import MnistNetVisWrapper
-# import MultActTops
-# from MyUtils import *
-# from VisUtils import *
+
+# from VisQtMain import *
+import AlexNetVisWrapper
+import ImageNetsVisWrappers
+import MnistNetVisWrapper
+import MultActTops
+from MyUtils import *
+from VisUtils import *
 
 
 # Part of QtMainWindow without GUI
@@ -1137,6 +1135,7 @@ class NetControlObject():
     def doCorrelationAnalyzis(self, toOtherModel):
         import CorrelatAnalyzis
 
+        matplotlib.rcParams['savefig.dpi'] = 200     # 600 can be too much
         calculator = CorrelatAnalyzis.CCorrelationsCalculator(self, self.activationCache, self.netWrapper)
         options = calculator
         epochNum = self.getSelectedEpochNum()
@@ -1152,16 +1151,17 @@ class NetControlObject():
                  str([int(v[0]) for v in np.where(imagesActs == imagesActs.max())])))
         # ests = self.getEstimations(imagesActs)
 
-        self.clearFigure()
-        # ax = self.getMainSubplot()
+        # self.clearFigure()
+        ax = self.getMainSubplot()
 
         if 1:
-            ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            # ax = self.figure.add_subplot(self.gridSpec[0, 0])
             varianceDistrs = calculator.getTowersVarianceDistributions(imagesActs)
             for i in range(varianceDistrs.shape[0]):
                 ax.plot(varianceDistrs[i], label='%d' % i)
             ax.legend()
             ax.title.set_text('Variance distribution')
+            self.drawFigure()
 
         try:
             if toOtherModel:
@@ -1275,9 +1275,9 @@ class NetControlObject():
         #     restoreRestEpochCount = 0
         # else:
         #     restoreRestEpochCount = 40 - (curEpochNum - self.weightsReinitEpochNum)
-        callback = QtMainWindow.TLearningCallback(self, curEpochNum)
+        callback = NetControlObject.TLearningCallback(self, curEpochNum)
         # callback.learnRate = float(self.learnRateEdit.text())
-        options = QtMainWindow.TLearnOptions(self.getLearnRate())
+        options = NetControlObject.TLearnOptions(self.getLearnRate())
         if not trainImageNums is None:
             options.trainImageNums = np.array(trainImageNums, dtype=int)
             options.additTrainImageCount = max(500, self.getSelectedImageNum() - len(trainImageNums))
@@ -1345,7 +1345,7 @@ class NetControlObject():
 
     class TLearningCallback(MnistNetVisWrapper.CBaseLearningCallback):
         def __init__(self, parent, curEpochNum):
-            super(QtMainWindow.TLearningCallback, self).__init__()
+            super(NetControlObject.TLearningCallback, self).__init__()
             self.parent = parent
             self.curEpochNum = curEpochNum
             # self.restoreRestEpochCount = restoreRestEpochCount
@@ -1362,7 +1362,7 @@ class NetControlObject():
             if reinitEpochNum is not None and reinitEpochNum <= self.curEpochNum and \
                     self.curEpochNum - reinitEpochNum < 10:
                 self.parent.restoreReinitedNeirons(True)
-            super(QtMainWindow.TLearningCallback, self).onBatchEnd(logs, trainIterNum)
+            super(NetControlObject.TLearningCallback, self).onBatchEnd(logs, trainIterNum)
 
         def onSecondPassed(self):
             self.logs.pop('batch', None)
@@ -2136,6 +2136,8 @@ if __name__ == "__main__":
     i2 = controlObj.imageDataset.getImage(4, 'cropped')
     i3 = controlObj.imageDataset.getImage(4, 'net')
     print(prepareBatch(range(1, 9), range(1, 9)))
+
+    controlObj.doCorrelationAnalyzis(False)
 
     try:
         for imageNum in range(5, 5):
