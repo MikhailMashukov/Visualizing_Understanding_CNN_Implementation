@@ -314,7 +314,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
             processedImageCount = self.imageToProcessCount
         if len(imageData.shape) == 3 and imageData.shape[2] == 1:
             imageData = np.squeeze(imageData, 2)
-        dirName = 'Data/%s_%dChan_%dImages' % \
+        dirName = 'Data/BestActs/%s_%dChan_%dImages' % \
                  (self.layerName, self.chanCount, processedImageCount)
         if not os.path.exists(dirName):
             os.makedirs(dirName)

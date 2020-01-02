@@ -43,10 +43,11 @@ else:
 from alexnet_additional_layers import split_tensor, cross_channel_normalization
 # from decode_predictions import decode_classnames_json, decode_classnumber
 
+import DeepOptions
 from MnistModel2 import *
 
 # AlexNet, a bit modified for existing train images
-def MyAlexnetModel(classCount=24):
+def MyAlexnetModel(classCount=DeepOptions.classCount):
     """
     Returns a keras model for AlexNet, achieving roughly 80% at ImageNet2012 validation set
 
@@ -124,16 +125,16 @@ def MyAlexnetModel(classCount=24):
 
     return m
 
-def CImageModel(classCount=24):
+def CImageModel(classCount=DeepOptions.classCount):
     import tensorflow as tf
 
     # K.set_image_dim_ordering('th')
     # K.set_image_data_format('channels_first')
     inputs = Input(shape=(227, 227, 3))
 
-    towerCount = 3
-    mult = 12
-    additLayerCounts = (0, 2)  # (2, 2)
+    towerCount = DeepOptions.towerCount
+    mult = DeepOptions.netSizeMult
+    additLayerCounts = DeepOptions.additLayerCounts
     towerWeightsKerasVar = tf.compat.v1.Variable(np.ones([towerCount * 2 + 2]) * 5 / 9,
                                                  dtype=tf.float32, name='tower_weights')
     towerWeightsKerasVar._trainable = False    # "Doesn't help against Tensor.op is meaningless when eager execution is enabled."
@@ -154,13 +155,13 @@ def CImageModel(classCount=24):
         t_conv_2 = conv_1
         # t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = Conv2D(mult * 4, 5, strides=(2, 2),
+        t_conv_2 = Conv2D(mult * 8, 5, strides=(2, 2),
                           activation='relu' if towerInd == 0 else 'sigmoid',
                           name='conv_12_%d' % towerInd)(t_conv_2)
             # Source pixels: 11111111222333     Output size - roughly 35 * 35
             # # 111112233
             # #     333334455
-        t_conv_2 = SpatialDropout2D(0.3)(t_conv_2)
+        t_conv_2 = SpatialDropout2D(0.15)(t_conv_2)
 
         if additLayerCounts[0] < 1:
             last_tower_conv = t_conv_2
@@ -210,12 +211,12 @@ def CImageModel(classCount=24):
                        activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                        name='conv_21')(conv_2)
         # Input - 17 * 17
-    conv_2 = SpatialDropout2D(0.3)(conv_2)
+    # conv_2 = SpatialDropout2D(0.1)(conv_2)
 
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_2
-        # t_conv_2 = BatchNormalization()(t_conv_2)
+        t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         t_conv_2 = Conv2D(mult * 16, 3, strides=(1, 1),
                           activation='relu' if towerInd == 0 else 'sigmoid',
@@ -286,7 +287,7 @@ def CImageModel(classCount=24):
                     name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)
-    dense_2 = Dropout(0.4)(dense_1)
+    dense_2 = Dropout(0.3)(dense_1)
     dense_2 = Dense(mult * 16, name='dense_2')(dense_2)
 
     # dense_3 = BatchNormalization()(dense_2)

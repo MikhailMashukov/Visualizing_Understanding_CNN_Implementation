@@ -1,8 +1,9 @@
 import numpy as np
 
-try:
-    from scipy.misc import imread, imresize
-except:
+# try:
+#     from scipy.misc import imread, imresize
+# except:
+if 1:
     from imageio import imread      # For scipy >= 1.2, but imresize needs additional searching
 
     def imresize110(arr, size, interp='bilinear', mode=None):   # From scipy 1.1, to reimplement with scipy >= 1.2

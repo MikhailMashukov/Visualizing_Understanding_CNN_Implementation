@@ -5,14 +5,14 @@ from alexnet_utils import imresize
 
 # # import copy
 # import datetime
-# import matplotlib
+import matplotlib
 # matplotlib.use('AGG')
 # matplotlib.rcParams['savefig.dpi'] = 600
-# import matplotlib.pyplot as plt
+import matplotlib.pyplot as plt
 # from matplotlib.backends.backend_qt4agg import FigureCanvas
 #     # +FigureCanvasQTAgg as FigureCanvas
 # from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
-# from matplotlib.figure import Figure
+from matplotlib.figure import Figure
 # from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
 # # from matplotlib import cm
 # import pickle
@@ -79,6 +79,8 @@ class NetControlObject():
 
         if not os.path.exists('Data/BestActs'):
             os.makedirs('Data/BestActs')
+        if not os.path.exists('Data/Correlations'):
+            os.makedirs('Data/Correlations')
         # os.makedirs('Data/Weights')
         self.loadNetStateList()
         self.curEpochNum = self.savedNetEpochs[-1]
@@ -91,6 +93,9 @@ class NetControlObject():
         self.curImageNum = 200
         self.curChanNum = 0
         self.learnRate = 0.0001
+
+        self.figure = Figure(figsize=(5, 3))
+        self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
 
     def showProgress(self, str, processEvents=True):
         print(str)
@@ -184,7 +189,7 @@ class NetControlObject():
         self.figure.set_tight_layout(True)
 
     def getMainSubplot(self):
-        fig = figure( figsize=(600, 300))
+        fig = figure(figsize=(8, 5))
         return fig.add_subplot()
         # if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
         #     self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
@@ -608,7 +613,7 @@ class NetControlObject():
         (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
         print('options.chanCount', options.chanCount)
 
-        calculator.progressCallback = QtMainWindow.TProgressIndicator(self, calculator)
+        calculator.progressCallback = NetControlObject.TProgressIndicator(self, calculator)
         return calculator
 
     def buildMultActTops(self):
@@ -761,7 +766,7 @@ class NetControlObject():
             #     print('%s: net inited' % threadParams.threadName)
 
             calculator.netWrapper = self.netWrappers[threadParams.ids[0] % 3]
-            calculator.progressCallback = QtMainWindow.TProgressIndicator(
+            calculator.progressCallback = NetControlObject.TProgressIndicator(
                     self, calculator, threadParams.threadName)
             with calculator.netWrapper.threadGraph.as_default():
                 with calculator.netWrapper.threadSession.as_default():
@@ -908,7 +913,7 @@ class NetControlObject():
             im = ax.imshow(convImageData, cmap='plasma')
             # colorBar = self.figure.colorbar(im, ax=ax)
 
-            options = QtMainWindow.TMultActOpsOptions()
+            options = MultActTops.TMultActOpsOptions()
             options.layerNum = layerNum
             actMatrix = self.netWrapper.getImagesActivationMatrix(layerNum)
             sortedValsList = []
@@ -1155,7 +1160,7 @@ class NetControlObject():
         ax = self.getMainSubplot()
 
         if 1:
-            # ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            ax = self.figure.add_subplot(self.gridSpec[0, 0])
             varianceDistrs = calculator.getTowersVarianceDistributions(imagesActs)
             for i in range(varianceDistrs.shape[0]):
                 ax.plot(varianceDistrs[i], label='%d' % i)
@@ -1174,9 +1179,10 @@ class NetControlObject():
 
         self.drawFigure()
         self.saveCorrelationsImage(epochNum, firstImageCount, layerName)
+        return varianceDistrs
 
     def saveCorrelationsImage(self, epochNum, firstImageCount, layerName):
-        dirName = 'Data/%s_Correlations_%dImages' % \
+        dirName = 'Data/Correlations/%s_Correlations_%dImages' % \
                  (layerName, firstImageCount)
         if not os.path.exists(dirName):
             os.makedirs(dirName)

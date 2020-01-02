@@ -194,6 +194,8 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
 
         if not os.path.exists('Data/BestActs'):
             os.makedirs('Data/BestActs')
+        if not os.path.exists('Data/Correlations'):
+            os.makedirs('Data/Correlations')
         # os.makedirs('Data/Weights')
         self.loadNetStateList()
         self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
@@ -639,6 +641,9 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
                 return ax.imshow(imageData, cmap='Greys_r')
         else:
             return ax.imshow(imageData, cmap='Greys_r')
+
+    def drawFigure(self):
+        self.canvas.draw()
 
     def onShowActivationsPressed(self):
         self.startAction(self.onShowActivationsPressed)
@@ -1323,7 +1328,7 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
             im = ax.imshow(convImageData, cmap='plasma')
             # colorBar = self.figure.colorbar(im, ax=ax)
 
-            options = QtMainWindow.TMultActOpsOptions()
+            options = MultActTops.TMultActOpsOptions()
             options.layerNum = layerNum
             actMatrix = self.netWrapper.getImagesActivationMatrix(layerNum)
             sortedValsList = []

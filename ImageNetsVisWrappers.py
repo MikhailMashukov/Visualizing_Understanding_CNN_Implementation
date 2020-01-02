@@ -38,14 +38,16 @@ class CImageNetVisWrapper:
         return self.imageDataset
 
     def getNetLayersToVisualize(self):
-        return ['conv_11', 'conv_12', 'conv_13', 'conv_21', 'conv_22', 'conv_23', 'conv_3'
+             # For VKI 9
+        return ['conv_1', 'conv_2', 'conv_3'] + \
+            ['conv_11', 'conv_12', 'conv_13', 'conv_21', 'conv_22', 'conv_23', 'conv_3'
                 'dense_1', 'dense_2', 'dense_3']
 
     def getComponentNetLayers(self):
         return self.getNetLayersToVisualize()
 
     def getTowerCount(self):
-        return 1
+        return DeepOptions.towerCount
 
     def getImageActivations(self, layerName, imageNum, epochNum=None):
         if epochNum is None or epochNum < 0:
@@ -625,7 +627,18 @@ class CImageNetSubset:
         if preprocessStage == 'source':
             imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
         elif  preprocessStage == 'resized256':   # Resized, for alexnet, in uint8
-            imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+            try:
+                imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+            except Exception as ex:
+                print('Error on reading %s: %s' % (imgFileName, str(ex)))
+
+                import sys
+                import time
+                import traceback
+                type, value, tb = sys.exc_info()
+                print(traceback.format_tb(tb))
+                imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+
             imageData = alexnet_utils.imresize(imageData, img_size)
             # imageData[:, :, 0] -= 123
             # imageData[:, :, 1] -= 116
@@ -634,7 +647,18 @@ class CImageNetSubset:
                 # but in uint8, without normalization and transposing back and forth.
                 # Float32 lead to incorrect colors in imshow
             img_size=(256, 256)
-            imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')   # For imageio.imread
+            try:
+                imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+            except Exception as ex:
+                print('Error on reading %s: %s' % (imgFileName, str(ex)))
+                import sys
+                import time
+                import traceback
+                type, value, tb = sys.exc_info()
+                print(traceback.format_tb(tb))
+
+                imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+
             imageData = alexnet_utils.imresize(imageData, img_size)
             imageData = imageData[(img_size[0] - crop_size[0]) // 2:(img_size[0] + crop_size[0]) // 2,
                 (img_size[1] - crop_size[1]) // 2:(img_size[1] + crop_size[1]) // 2, :]

@@ -1,9 +1,9 @@
 import math
 
-imagesMainFolder = 'ImageNetPart'
-
 # fastDebugMode = 1      # True means that net is very small and heavy statistics is not gathered
-# netSizeMult = 8
+towerCount = 3
+netSizeMult = 12
+additLayerCounts = (0, 2)  # (2, 2)
 # deeperNet = 0          # True means that exended network is created but smaller subnet can be loaded from checkpoint
 # hlAndIndicsDivision = False   # To divide input data onto 3 blocks. Currently implemented only for GRU network
 # minDivisionSize = 10000      # Minimum for some convolution operation estimation after which it is divided onto two independent blocks
@@ -19,7 +19,10 @@ imagesMainFolder = 'ImageNetPart'
 #     dropoutKeepProb = 1
 # dropoutByChannels = False
 # noiseChangeCount = 3
-#
+
+imagesMainFolder = 'ImageNetPart'
+classCount = 24
+
 # startSeed = None
 #
 # batchSize = 64

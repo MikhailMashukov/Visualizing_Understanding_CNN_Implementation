@@ -38,4 +38,5 @@ def initCurTrain():
     #
     #
 
+controlObj.netWrapper.imageCache.maxMemory = 4 << 30
 
