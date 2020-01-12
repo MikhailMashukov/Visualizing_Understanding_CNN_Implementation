@@ -9,7 +9,11 @@ import tensorflow as tf
 # tf.enable_eager_execution()
 print(tf.__version__)
 
-from VisJupyterNotUtils import *
+import VisJupyterNotUtils
+# from VisJupyterNotUtils import *
+#
+# import importlib
+# importlib.reload(VisJupyterNotUtils)
 
 # def initColabFolders():
 #     from google.colab import drive
@@ -38,5 +42,5 @@ def initCurTrain():
     #
     #
 
-controlObj.netWrapper.imageCache.maxMemory = 4 << 30
+VisJupyterNotUtils.controlObj.netWrapper.imageCache.maxMemory = 4 << 30
 

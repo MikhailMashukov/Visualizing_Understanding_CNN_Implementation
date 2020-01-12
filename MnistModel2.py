@@ -312,11 +312,22 @@ def CMnistModel3_Towers(weights_path=None):
 
 
 def MyInitializer(shape, dtype=None):
-    v = keras.initializers.VarianceScaling(scale=1. / 16,
+    v = keras.initializers.VarianceScaling(scale=1.0/16,
                            mode='fan_avg',
                            distribution='uniform',
                            seed=None)
     return v(shape, dtype)
+
+def MyVarianceScalingInitializer(coef=1.0/16):
+    print('MyInit1 ', coef)
+    def MyInitializer(shape, dtype=None):
+        print('MyInit  ', shape, coef, dtype)
+        v = keras.initializers.VarianceScaling(scale=coef,
+                               mode='fan_avg',
+                               distribution='uniform',
+                               seed=None)
+        return v(shape, dtype)
+    return MyInitializer
 
 def CMnistModel4_Matrix(weights_path=None):
     # K.set_image_dim_ordering('th')

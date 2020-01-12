@@ -27,6 +27,9 @@ AlexNet experiments:
 VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned quickly, loss function didn't lower much
   until epoch 48 10000 images each, then in about 30 epochs lowered maybe 30 times. Seems overtrained on upper levels -
   bad test predictions, but best activations on lower levels looks like they detect features
+10_2: most probably bad variance on one tower on conv_12 because relu beats tanh.
+10_4: relu beats sigmoid on conv_13
+10_5: different initial weights distribution amplitudes on different towers
 
 Further ideas:
 * to implement division of neirons: each is divided onto two with close weights

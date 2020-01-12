@@ -31,15 +31,6 @@ import cca_core
 from MyUtils import *
 # from VisUtils import *
 
-# class TMultActOpsOptions:
-#     topCount = 25
-#     oneImageMaxTopCount = 4
-#     minDist = 3
-#     batchSize = 16 * getCpuCoreCount()
-#     embedImageNums = False
-#     c_channelMargin = 2
-#     c_channelMargin_Top = 5
-
 class CCorrelationsCalculator:
     # AllEpochs = -2
 

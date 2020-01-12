@@ -414,10 +414,14 @@ class CImageNetVisWrapper:
                 return CImageNetVisWrapper.get_conv_1_source_block
             elif layerName == 'conv_12':
                 return CImageNetVisWrapper.get_conv_12_source_block
-            elif layerName == 'conv_13':
+            elif layerName in ['conv_13', 'add_123']:
                 return CImageNetVisWrapper.get_conv_13_source_block
             elif layerName == 'conv_21':
                 return CImageNetVisWrapper.get_conv_21_source_block
+            elif layerName == 'conv_22':
+                return CImageNetVisWrapper.get_conv_22_source_block
+            elif layerName in ['conv_23', 'add_223']:
+                return CImageNetVisWrapper.get_conv_23_source_block
             elif layerName == 'conv_3':
                 return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
             elif layerName == 'conv_4':
@@ -441,24 +445,56 @@ class CImageNetVisWrapper:
         size = 20   # 8 + 3 * 4
         return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
 
-    # @staticmethod
-    # def get_conv_13_source_block(x, y):
-    #     source_xy_0 = (x - 2, y - 2)
-    #     size = 13  # 9 + 2 * 2
-    #     return (0 if source_xy_0[0] < 0 else source_xy_0[0],
-    #             0 if source_xy_0[1] < 0 else source_xy_0[1],
-    #             source_xy_0[0] + size, source_xy_0[1] + size)
+    @staticmethod
+    def get_conv_13_source_block(x, y):
+        source_xy_0 = ((x - 1) * 6, (y - 1) * 6)
+        size = 32  # 20 + 6 * 2
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + size, source_xy_0[1] + size)
 
     @staticmethod
-    def get_conv_21_source_block(x, y):
-        source_xy_0 = (x * 12, y * 12)
-        size = 32   # 20 + 6 * 2
+    def get_conv_21_source_block(x, y):        # Depends on number of additional conv_1* layers
+        if 0:      # Conv_13 is not used
+            source_xy_0 = (x * 12, y * 12)
+            size = 32   # 20 + 6 * 2
+        else:
+            source_xy_0 = (x * 12 - 6, y * 12 - 6)
+            size = 44   # 32 + 6 * 2
         return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
 
     @staticmethod
     def get_conv_22_source_block(x, y):
+        if 0:      # Conv_13 is not used
+            source_xy_0 = (x * 12, y * 12)
+            size = 56   # 32 + 12 * 2
+        else:
+            source_xy_0 = (x * 12 - 6, y * 12 - 6)
+            size = 68   # 44 + 12 * 2
         source_xy_0 = (x * 12, y * 12)
-        size = 56   # 32 + 12 * 2
+
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_23_source_block(x, y):
+        if 0:      # Conv_13 is not used
+            source_xy_0 = ((x - 1) * 12, (y - 1) * 12)
+            size = 80   # 56 + 12 * 2
+        else:
+            source_xy_0 = (x * 12 - 18, y * 12 - 18)
+            size = 92   # 68 + 12 * 2
+        source_xy_0 = (x * 12, y * 12)
+
+        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+    @staticmethod
+    def get_conv_3_source_block(x, y):
+        if 0:      # No conv_13, no conv_22
+            source_xy_0 = (x * 12, y * 12)
+            size = 80   # 56 + 12 * 2
+        else:      # Conv_13 and conv_22
+            source_xy_0 = (x * 12 - 18, y * 12 - 18)
+            size = 116   # 92 + 12 * 2
         return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
 
     # @property

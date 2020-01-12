@@ -12,7 +12,7 @@ import matplotlib.pyplot as plt
 # from matplotlib.backends.backend_qt4agg import FigureCanvas
 #     # +FigureCanvasQTAgg as FigureCanvas
 # from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.figure import Figure
+# from matplotlib.figure import Figure
 # from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
 # # from matplotlib import cm
 # import pickle
@@ -94,7 +94,9 @@ class NetControlObject():
         self.curChanNum = 0
         self.learnRate = 0.0001
 
-        self.figure = Figure(figsize=(5, 3))
+        self.figure = figure(figsize=(9, 5))
+        # self.figure2 = figure(figsize=(6, 4))
+        # self.figure = None
         self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
 
     def showProgress(self, str, processEvents=True):
@@ -184,13 +186,19 @@ class NetControlObject():
         # self.drawFigure()
 
     def clearFigure(self):
-        self.figure.clear()
+        # In GUI application clearFigure means that we want to reuse screen, in Jupyter notebook -
+        # that we want to display a new figure
+        plt.clf()
+        print('clf')
+        # self.figure = figure(figsize=(8, 5))
+        # self.figure.clear()
         self.mainSubplotAxes = None
-        self.figure.set_tight_layout(True)
+        # self.figure.set_tight_layout(True)
 
     def getMainSubplot(self):
-        fig = figure(figsize=(8, 5))
-        return fig.add_subplot()
+        self.figure = figure(figsize=(8, 5))
+        # print('add_subplot')
+        return self.figure.add_subplot()
         # if not hasattr(self, 'mainSubplotAxes') or self.mainSubplotAxes is None:
         #     self.mainSubplotAxes = self.figure.add_subplot(self.gridSpec[:, 1])
         # return self.mainSubplotAxes
@@ -211,7 +219,9 @@ class NetControlObject():
 
     def drawFigure(self):
         # self.canvas.draw()
+        print('show')
         plt.show()
+        # self.figure = figure(figsize=(5, 5))
 
     def onShowActivationsPressed(self):
         self.startAction(self.onShowActivationsPressed)
@@ -232,7 +242,7 @@ class NetControlObject():
                 ax = self.figure.add_subplot(self.gridSpec[1, 0])
                 self.showImage(ax, stdData.transpose())
         else:
-            self.figure.set_tight_layout(True)
+            # self.figure.set_tight_layout(True)     # self.figure in this class is initialized in getMainSubplot
             ax = self.getMainSubplot()
             ax.clear()
 
@@ -598,7 +608,7 @@ class NetControlObject():
             options.epochNum = epochNums[-1]
         layerName = self.getSelectedLayerName()
         options.layerName = layerName
-        options.embedImageNums = True
+        # options.embedImageNums = True
         options.imageToProcessCount = max(100 if self.netWrapper.name == 'mnist' else 20, \
                     self.getSelectedImageNum())
 
@@ -1137,17 +1147,28 @@ class NetControlObject():
         self.startAction(self.onCorrelationToOtherModelPressed)
         self.doCorrelationAnalyzis(True)
 
+    def f(self, num=0):
+        fig = figure(figsize=(6, 3))
+        ax = fig.add_subplot(1, 2, 1)
+        ax.plot([5,6,8])
+        ax.legend()
+        ax.title.set_text('test %d' % num)
+        ax = fig.add_subplot(1, 2, 2)
+        # fig2 = figure(figsize=(4, 3))
+        ax.plot([15,6,8])
+
     def doCorrelationAnalyzis(self, toOtherModel):
         import CorrelatAnalyzis
 
+        # self.f()
         matplotlib.rcParams['savefig.dpi'] = 200     # 600 can be too much
         calculator = CorrelatAnalyzis.CCorrelationsCalculator(self, self.activationCache, self.netWrapper)
         options = calculator
         epochNum = self.getSelectedEpochNum()
-        firstImageCount = max(1000 if self.netWrapper.name == 'mnist' else 200,
+        firstImageCount = max(1000 if self.netWrapper.name == 'mnist' else 50,
                               self.getSelectedImageNum())
         layerName = self.getSelectedLayerName()
-        options.towerCount = self.netWrapper.getTowerCount()
+        options.towerCount = self.netWrapper.getTowerCount() * 2
 
         imagesActs = self.netWrapper.getImagesActivations_Batch(
                 layerName, range(1, firstImageCount + 1), epochNum)
@@ -1156,19 +1177,25 @@ class NetControlObject():
                  str([int(v[0]) for v in np.where(imagesActs == imagesActs.max())])))
         # ests = self.getEstimations(imagesActs)
 
+        # self.f(2)
         # self.clearFigure()
-        ax = self.getMainSubplot()
+        print('ver 17')
 
         if 1:
-            ax = self.figure.add_subplot(self.gridSpec[0, 0])
+            # ax = self.figure2.add_subplot()
+            ax = self.getMainSubplot()
+            # ax = figure(figsize=(8, 2)) .add_subplot()
             varianceDistrs = calculator.getTowersVarianceDistributions(imagesActs)
             for i in range(varianceDistrs.shape[0]):
                 ax.plot(varianceDistrs[i], label='%d' % i)
             ax.legend()
-            ax.title.set_text('Variance distribution')
-            self.drawFigure()
+            ax.title.set_text('Variance distribution for %s' % layerName)
+            self.saveVarianceImage(epochNum, firstImageCount, layerName)
+
+            # self.drawFigure()
 
         try:
+            # self.drawFigure()
             if toOtherModel:
                 imagesActs2 = self.loadOtherModelActivations(firstImageCount, layerName)
                 calculator.show2ModelsCorrelations(imagesActs, imagesActs2)
@@ -1193,6 +1220,17 @@ class NetControlObject():
         self.figure.savefig(fileName, format='png', dpi=150)
         # try:
             # matplotlib.rcParams['savefig.dpi'] = 600
+
+    def saveVarianceImage(self, epochNum, firstImageCount, layerName):
+        dirName = 'Data/Correlations/%s_Correlations_%dImages' % \
+                 (layerName, firstImageCount)
+        if not os.path.exists(dirName):
+            os.makedirs(dirName)
+        fileName = '%s/Variance_%s_Epoch%d.png' % \
+                 (dirName, layerName, epochNum)
+
+        prevDpi = matplotlib.rcParams['savefig.dpi']
+        self.figure.savefig(fileName, format='png', dpi=150)
 
     def saveActsForCorrelations(self):
         epochNum = self.getSelectedEpochNum()
