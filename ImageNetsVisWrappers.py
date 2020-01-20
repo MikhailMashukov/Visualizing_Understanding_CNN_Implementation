@@ -390,112 +390,10 @@ class CImageNetVisWrapper:
                     (str, cache.getDetailedUsageInfo(), cache.getUsedMemory() / (1 << 20))
         return str
 
-    if 0:
-        @staticmethod
-        def get_source_block_calc_func(layerName):     # For AlexNet
-            if layerName == 'conv_1':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_1_source_block
-            elif layerName == 'conv_2':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_2_source_block
-            elif layerName == 'conv_3':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
-            elif layerName == 'conv_4':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
-            elif layerName == 'conv_5':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
-            elif layerName[:6] == 'dense_':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
-            else:
-                return None
-    else:
-        @staticmethod
-        def get_source_block_calc_func(layerName):     # For CImageModel with towers
-            if layerName == 'conv_11':
-                return CImageNetVisWrapper.get_conv_1_source_block
-            elif layerName == 'conv_12':
-                return CImageNetVisWrapper.get_conv_12_source_block
-            elif layerName in ['conv_13', 'add_123']:
-                return CImageNetVisWrapper.get_conv_13_source_block
-            elif layerName == 'conv_21':
-                return CImageNetVisWrapper.get_conv_21_source_block
-            elif layerName == 'conv_22':
-                return CImageNetVisWrapper.get_conv_22_source_block
-            elif layerName in ['conv_23', 'add_223']:
-                return CImageNetVisWrapper.get_conv_23_source_block
-            elif layerName == 'conv_3':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
-            elif layerName == 'conv_4':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
-            elif layerName == 'conv_5':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
-            elif layerName[:6] == 'dense_':
-                return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
-            else:
-                return None
 
     @staticmethod
-    def get_conv_1_source_block(x, y):
-        source_xy_0 = (x * 3, y * 3)
-        size = 8
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_12_source_block(x, y):
-        source_xy_0 = (x * 6, y * 6)
-        size = 20   # 8 + 3 * 4
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_13_source_block(x, y):
-        source_xy_0 = ((x - 1) * 6, (y - 1) * 6)
-        size = 32  # 20 + 6 * 2
-        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
-                0 if source_xy_0[1] < 0 else source_xy_0[1],
-                source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_21_source_block(x, y):        # Depends on number of additional conv_1* layers
-        if 0:      # Conv_13 is not used
-            source_xy_0 = (x * 12, y * 12)
-            size = 32   # 20 + 6 * 2
-        else:
-            source_xy_0 = (x * 12 - 6, y * 12 - 6)
-            size = 44   # 32 + 6 * 2
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_22_source_block(x, y):
-        if 0:      # Conv_13 is not used
-            source_xy_0 = (x * 12, y * 12)
-            size = 56   # 32 + 12 * 2
-        else:
-            source_xy_0 = (x * 12 - 6, y * 12 - 6)
-            size = 68   # 44 + 12 * 2
-        source_xy_0 = (x * 12, y * 12)
-
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_23_source_block(x, y):
-        if 0:      # Conv_13 is not used
-            source_xy_0 = ((x - 1) * 12, (y - 1) * 12)
-            size = 80   # 56 + 12 * 2
-        else:
-            source_xy_0 = (x * 12 - 18, y * 12 - 18)
-            size = 92   # 68 + 12 * 2
-        source_xy_0 = (x * 12, y * 12)
-
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
-
-    @staticmethod
-    def get_conv_3_source_block(x, y):
-        if 0:      # No conv_13, no conv_22
-            source_xy_0 = (x * 12, y * 12)
-            size = 80   # 56 + 12 * 2
-        else:      # Conv_13 and conv_22
-            source_xy_0 = (x * 12 - 18, y * 12 - 18)
-            size = 116   # 92 + 12 * 2
-        return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+    def get_source_block_calc_func(layerName):
+        return CSourceBlockCalculator.get_source_block_calc_func(layerName)
 
     # @property
     # def baseModel(self):
@@ -518,19 +416,23 @@ class CImageNetVisWrapper:
         # # if os.path.exists(self.weightsFileNameTempl):
         # #     self.net.model.load_weights(self.weightsFileNameTempl)
         # # self.net.model._make_predict_function()
-        self.net.batchSize = max(8 * getCpuCoreCount(), 64)
+        self.net.batchSize = max(8 * getCpuCoreCount(), 32)
 
         self.netsCache = dict()
 
     def setLearnRate(self, learnRate):
-        from keras.optimizers import Adam, SGD
-
-        # optimizer = SGD(lr=learnRate, decay=5e-6, momentum=0.9, nesterov=True)
-        optimizer = Adam(learning_rate=learnRate, decay=5e-5)
-        # It's possible to turn off layers' weights updating with layer.trainable = False/
-        # It requires model.compile for changes to take effect
-        self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+        self._compileModel(learnRate)
         self.curModelLearnRate = learnRate
+
+    def setLayerTrainable(self, layerName, trainable, allowCombinedLayers=True):
+        model = self._getNet(layerName)
+        for layer in model.base_model.layers:
+            if layer.name == layerName or \
+               (allowCombinedLayers and layer.name.find(layerName + '_') >= 0):
+                layer.trainable = trainable
+                print("Layer '%s' made %strainable" % (layer.name, '' if trainable else 'not '))
+        assert self.curModelLearnRate
+        self._compileModel(self.curModelLearnRate)
 
     def getRecommendedLearnRate(self):
         # return 0.1      # SGD
@@ -549,6 +451,15 @@ class CImageNetVisWrapper:
                 self.netsCache[highestLayer] = ImageNet.CImageRecognitionNet(highestLayer, base_model=self.net.model)
             return self.netsCache[highestLayer]
 
+    def _compileModel(self, learnRate):
+        from keras.optimizers import Adam, SGD
+
+        # optimizer = SGD(lr=learnRate, decay=5e-6, momentum=0.9, nesterov=True)
+        optimizer = Adam(learning_rate=learnRate, decay=5e-5)
+        # It's possible to turn off layers' weights updating with layer.trainable = False/
+        # It requires model.compile for changes to take effect
+        self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+
 # class CImageNetVisWrapper_6_VKI(CImageNetVisWrapper):
 #     def _initMainNet(self):
 #         import ImageNet_6_VKI
@@ -558,6 +469,184 @@ class CImageNetVisWrapper:
 #         self.net.batchSize = max(8 * getCpuCoreCount(), 64)
 #
 #         self.netsCache = dict()
+
+class CSourceBlockCalculator:
+    if 0:
+        @staticmethod
+        def get_source_block_calc_func(layerName):     # For AlexNet
+            if layerName == 'conv_1':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_1_source_block
+            elif layerName == 'conv_2':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_2_source_block
+            elif layerName == 'conv_3':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
+            elif layerName == 'conv_4':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
+            elif layerName == 'conv_5':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
+            elif layerName[:6] == 'dense_':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
+            else:
+                return None
+    else:
+        @staticmethod
+        def get_source_block_calc_func(layerName):     # For CImageModel with towers
+            print('ver 3')
+            size = 9
+            if layerName == 'conv_11':
+                def get_source_block(x, y):
+                    source_xy_0 = (x * 2, y * 2)
+                    return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+                return get_source_block
+            size += 3 * 4
+            if layerName == 'conv_12':
+                def get_source_block(x, y):
+                    source_xy_0 = (x * 6, y * 6)
+                    return (source_xy_0[0], source_xy_0[1], source_xy_0[0] + size, source_xy_0[1] + size)
+
+                return get_source_block
+            if 1:    # Conv_13 is present
+                size += 6 * 2
+                if layerName in ['conv_13', 'add_123']:
+                    def get_source_block(x, y):
+                        source_xy_0 = ((x - 1) * 6, (y - 1) * 6)
+                        # size = 33  # 21 + 6 * 2
+                        return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+                    return get_source_block
+
+            fractMult = 6 * 35 / 27
+            size += fractMult * 2
+            if layerName == 'conv_21':
+                def get_source_block(x, y):
+                    source_xy_0 = (int(x * fractMult), int(y * fractMult))
+                    return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+                return get_source_block
+            fractMult *= 25 / 19
+            size += fractMult * 2
+            if layerName == 'conv_22':
+                def get_source_block(x, y):
+                    source_xy_0 = (int(x * fractMult), int(y * fractMult))
+                    return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+                return get_source_block
+            if 1:    # Conv_23 is present
+                size += fractMult * 2
+                if layerName in ['conv_23', 'add_223']:
+                    def get_source_block(x, y):
+                        source_xy_0 = (int(x * fractMult), int(y * fractMult))
+                        return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+                    return get_source_block
+                if 1:    # Conv_24 is present
+                    size += fractMult * 2
+                    if layerName in ['conv_24', 'add_234']:
+                        def get_source_block(x, y):
+                            source_xy_0 = (int(x * fractMult), int(y * fractMult))
+                            return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+                        return get_source_block
+
+            fractMult *= 17 / 13
+            size += fractMult * 2
+            if layerName == 'conv_3':
+                def get_source_block(x, y):
+                    source_xy_0 = (int(x * fractMult), int(y * fractMult))
+                    return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+                return get_source_block
+            fractMult *= 8 / 6
+            size += fractMult * 2
+            if layerName == 'conv_4':
+                # print('Conv_4 source size: ', size)
+                def get_source_block(x, y):
+                    source_xy_0 = (int(x * fractMult), int(y * fractMult))
+                    return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+                return get_source_block
+            elif layerName[:6] == 'dense_':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
+            else:
+                return None
+
+            # elif layerName in ['conv_13', 'add_123']:
+            #     return CSourceBlockCalculator.get_conv_13_source_block
+            # elif layerName == 'conv_21':
+            #     return CSourceBlockCalculator.get_conv_21_source_block
+            # elif layerName == 'conv_22':
+            #     return CSourceBlockCalculator.get_conv_22_source_block
+            # elif layerName == ['conv_23', 'add_223']:
+            #     return CSourceBlockCalculator.get_conv_23_source_block
+            # elif layerName == ['conv_24', 'add_234']:
+            #     return CSourceBlockCalculator.get_conv_24_source_block
+            # elif layerName == 'conv_3':
+            #     return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_3_source_block
+            # elif layerName == 'conv_4':
+            #     return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_4_source_block
+            # elif layerName == 'conv_5':
+            #     return AlexNetVisWrapper.CAlexNetVisWrapper.get_conv_5_source_block
+
+    #
+    # c_fract21Mult = 6 * 35 / 27
+    # @staticmethod
+    # def get_conv_21_source_block(x, y):        # Depends on number of additional conv_1* layers
+    #     if 0:      # Conv_13 is not used
+    #         source_xy_0 = (x * 12, y * 12)
+    #         size = 32   # 20 + 6 * 2
+    #     else:
+    #         source_xy_0 = (int(x * CSourceBlockCalculator.c_fract21Mult), int(y * CSourceBlockCalculator.c_fract21Mult))
+    #         size = 45   # 33 + 6 * 2
+    #     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+    #
+    # c_fract22Mult = 6 * 35 / 27 * 25 / 19
+    # @staticmethod
+    # def get_conv_22_source_block(x, y):
+    #     if 0:      # Conv_13 is not used
+    #         source_xy_0 = (x * 12, y * 12)
+    #         size = 56   # 32 + 12 * 2
+    #     else:
+    #         source_xy_0 = (int(x * CSourceBlockCalculator.c_fract22Mult), int(y * CSourceBlockCalculator.c_fract22Mult))
+    #         size = 69   #  + 12 * 2
+    #     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+    #
+    # @staticmethod
+    # def get_conv_23_source_block(x, y):
+    #     if 0:      # Conv_13 is not used
+    #         source_xy_0 = ((x - 1) * 12, (y - 1) * 12)
+    #         size = 80   # 56 + 12 * 2
+    #     else:
+    #         source_xy_0 = (int((x - 1) * CSourceBlockCalculator.c_fract22Mult), int((y - 1) * CSourceBlockCalculator.c_fract22Mult) - 6)
+    #         size = 69 + CSourceBlockCalculator.c_fract22Mult * 2
+    #     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+    #
+    # @staticmethod
+    # def get_conv_24_source_block(x, y):
+    #     if 0:      # Conv_13 is not used
+    #         source_xy_0 = ((x - 1) * 12, (y - 1) * 12)
+    #         size = 80   #
+    #     else:
+    #         source_xy_0 = (int((x - 2) * CSourceBlockCalculator.c_fract22Mult), int((y - 2) * CSourceBlockCalculator.c_fract22Mult) - 6)
+    #         size = 69 + CSourceBlockCalculator.c_fract22Mult * 4
+    #     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+    #
+    # c_fract3Mult = c_fract22Mult * 17 / 13
+    # @staticmethod
+    # def get_conv_3_source_block(x, y):
+    #     if 0:      # No conv_13, no conv_22
+    #         source_xy_0 = (x * 12, y * 12)
+    #         size = 80   # 56 + 12 * 2
+    #     else:      # Conv_13 and conv_24
+    #         source_xy_0 = (int((x - 2) * CSourceBlockCalculator.c_fract3Mult), int((y - 2) * CSourceBlockCalculator.c_fract3Mult))
+    #         size = 69 + CSourceBlockCalculator.c_fract22Mult
+    #     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
+
+    @staticmethod
+    def correctZeroCoords(source_xy_0, size):
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + int(size), source_xy_0[1] + int(size))
 
 
 class CImageNetPartDataset:
@@ -854,3 +943,10 @@ class CImageNetSubset:
                (imageNum, self.subsetName[1], preprocessStage)
         # return 'im_%d_%c_%s_%s' %\
         #        (imageNum, subsetName[1], preprocessStage, 'i8' if self.cachePackedImages else 'f32')
+
+
+# netW = CImageNetVisWrapper()
+# f3 = netW.get_source_block_calc_func('conv_13')
+# print(f3(10, 10))
+# f = netW.get_source_block_calc_func('conv_4')
+# print(f(10, 10))

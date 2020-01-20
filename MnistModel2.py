@@ -28,6 +28,7 @@ from alexnet_additional_layers import split_tensor, cross_channel_normalization
 
 # def fractional_max_pool(x): # , ratio):
 #     return tf.nn.fractional_max_pool(x, [1, ratio, ratio, 1], overlapping=True)[0]
+# Actual ratio can be higher due to rounding to pixels
 def fractional_max_pool(ratio, overlapping=False, **kwargs):
     def f(X):
         return tf.nn.fractional_max_pool(X, [1, ratio, ratio, 1], overlapping=overlapping)[0]
@@ -319,9 +320,7 @@ def MyInitializer(shape, dtype=None):
     return v(shape, dtype)
 
 def MyVarianceScalingInitializer(coef=1.0/16):
-    print('MyInit1 ', coef)
     def MyInitializer(shape, dtype=None):
-        print('MyInit  ', shape, coef, dtype)
         v = keras.initializers.VarianceScaling(scale=coef,
                                mode='fan_avg',
                                distribution='uniform',

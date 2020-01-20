@@ -145,18 +145,20 @@ def CImageModel(classCount=DeepOptions.classCount):
     # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
 
-    conv_1 = Conv2D(mult * 8, 8, strides=(3, 3), activation='relu',
+    conv_1 = Conv2D(mult * 8, 9, strides=(2, 2), activation='relu',
                     name='conv_11')(inputs)
+    conv_1 = fractional_max_pool(1.5)(conv_1)
 
     conv_1s = []     # Lists only for creating concatenated level for simple data extraction
     add_23s = []
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_1
+        t_conv_2 = cross_channel_normalization(name='cross_chan_norm_12%d' % towerInd)(t_conv_2)
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         t_conv_2 = Conv2D(mult * 8, 5, strides=(2, 2),
-                          activation='relu',
+                          activation='sigmoid',
                           name='conv_12_%d' % towerInd,
                           kernel_initializer=MyVarianceScalingInitializer(1.0/16 * (towerInd + 1)))(t_conv_2)
             # Source pixels: 11111111222333     Output size - roughly 35 * 35
@@ -168,14 +170,14 @@ def CImageModel(classCount=DeepOptions.classCount):
             last_tower_conv = t_conv_2
             # With smallerInputAreas == False actually there are no towers here
         else:
-            t_conv_3 = BatchNormalization()(t_conv_2)
+            # t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_1%d' % towerInd)(t_conv_2)
+            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_2)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = Conv2D(mult * 8, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_13_%d' % towerInd,
-                              kernel_initializer=MyVarianceScalingInitializer(1.0/16 if towerInd == 0 else 0.3))(t_conv_3)
+                              kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.25))(t_conv_3)
             # conv_3s.append(t_conv_3)
             t_conv_3 = Add(name='add_123_%d' % towerInd)([t_conv_2, t_conv_3])
             add_23s.append(t_conv_3)
@@ -187,9 +189,9 @@ def CImageModel(classCount=DeepOptions.classCount):
                 t_conv_4 = BatchNormalization()(t_conv_3)
                 # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
                 t_conv_4 = Conv2D(mult * 4, 3, padding='same', strides=(1, 1),
-                                  activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(0.03),
+                                  activation='relu',
                                   name='conv_14_%d' % towerInd,
-                                  kernel_initializer=MyInitializer)(t_conv_4)
+                                  kernel_initializer=MyVarianceScalingInitializer(1.0 / 128))(t_conv_4)
                     # Output - 4 * 4
                 # conv_4s.append(t_conv_4)
                 t_conv_4 = Multiply()([t_conv_4, get_tensor_array_element(towerCount * 2)(towerWeights)])
@@ -203,35 +205,41 @@ def CImageModel(classCount=DeepOptions.classCount):
                 # add_34s.append(t_conv_4)
 
         last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerInd)(towerWeights)])
-        last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
+        # last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
         # last_tower_convs.append(fractional_max_pool(1.42)(last_tower_conv))
+        last_tower_convs.append(last_tower_conv)
 
     conv_2 = Concatenate(axis=3, name='conv_1_adds')(last_tower_convs)
-    conv_2 = cross_channel_normalization(name="cross_chan_norm_1u")(conv_2)
-    conv_2 = Conv2D(mult * 32, 3, strides=(1, 1),
+    conv_2 = cross_channel_normalization(name="cross_chan_norm_1")(conv_2)
+    # conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
+    conv_2 = fractional_max_pool(1.26)(conv_2)
+    # conv_2 = BatchNormalization()(conv_2)
+    conv_2 = Conv2D(mult * 64, 3, strides=(1, 1),
                        activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                        name='conv_21')(conv_2)
         # Input - 17 * 17
     # conv_2 = SpatialDropout2D(0.1)(conv_2)
+    conv_2 = fractional_max_pool(1.3)(conv_2)
 
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_2
+        t_conv_2 = cross_channel_normalization(name='cross_chan_norm_22%d' % towerInd)(t_conv_2)
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         t_conv_2 = Conv2D(mult * 16, 3, strides=(1, 1),
                           activation='relu' if towerInd == 0 else 'tanh',
-                          name='conv_22_%d' % towerInd)(t_conv_2)
-            # Output - 13 * 13
+                          name='conv_22_%d' % towerInd,
+                          kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.25))(t_conv_2)
         # t_conv_2 = SpatialDropout2D(0.5)(t_conv_2)
 
         if additLayerCounts[1] < 1:
             last_tower_conv = t_conv_2
             # With smallerInputAreas == False actually there are no towers here
         else:
-            t_conv_3 = BatchNormalization()(t_conv_2)
+            # t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_2%d' % towerInd)(t_conv_2)
+            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_2)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = Conv2D(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
@@ -266,12 +274,17 @@ def CImageModel(classCount=DeepOptions.classCount):
                 # add_34s.append(t_conv_4)
 
         last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerCount + towerInd)(towerWeights)])
-        # last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
         last_tower_convs.append(last_tower_conv)
 
-    conv_last = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
+    conv_3 = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
+    conv_3 = fractional_max_pool(1.25)(conv_3)
+    conv_3 = BatchNormalization()(conv_3)
+    conv_3 = Conv2D(mult * 48, 3, strides=(1, 1), activation='relu', name='conv_3')(conv_3)
+
     # conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
-    conv_last = Conv2D(mult * 20, 3, strides=(1, 1), activation='relu', name='conv_3')(conv_last)
+    # conv_last = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
+    conv_last = fractional_max_pool(1.3)(conv_3)
+    conv_last = Conv2D(mult * 16, 3, strides=(1, 1), activation='relu', name='conv_4')(conv_last)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
 
     # conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
@@ -280,16 +293,17 @@ def CImageModel(classCount=DeepOptions.classCount):
     # conv_next = Conv2D(20, 3, strides=1, activation='relu', name='conv_3')(conv_next)
     # conv_next = DepthwiseConv2D(3, depth_multiplier=2, activation='relu', name='conv_3')(conv_next)
 
-    dense_1 = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
+    # dense_1 = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
+    dense_1 = fractional_max_pool(1.3)(conv_last)
     dense_1 = BatchNormalization()(dense_1)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(mult * 16, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+    dense_1 = Dense(mult * 8, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                     name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)
     dense_2 = Dropout(0.3)(dense_1)
-    dense_2 = Dense(mult * 8, name='dense_2')(dense_2)
+    dense_2 = Dense(mult * 32, name='dense_2')(dense_2)
 
     # dense_3 = BatchNormalization()(dense_2)
     dense_3 = Dropout(0.5)(dense_2)
