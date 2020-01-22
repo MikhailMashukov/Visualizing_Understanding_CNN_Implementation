@@ -61,7 +61,7 @@ class CImageRecognitionNet:
         if not self.base_model:
             # self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
             if 1:
-                self.base_model = ImageModels.CImageModel()
+                self.base_model = ImageModels.ImageModel()
             else:
                 # import ImageModels_6_VKI
                 #

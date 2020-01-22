@@ -22,7 +22,8 @@ import keras.regularizers
 from alexnet_additional_layers import split_tensor, cross_channel_normalization
 # from decode_predictions import decode_classnames_json, decode_classnumber
 
-from MnistModel2 import *
+# from MnistModel2 import *
+from ModelUtils import *
 
 
 def CMnistModel5_DeeperTowers(weights_path=None):

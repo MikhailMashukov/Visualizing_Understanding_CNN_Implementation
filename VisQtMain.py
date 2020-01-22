@@ -40,6 +40,7 @@ Further ideas:
   in a matrix network;
 * to try max pooling with strides (1, 1) and 3 * 2 with strides (2, 1);
 * to try 3D max pooling for neighbour channels;
+* to add towers to teached net and to make much higher noise to the teached part;
 * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
 """
 
@@ -202,6 +203,13 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         # os.makedirs('Data/Weights')
         self.loadNetStateList()
         self.epochComboBox.setCurrentIndex(self.epochComboBox.count() - 1)
+
+        if 0:   #d_
+            t0 = time.time()
+            for i in range(10240):
+                if i > 0 and i % 256 == 0:
+                    print('%d images read: %.2f s' % (i, time.time() - t0))
+                self.imageDataset.getImage(i, 'source')
 
     def initUI(self):
         self.setGeometry(100, 40, 1100, 700)

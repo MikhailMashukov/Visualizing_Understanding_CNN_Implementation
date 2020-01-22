@@ -490,7 +490,7 @@ class CSourceBlockCalculator:
                 return None
     else:
         @staticmethod
-        def get_source_block_calc_func(layerName):     # For CImageModel with towers
+        def get_source_block_calc_func(layerName):     # For ImageModel with towers
             print('ver 3')
             size = 9
             if layerName == 'conv_11':
@@ -751,6 +751,7 @@ class CImageNetSubset:
 
         if preprocessStage == 'source':
             imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
+                # About 15 ms on 1.5 GHz i5 for JPEGs, 30 ms - PNGs, 6 ms - BMPs
         elif  preprocessStage == 'resized256':   # Resized, for alexnet, in uint8
             try:
                 imageData = alexnet_utils.imread(imgFileName, pilmode='RGB')
