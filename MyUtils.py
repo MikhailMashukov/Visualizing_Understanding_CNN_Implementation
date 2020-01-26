@@ -2,6 +2,7 @@
 # from PyQt4.QtGui import *
 
 import psutil
+import subprocess
 import sys
 import time
 
@@ -74,6 +75,58 @@ def getCpuCoreCount():     # Returns number of cores without considering hyper-t
     import psutil
 
     return psutil.cpu_count(False)
+
+def getHardwareStatus(nvidiaSmiExePath):
+    # str(psutil.cpu_times()) + '<br>' + \
+    status = 'CPU usage: %.1f / %.1f%%, sys: %.1f%%, RAM: %.0f MB, swap: %.0f MB' % \
+            (psutil.cpu_percent(interval=0, percpu=False),          # Average from such previous call
+             psutil.cpu_percent(interval=0.3, percpu=False),        # Average for 0.3 s
+             psutil.cpu_times_percent(interval=0, percpu=False).system,
+             psutil.virtual_memory().used / (1 << 20),
+             psutil.swap_memory().used / (1 << 20))
+
+    if 0:   # Detailed info like
+            # scputimes(user=0.3, nice=0.0, system=0.2, idle=99.3, iowait=0.1, irq=0.0, softirq=0.0, steal=0.0, guest=0.0, guest_nice=0.0)
+            # svmem(total=16776122368, available=11851288576, percent=29.4, used=4570382336, free=2955309056, active=7713341440, inactive=5116846080, buffers=1007435776, cached=8242995200, shared=13746176, slab=747556864)
+            # sswap(total=38654697472, used=3670016, free=38651027456, percent=0.0, sin=1695744, sout=3063808)
+        status += str(psutil.cpu_times_percent(interval=0.3, percpu=False)) + '       ' + \
+                str(psutil.cpu_percent(interval=0.3, percpu=False)) + '       ' + \
+                str(psutil.cpu_times_percent(interval=0, percpu=False)) + '       ' + \
+                str(psutil.cpu_percent(interval=0, percpu=False)) + '       ' + \
+                str(psutil.virtual_memory()) + '     ' + \
+                str(psutil.swap_memory()) + '     '
+
+    try:
+        output = subprocess.check_output([nvidiaSmiExePath],
+                                         stderr=subprocess.PIPE)
+        for line in output.decode().split('\n'):
+            # print(line)
+            lineLower = line.lower()
+            if lineLower.find('default') >= 0 or lineLower.find('failed') >= 0:
+                status += ',\n GPU: %s' % line.strip('\r\n |')
+    except Exception as ex:
+        print('Exception on nvidia-smi call: %s' % str(ex))
+    return status
+
+def getGpuRamFreeMbs(nvidiaSmiExePath):
+    try:
+        output = subprocess.check_output([nvidiaSmiExePath],
+                                         stderr=subprocess.PIPE)
+        for line in output.decode().split('\n'):
+            # print(line)
+            lineLower = line.lower()
+            if lineLower.find('default') >= 0 or lineLower.find('failed') >= 0:
+                # groups = re.search(r'(\|\s+)(\d+)(m\w+? /\s+)(\d+)(m\w+?\s+\|)', lineLower).groups()
+                match = re.search(r'\|\s+(\d+)m\w+? /\s+(\d+)m\w+?\s+\|', lineLower)
+                if match:
+                    assert len(match.groups()) == 2
+                    usedMbs = int(match.groups()[0])
+                    totalMbs = int(match.groups()[1])
+                    return totalMbs - usedMbs
+    except Exception as ex:
+        pass
+
+    return 5000
 
 
 def deep_getsizeof(o, ids):

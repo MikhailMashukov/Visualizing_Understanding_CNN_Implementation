@@ -34,6 +34,7 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
 Further ideas:
 * to implement division of neirons: each is divided onto two with close weights
   and theirs output connections get about 1/2 of initial strength;
+* to turn SE blocks initially off;
 * to investigate how weights of particular neirons changed during training;
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
@@ -2888,9 +2889,11 @@ if __name__ == "__main__":
             # mainWindow.onShowWorstImagesPressed()
             # mainWindow.onShowImagesWithTSnePressed()
             # mainWindow.onCorrelationToOtherModelPressed()
+            mainWindow.netWrapper.doubleLayerWeights(['conv_12', 'conv_13'])
             pass
         except Exception as ex:
             print('Exception in main procedure: %s' % str(ex))
+            raise
     else:
         mainWindow.fastInit()
     # mainWindow.paintRect()

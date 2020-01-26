@@ -88,7 +88,8 @@ def se_block(input_feature, ratio=8):
     se_feature = Dense(channel // ratio,
 					   activation='relu',
                        name='dense_exc_%d' % (g_excLayerCount * 2 - 1),
-					   kernel_initializer='he_normal',
+					   # kernel_initializer='he_normal',
+                       kernel_initializer=My1PlusInitializer(1.0 / 64),
 					   use_bias=True,
 					   bias_initializer='zeros')(se_feature)
     assert se_feature._keras_shape[1:] == (1,1,channel//ratio)
@@ -116,6 +117,13 @@ def get_tensor_array_element(x):
         return tuple(output_shape)
 
     return Lambda(f, output_shape=lambda input_shape: g(input_shape))
+
+def isMatchedLayer(layerName, layerToFindNames, allowCombinedLayers):
+    for layerToFindName in layerToFindNames:
+        if layerName == layerToFindName or \
+           (allowCombinedLayers and layerName[ : len(layerToFindName) + 1] == layerToFindName + '_'):
+            return True
+    return False
 
 def concatenateLayersByNameBegin(model, nameBegin):
     foundLayers = []
@@ -150,9 +158,9 @@ def MyVarianceScalingInitializer(coef=1.0/16):
 
 def My1PlusInitializer(coef=1.0/16):
     def MyInitializer(shape, dtype=None):
-        v = keras.initializers.VarianceScaling(scale=coef,
-                               mode='fan_avg',
-                               distribution='uniform',
+        size = shape[-1]
+        # print('My1PlusInitializer shape: ', shape)
+        v = keras.initializers.RandomNormal(mean=1.0 / size, stddev=1.0 / size * coef,
                                seed=None)
-        return 1 + v(shape, dtype)
+        return v(shape, dtype)
     return MyInitializer

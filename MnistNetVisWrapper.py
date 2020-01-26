@@ -174,7 +174,7 @@ class CMnistVisWrapper:
             if allowCombinedLayers:
                 allWeights = []
                 for layer in model.base_model.layers:
-                    if layer.name.find(layerName + '_') >= 0:
+                    if layer.name.find(layerName + '_') == 0:
                         allLayerWeights = layer.get_weights()
                         assert len(allLayerWeights) == 1 or len(allLayerWeights[0].shape) > len(allLayerWeights[1].shape)
                         allWeights.append(allLayerWeights[0])

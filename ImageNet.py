@@ -18,11 +18,12 @@ if gpus:
 
 # Net based on model, closer by style to alexnet
 class CImageRecognitionNet:
-    def __init__(self, highest_layer=None, base_model=None):
+    def __init__(self, highest_layer=None, base_model=None, doubleSizeLayerNames=None):
         self.highest_layer = highest_layer
         # if base_model is None:
         #     print("None")
         self.base_model = base_model
+        self.doubleSizeLayerNames = doubleSizeLayerNames
         self.batchSize = 32
         self.createModel()
         # super(CMnistRecognitionNet2, self).__init__()
@@ -61,7 +62,7 @@ class CImageRecognitionNet:
         if not self.base_model:
             # self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
             if 1:
-                self.base_model = ImageModels.ImageModel()
+                self.base_model = ImageModels.ImageModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
             else:
                 # import ImageModels_6_VKI
                 #
@@ -235,9 +236,10 @@ class CImageRecognitionNet:
                 import alexnet_utils
                 import random
 
-                datagen = ImageDataGenerator(horizontal_flip=True, zoom_range=0.1, rotation_range=30)
-                    # With all 3 at first 16 mini-epochs and only horizontal_flip after - 89% accuracy on train
-                    # and 69% on test
+                datagen = ImageDataGenerator(horizontal_flip=True, zoom_range=0.2, rotation_range=40,
+                                             width_shift_range=0.1, channel_shift_range=0.1)
+                    # Data augmentation. With all 3 at first 16 mini-epochs and only horizontal_flip after -
+                    # 89% accuracy on train and 69% on test
                 img_size=(256, 256)
                 crop_size=(227, 227)
 

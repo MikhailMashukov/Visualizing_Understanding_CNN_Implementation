@@ -126,20 +126,27 @@ def MyAlexnetModel(classCount=DeepOptions.classCount):
     return m
 
 
+# Takes the same arguments as Conv2D and
+# optional doubleSizeLayerNames
 def ModelBlock(filters, kernel_size, **kwargs):
     if 0:
         return Conv2D(filters, kernel_size, **kwargs)
     else:
         def blockLayer(x):
-            conv = Conv2D(filters, kernel_size,
-                          kernel_initializer=My1PlusInitializer(),
+            sizeMult = 1
+            if 'doubleSizeLayerNames' in kwargs:
+                if 'name' in kwargs and isMatchedLayer(kwargs['name'], kwargs['doubleSizeLayerNames'], True):
+                    print("Layer '%s' has double size" % kwargs['name'])
+                    sizeMult = 2
+                del kwargs['doubleSizeLayerNames']
+            conv = Conv2D(filters * sizeMult, kernel_size,
                           **kwargs)(x)
-            x = se_block(conv)
+            x = se_block(conv, 4)
             return x
 
         return blockLayer
 
-def ImageModel(classCount=DeepOptions.classCount):
+def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     import tensorflow as tf
 
     # K.set_image_dim_ordering('th')
@@ -160,7 +167,7 @@ def ImageModel(classCount=DeepOptions.classCount):
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
 
     conv_1 = ModelBlock(mult * 8, 9, strides=(2, 2), activation='relu',
-                    name='conv_11')(inputs)
+                    name='conv_11', doubleSizeLayerNames=doubleSizeLayerNames)(inputs)
     conv_1 = fractional_max_pool(1.5)(conv_1)
 
     conv_1s = []     # Lists only for creating concatenated level for simple data extraction
@@ -173,7 +180,7 @@ def ImageModel(classCount=DeepOptions.classCount):
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         t_conv_2 = ModelBlock(mult * 8, 5, strides=(2, 2),
                           activation='relu',
-                          name='conv_12_%d' % towerInd,
+                          name='conv_12_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                           kernel_initializer=MyVarianceScalingInitializer(1.0/16 * (towerInd + 1)))(t_conv_2)
             # Source pixels: 11111111222333     Output size - roughly 35 * 35
             # # 111112233
@@ -190,8 +197,8 @@ def ImageModel(classCount=DeepOptions.classCount):
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = ModelBlock(mult * 8, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
-                              name='conv_13_%d' % towerInd,
-                              kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.3))(t_conv_3)
+                              name='conv_13_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
+                              kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.35))(t_conv_3)
             # conv_3s.append(t_conv_3)
             t_conv_3 = Add(name='add_123_%d' % towerInd)([t_conv_2, t_conv_3])
             add_23s.append(t_conv_3)
@@ -204,7 +211,7 @@ def ImageModel(classCount=DeepOptions.classCount):
                 # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
                 t_conv_4 = Conv2D(mult * 4, 3, padding='same', strides=(1, 1),
                                   activation='relu',
-                                  name='conv_14_%d' % towerInd,
+                                  name='conv_14_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                                   kernel_initializer=MyVarianceScalingInitializer(1.0 / 128))(t_conv_4)
                     # Output - 4 * 4
                 # conv_4s.append(t_conv_4)
@@ -228,9 +235,9 @@ def ImageModel(classCount=DeepOptions.classCount):
     # conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
     conv_2 = fractional_max_pool(1.26)(conv_2)
     conv_2 = BatchNormalization()(conv_2)
-    conv_2 = ModelBlock(mult * 32, 3, strides=(1, 1),
+    conv_2 = ModelBlock(mult * 16, 3, strides=(1, 1),
                    activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
-                   name='conv_21')(conv_2)
+                   name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
         # Input - 17 * 17
     # conv_2 = SpatialDropout2D(0.1)(conv_2)
     conv_2 = fractional_max_pool(1.3)(conv_2)
@@ -242,22 +249,22 @@ def ImageModel(classCount=DeepOptions.classCount):
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         t_conv_2 = ModelBlock(mult * 16, 3, strides=(1, 1),
-                          activation='relu' if towerInd == 0 else 'tanh',
-                          name='conv_22_%d' % towerInd,
-                          kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.25))(t_conv_2)
+                          activation='relu' if towerInd == 0 else 'sigmoid',
+                          name='conv_22_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
+                          kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.3))(t_conv_2)
         # t_conv_2 = SpatialDropout2D(0.5)(t_conv_2)
 
         if additLayerCounts[1] < 1:
             last_tower_conv = t_conv_2
             # With smallerInputAreas == False actually there are no towers here
         else:
-            # t_conv_3 = BatchNormalization()(t_conv_2)
+            t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_2)
+            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = ModelBlock(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
-                              name='conv_23_%d' % towerInd,
+                              name='conv_23_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyInitializer)(t_conv_3)
             t_conv_3 = SpatialDropout2D(0.4)(t_conv_3)
             # conv_3s.append(t_conv_3)
@@ -272,7 +279,7 @@ def ImageModel(classCount=DeepOptions.classCount):
                 # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
                 t_conv_4 = Conv2D(mult * 16, 3, padding='same', strides=(1, 1),
                                   activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(0.03),
-                                  name='conv_24_%d' % towerInd,
+                                  name='conv_24_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                                   kernel_initializer=MyInitializer)(t_conv_3)
                     # Output - 4 * 4
                 # t_conv_4 = SpatialDropout2D(0.3)(t_conv_4)
@@ -293,7 +300,8 @@ def ImageModel(classCount=DeepOptions.classCount):
     conv_3 = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
     conv_3 = fractional_max_pool(1.25)(conv_3)
     conv_3 = BatchNormalization()(conv_3)
-    conv_3 = ModelBlock(mult * 16, 3, strides=(1, 1), activation='relu', name='conv_3')(conv_3)
+    conv_3 = ModelBlock(mult * 12, 3, strides=(1, 1), activation='sigmoid',
+                        name='conv_3', doubleSizeLayerNames=doubleSizeLayerNames)(conv_3)
 
     conv_last = conv_3
     # conv_last = BatchNormalization()(conv_last)
@@ -301,7 +309,8 @@ def ImageModel(classCount=DeepOptions.classCount):
     # conv_last = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
     conv_last = SpatialDropout2D(0.4)(conv_last)
     conv_last = fractional_max_pool(1.3)(conv_last)
-    conv_last = ModelBlock(mult * 24, 3, strides=(1, 1), activation='tanh', name='conv_4')(conv_last)
+    conv_last = ModelBlock(mult * 24, 3, strides=(1, 1), activation='relu',
+                           name='conv_4', doubleSizeLayerNames=doubleSizeLayerNames)(conv_last)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
 
     # conv_next = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
