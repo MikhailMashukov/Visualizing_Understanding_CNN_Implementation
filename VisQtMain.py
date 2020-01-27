@@ -2871,7 +2871,7 @@ if __name__ == "__main__":
         mainWindow.loadCacheState()
 
         try:
-            # mainWindow.loadState(mainWindow.getSelectedEpochNum())
+            mainWindow.loadState(mainWindow.getSelectedEpochNum())
             # mainWindow.netWrapper.getGradients()
             # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
             # mainWindow.onDoItersPressed(1)
@@ -2889,7 +2889,8 @@ if __name__ == "__main__":
             # mainWindow.onShowWorstImagesPressed()
             # mainWindow.onShowImagesWithTSnePressed()
             # mainWindow.onCorrelationToOtherModelPressed()
-            mainWindow.netWrapper.doubleLayerWeights(['conv_12', 'conv_13'])
+            mainWindow.netWrapper.setLearnRate(mainWindow.netWrapper.getRecommendedLearnRate())
+            mainWindow.netWrapper.doubleLayerWeights(['conv_21'])
             pass
         except Exception as ex:
             print('Exception in main procedure: %s' % str(ex))

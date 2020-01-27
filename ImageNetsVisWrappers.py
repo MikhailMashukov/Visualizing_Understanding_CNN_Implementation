@@ -428,6 +428,8 @@ class CImageNetVisWrapper:
         self.netsCache = dict()
 
     def setLearnRate(self, learnRate):
+        if not self.net:
+            self._initMainNet()
         self._compileModel(learnRate)
         self.curModelLearnRate = learnRate
 
@@ -466,53 +468,107 @@ class CImageNetVisWrapper:
                 if not allWeights:
                     continue
 
-                if isinstance(oldLayer.input, list):
-                    print('%s - %s' % (oldLayer.name, ','.join([l.name for l in oldLayer.input])))
-                else:
-                    print('%s - %s' % (oldLayer.name, oldLayer.input.name))
+                # if isinstance(oldLayer.input, list):
+                #     print('%s - %s' % (oldLayer.name, ','.join([l.name for l in oldLayer.input])))
+                # else:
+                #     print('%s - %s' % (oldLayer.name, oldLayer.input.name))
 
-                if CImageNetVisWrapper._isMatchedLayer(oldLayer.name, layerName, allowCombinedLayers):
-                    # print("Layer '%s' made %strainable" % (layer.name, '' if trainable else 'not '))
-                    # reps = [1] * len(weights.shape)
-                    for i in range(len(allWeights)):
+                newLayer = newModel.base_model.get_layer(index=layerInd)
+                pos = -1
+                while oldLayer.name.find('_', pos + 1) > pos:
+                    pos = oldLayer.name.find('_', pos + 1)
+                if pos < 0:
+                    pos = len(oldLayer.name)
+                assert newLayer.name[:pos] == oldLayer.name[:pos]
+                allNewWeights = newLayer.get_weights()
+
+                changed = False
+                for i in range(len(allWeights)):
+                    if allNewWeights[i].shape != allWeights[i].shape:
                         weights = allWeights[i]     # E.g. [5, 5, 48, 96]
                         stdDev = np.std(weights)
                         mean = np.mean(weights)
-                        inds = np.arange(0, weights.shape[-1])
-                        inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
-                        if len(weights.shape) == 1:
-                            weights = weights[inds]
-                        elif len(weights.shape) == 4:
-                            weights = weights[:, :, :, inds]
+                        # print('%s: %s -> %s' % (oldLayer.name, allWeights[i].shape, allNewWeights[i].shape))
+                        for axis in range(len(allWeights[i].shape)):
+                            if allNewWeights[i].shape[axis] != allWeights[i].shape[axis]:
+                                inds = np.arange(0, weights.shape[axis])
+                                inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
+                                if len(weights.shape) == 1:
+                                    weights = weights[inds]
+                                elif len(weights.shape) == 2:
+                                    if axis == 0:
+                                        weights = weights[inds, :]
+                                    else:
+                                        weights = weights[:, inds]
+                                elif len(weights.shape) == 3:
+                                    if axis == 0:
+                                        weights = weights[inds, :, :]
+                                    elif axis == 1:
+                                        weights = weights[:, inds, :]
+                                    else:
+                                        weights = weights[:, :, inds]
+                                elif len(weights.shape) == 4:
+                                    if axis == 0:
+                                        weights = weights[inds, :, :, :]
+                                    elif axis == 1:
+                                        weights = weights[:, inds, :, :]
+                                    elif axis == 2:
+                                        weights = weights[:, :, inds, :]
+                                    else:
+                                        weights = weights[:, :, :, inds]
 
-                        weights += np.random.normal(loc=mean, scale=stdDev / 32, size=weights.shape)
+                        if not oldLayer.name.find('batch_norm') >= 0:
+                            weights /= 2
+                        # weights += np.random.normal(loc=0, scale=stdDev / 32, size=weights.shape)
                         allWeights[i] = weights
-                elif CImageNetVisWrapper._isMatchedLayer(oldLayer.input.name, layerName, allowCombinedLayers):
-                    # for oldInputLayer in
-                    for i in range(len(allWeights)):
-                        weights = allWeights[i]
-                        stdDev = np.std(weights)
-                        mean = np.mean(weights)
-                        inds = np.arange(0, weights.shape[-2])
-                        inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
-                        if len(weights.shape) == 1:
-                            weights = weights[inds]
-                        elif len(weights.shape) == 4:
-                            weights = weights[:, :, :, inds]
-
-                        weights += np.random.normal(loc=mean, scale=stdDev / 32, size=weights.shape)
-                        allWeights[i] = weights
-
-                if allWeights:
-                    # newLayer = newModel.base_model.get_layer(oldLayer.name)
-                    newLayer = newModel.base_model.get_layer(index=layerInd)
-                    pos = -1
-                    while oldLayer.name.find('_', pos + 1) > pos:
-                        pos = oldLayer.name.find('_', pos + 1)
-                    if pos < 0:
-                        pos = len(oldLayer.name)
-                    assert newLayer.name[:pos] == oldLayer.name[:pos]
+                        changed = True
+                if changed:
                     newLayer.set_weights(allWeights)
+
+                # if CImageNetVisWrapper._isMatchedLayer(oldLayer.name, layerName, allowCombinedLayers):
+                #     # print("Layer '%s' made %strainable" % (layer.name, '' if trainable else 'not '))
+                #     # reps = [1] * len(weights.shape)
+                #     for i in range(len(allWeights)):
+                #         weights = allWeights[i]     # E.g. [5, 5, 48, 96]
+                #         stdDev = np.std(weights)
+                #         mean = np.mean(weights)
+                #         inds = np.arange(0, weights.shape[-1])
+                #         inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
+                #         if len(weights.shape) == 1:
+                #             weights = weights[inds]
+                #         elif len(weights.shape) == 4:
+                #             weights = weights[:, :, :, inds]
+                #
+                #         weights += np.random.normal(loc=mean, scale=stdDev / 32, size=weights.shape)
+                #         allWeights[i] = weights
+                # elif CImageNetVisWrapper._isMatchedLayer(oldLayer.input.name, layerName, allowCombinedLayers):
+                #     # for oldInputLayer in
+                #     for i in range(len(allWeights)):
+                #         weights = allWeights[i]
+                #         stdDev = np.std(weights)
+                #         mean = np.mean(weights)
+                #         inds = np.arange(0, weights.shape[-2])
+                #         inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
+                #         if len(weights.shape) == 1:
+                #             weights = weights[inds]
+                #         elif len(weights.shape) == 4:
+                #             weights = weights[:, :, :, inds]
+                #
+                #         weights += np.random.normal(loc=mean, scale=stdDev / 32, size=weights.shape)
+                #         allWeights[i] = weights
+                #
+                # if allWeights:
+                #     # newLayer = newModel.base_model.get_layer(oldLayer.name)
+                #     newLayer = newModel.base_model.get_layer(index=layerInd)
+                #     pos = -1
+                #     while oldLayer.name.find('_', pos + 1) > pos:
+                #         pos = oldLayer.name.find('_', pos + 1)
+                #     if pos < 0:
+                #         pos = len(oldLayer.name)
+                #     assert newLayer.name[:pos] == oldLayer.name[:pos]
+                #     newLayer.set_weights(allWeights)
+        self.netsCache = dict()
+        self.activationCache.clear()
         assert self.curModelLearnRate
         self._compileModel(self.curModelLearnRate)
 
