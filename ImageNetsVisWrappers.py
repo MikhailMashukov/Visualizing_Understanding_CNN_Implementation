@@ -40,10 +40,10 @@ class CImageNetVisWrapper:
         return self.imageDataset
 
     def getNetLayersToVisualize(self):
-             # For VKI 9
         return ['conv_1', 'conv_2', 'conv_3'] + \
-            ['conv_11', 'conv_12', 'conv_13', 'conv_21', 'conv_22', 'conv_23', 'conv_3'
-                'dense_1', 'dense_2', 'dense_3']
+            ['conv_11', 'conv_12', 'conv_13', 'conv_21', 'conv_22', 'conv_23', 'concat_23',
+             'conv_24', 'conv_25',
+             'dense_1', 'dense_2', 'dense_3']
 
     def getComponentNetLayers(self):
         return self.getNetLayersToVisualize()
@@ -328,7 +328,7 @@ class CImageNetVisWrapper:
                 callback.onEpochEnd(self.curEpochNum, infoStr)
                 if self.cancelling:
                     break
-                if psutil.swap_memory().used > 24 << 30:
+                if psutil.swap_memory().used > 16 << 30:
                     raise Exception('Stopping because of too high swap file usage')
         finally:
             self.isLearning = False
@@ -448,6 +448,11 @@ class CImageNetVisWrapper:
 
     # LayerNames - list of names or one name
     def doubleLayerWeights(self, layerNames, allowCombinedLayers=True):
+        if not self.net:
+            # No net and no problems
+            self.doubleSizeLayerNames += layerNames
+            return
+
         if not isinstance(layerNames, list):
             layerNames = [layerNames]
         for layerName in layerNames:
@@ -459,15 +464,15 @@ class CImageNetVisWrapper:
         self.net = None
         newModel = self._getNet()
 
-        for layerName in layerNames:
-            for layerInd, oldLayer in enumerate(oldModel.base_model.layers):
-                allWeights = oldLayer.get_weights()
-                # assert len(allWeights) == 1
-                # weights = allWeights[0]
-                # newAllWeights = []
-                if not allWeights:
-                    continue
+        for layerInd, oldLayer in enumerate(oldModel.base_model.layers):
+            allWeights = oldLayer.get_weights()
+            # assert len(allWeights) == 1
+            # weights = allWeights[0]
+            # newAllWeights = []
+            if not allWeights:
+                continue
 
+            for layerName in layerNames:
                 # if isinstance(oldLayer.input, list):
                 #     print('%s - %s' % (oldLayer.name, ','.join([l.name for l in oldLayer.input])))
                 # else:
@@ -519,54 +524,11 @@ class CImageNetVisWrapper:
 
                         if not oldLayer.name.find('batch_norm') >= 0:
                             weights /= 2
-                        # weights += np.random.normal(loc=0, scale=stdDev / 32, size=weights.shape)
+                        weights += np.random.normal(loc=0, scale=stdDev / 64, size=weights.shape)
                         allWeights[i] = weights
                         changed = True
-                if changed:
-                    newLayer.set_weights(allWeights)
+            newLayer.set_weights(allWeights)
 
-                # if CImageNetVisWrapper._isMatchedLayer(oldLayer.name, layerName, allowCombinedLayers):
-                #     # print("Layer '%s' made %strainable" % (layer.name, '' if trainable else 'not '))
-                #     # reps = [1] * len(weights.shape)
-                #     for i in range(len(allWeights)):
-                #         weights = allWeights[i]     # E.g. [5, 5, 48, 96]
-                #         stdDev = np.std(weights)
-                #         mean = np.mean(weights)
-                #         inds = np.arange(0, weights.shape[-1])
-                #         inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
-                #         if len(weights.shape) == 1:
-                #             weights = weights[inds]
-                #         elif len(weights.shape) == 4:
-                #             weights = weights[:, :, :, inds]
-                #
-                #         weights += np.random.normal(loc=mean, scale=stdDev / 32, size=weights.shape)
-                #         allWeights[i] = weights
-                # elif CImageNetVisWrapper._isMatchedLayer(oldLayer.input.name, layerName, allowCombinedLayers):
-                #     # for oldInputLayer in
-                #     for i in range(len(allWeights)):
-                #         weights = allWeights[i]
-                #         stdDev = np.std(weights)
-                #         mean = np.mean(weights)
-                #         inds = np.arange(0, weights.shape[-2])
-                #         inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
-                #         if len(weights.shape) == 1:
-                #             weights = weights[inds]
-                #         elif len(weights.shape) == 4:
-                #             weights = weights[:, :, :, inds]
-                #
-                #         weights += np.random.normal(loc=mean, scale=stdDev / 32, size=weights.shape)
-                #         allWeights[i] = weights
-                #
-                # if allWeights:
-                #     # newLayer = newModel.base_model.get_layer(oldLayer.name)
-                #     newLayer = newModel.base_model.get_layer(index=layerInd)
-                #     pos = -1
-                #     while oldLayer.name.find('_', pos + 1) > pos:
-                #         pos = oldLayer.name.find('_', pos + 1)
-                #     if pos < 0:
-                #         pos = len(oldLayer.name)
-                #     assert newLayer.name[:pos] == oldLayer.name[:pos]
-                #     newLayer.set_weights(allWeights)
         self.netsCache = dict()
         self.activationCache.clear()
         assert self.curModelLearnRate
@@ -657,7 +619,8 @@ class CSourceBlockCalculator:
 
             fractMult = 6 * 35 / 27
             size += fractMult * 2
-            if layerName == 'conv_21':
+            if layerName == 'conv_21' or \
+                    (DeepOptions.modelClass[:4] == 'Conv' and layerName in ['conv_23', 'concat_23']):
                 def get_source_block(x, y):
                     source_xy_0 = (int(x * fractMult), int(y * fractMult))
                     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
@@ -665,7 +628,7 @@ class CSourceBlockCalculator:
                 return get_source_block
             fractMult *= 25 / 19
             size += fractMult * 2
-            if layerName == 'conv_22':
+            if layerName == 'conv_22' or (DeepOptions.modelClass[:4] == 'Conv' and layerName == 'conv_24'):
                 def get_source_block(x, y):
                     source_xy_0 = (int(x * fractMult), int(y * fractMult))
                     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
@@ -673,7 +636,8 @@ class CSourceBlockCalculator:
                 return get_source_block
             if 1:    # Conv_23 is present
                 size += fractMult * 2
-                if layerName in ['conv_23', 'add_223']:
+                if layerName in ['conv_23', 'add_223', 'conv_25', 'add_245']:
+                    # Conv_23 - for ImageModel, conv_25 - for Conv*
                     def get_source_block(x, y):
                         source_xy_0 = (int(x * fractMult), int(y * fractMult))
                         return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)

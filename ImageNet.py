@@ -7,7 +7,9 @@ import datetime
 import math
 import numpy as np
 
+import DeepOptions
 import ImageModels
+import ChanConvModel
 from MnistModel2 import get_tensor_array_element
 from MyUtils import getCpuCoreCount
 
@@ -61,8 +63,10 @@ class CImageRecognitionNet:
     def createModel(self):
         if not self.base_model:
             # self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
-            if 1:
+            if DeepOptions.modelClass == 'ImageModel':
                 self.base_model = ImageModels.ImageModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
+            elif DeepOptions.modelClass in ['ChanConvModel', 'ChanUnitingModel']:
+                self.base_model = ChanConvModel.ChanConvModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
             else:
                 # import ImageModels_6_VKI
                 #

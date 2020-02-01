@@ -3,9 +3,10 @@ import tensorflow as tf
 
 if 1:
     from keras.models import Model
-    from keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
+    from keras.layers import Flatten, Reshape, Dense, Dropout, SpatialDropout2D, \
             Activation, Input, merge, Add, Concatenate, Multiply
-    from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
+    from keras.layers.convolutional import Conv2D, Conv3D, DepthwiseConv2D,\
+            MaxPooling2D, MaxPooling3D, ZeroPadding2D
     from keras.layers.normalization import BatchNormalization
     from keras.layers.advanced_activations import ReLU
     from keras.layers.core import Lambda
@@ -17,128 +18,27 @@ if 1:
     import keras.initializers
     import keras.regularizers
     from keras.utils import convert_all_kernels_in_model
-else:
-    # With tensorflow.keras I got
-    # TypeError: ('Keyword argument not understood:', 'input')
-    # on m = Model(input=inputs, output=prediction) in ImageModels.py on the VKI's server
-    # from tensorflow.python import keras
-    from tensorflow.keras.models import Model
-    from tensorflow.keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
-            Activation, Input, Add, Concatenate, Multiply
-    from tensorflow.keras.layers import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
-    from tensorflow.keras.layers import BatchNormalization
-    # from tensorflow.keras.layers.advanced_activations import ReLU
-    from tensorflow.keras.layers import Lambda
-    # import tensorflow.keras.layers
 
-    from tensorflow.keras.optimizers import Adam, SGD
-    from tensorflow.keras import backend as K
-    import tensorflow.keras.callbacks
-    import tensorflow.keras.initializers
-    import tensorflow.keras.regularizers
-    from tensorflow.keras.utils import convert_all_kernels_in_model
-
-
-# from alexnet_utils import preprocess_image_batch
 from alexnet_additional_layers import split_tensor, cross_channel_normalization
-# from decode_predictions import decode_classnames_json, decode_classnumber
 
 import DeepOptions
 from ModelUtils import *
-
-# AlexNet, a bit modified for existing train images
-def MyAlexnetModel(classCount=DeepOptions.classCount):
-    """
-    Returns a keras model for AlexNet, achieving roughly 80% at ImageNet2012 validation set
-
-    Model and weights from
-    https://github.com/heuritech/convnets-keras/blob/master/convnetskeras/convnets.py
-    and only slightly modified to work with TF backend
-    """
-
-    if 0:
-        # K.set_image_dim_ordering('th')
-        K.set_image_data_format('channels_first')
-        inputs = Input(shape=(3, 227, 227))
-        chanAxis = 1
-    else:
-        inputs = Input(shape=(227, 227, 3))
-        chanAxis = 3
-
-    conv_1 = Conv2D(96, 11, strides=4, activation='relu', name='conv_1')(inputs)
-
-    conv_2 = MaxPooling2D((3, 3), strides=(2, 2))(conv_1)
-                # 11  4  4 = 19, stride 8
-    conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)
-    conv_2 = ZeroPadding2D((2, 2))(conv_2)
-    new_convs =[Conv2D(128, 5, activation="relu", name='conv_2_' + str(i + 1))
-        (split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_2)
-         ) for i in range(2)]
-                # 2 * 8 <- (shifted)    19 8 8 8 8 = 51
-    conv_2 =  Concatenate(axis=chanAxis, name="conv_2")(new_convs)
-    # conv_2 = merge([ \
-    #     Conv2D(128, 5, activation="relu", name='conv_2_' + str(i + 1))
-    #     (split_tensor(ratio_split=2, id_split=i)(conv_2)
-    #      ) for i in range(2)])  # , mode='concat', concat_axis=1, name="conv_2")
-
-    conv_3 = MaxPooling2D((3, 3), strides=(2, 2))(conv_2)
-                # 51 8 8 = 67, stride 16
-    conv_3 = cross_channel_normalization()(conv_3)
-    conv_3 = ZeroPadding2D((1, 1))(conv_3)
-    conv_3 = Conv2D(384, 3, activation='relu', name='conv_3')(conv_3)
-                # 2 * 8 + 16 <-    67 16 16
-
-    conv_4 = ZeroPadding2D((1, 1))(conv_3)
-    conv_4 = Concatenate(axis=chanAxis, name="conv_4")([
-        Conv2D(192, 3, activation="relu", name='conv_4_' + str(i + 1))(
-            split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_4)
-        ) for i in range(2)])   # , mode='concat', concat_axis=1, name="conv_4")
-
-    conv_5 = ZeroPadding2D((1, 1))(conv_4)
-    conv_5 = Concatenate(axis=chanAxis, name="conv_5")([
-        Conv2D(128, 3, activation="relu", name='conv_5_' + str(i + 1))(
-            split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_5)
-        ) for i in range(2)])   # mode='concat', concat_axis=1, name="conv_5")
-
-    dense_1 = MaxPooling2D((3, 3), strides=(2, 2), name="convpool_5")(conv_5)
-
-    dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(512, activation='relu', name='dense_1')(dense_1)
-    dense_2 = Dropout(0.5)(dense_1)
-    dense_2 = Dense(256, activation='relu', name='dense_2')(dense_2)
-    dense_3 = Dropout(0.5)(dense_2)
-    dense_3 = Dense(classCount, name='dense_3')(dense_3)   # Class count
-    prediction = Activation("softmax", name="softmax")(dense_3)
-
-    m = Model(input=inputs, output=prediction)
-
-    # if weights_path is None:
-        # weights_path = 'Data/alexnet_weights.h5'
-    # if not weights_path is None:
-    #     m.load_weights(weights_path)
-    # Model was trained using Theano backend
-    # This changes convolutional kernels from TF to TH, great accuracy improvement
-    convert_all_kernels_in_model(m)
-
-    # sgd = SGD(lr=0.1, decay=1e-6, momentum=0.9, nesterov=True)
-    # m.compile(optimizer=sgd, loss='mse')
-
-    return m
-
+# from ImageModels import ModelBlock
 
 # Takes the same arguments as Conv2D and
 # optional doubleSizeLayerNames
-def ModelBlock(filters, kernel_size, **kwargs):
-    if 0:
-        return Conv2D(filters, kernel_size, **kwargs)
+def ModelBlock2(filters, kernel_size, **kwargs):
+    sizeMult = 1
+    if 'doubleSizeLayerNames' in kwargs:
+        if 'name' in kwargs and isMatchedLayer(kwargs['name'], kwargs['doubleSizeLayerNames'], True):
+            print("Layer '%s' has double size" % kwargs['name'])
+            sizeMult = 2
+        del kwargs['doubleSizeLayerNames']
+
+    if 1:
+        return Conv2D(filters * sizeMult, kernel_size, **kwargs)
     else:
         def blockLayer(x):
-            sizeMult = 1
-            if 'doubleSizeLayerNames' in kwargs:
-                if 'name' in kwargs and isMatchedLayer(kwargs['name'], kwargs['doubleSizeLayerNames'], True):
-                    print("Layer '%s' has double size" % kwargs['name'])
-                    sizeMult = 2
-                del kwargs['doubleSizeLayerNames']
             conv = Conv2D(filters * sizeMult, kernel_size,
                           **kwargs)(x)
             x = se_block(conv, 4)
@@ -146,7 +46,7 @@ def ModelBlock(filters, kernel_size, **kwargs):
 
         return blockLayer
 
-def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
+def ChanConvModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     import tensorflow as tf
 
     # K.set_image_dim_ordering('th')
@@ -166,7 +66,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
 
-    conv_1 = ModelBlock(mult * 8, 9, strides=(2, 2), activation='relu',
+    conv_1 = ModelBlock2(mult * 8, 9, strides=(2, 2), activation='relu',
                     name='conv_11', doubleSizeLayerNames=doubleSizeLayerNames)(inputs)
     conv_1 = fractional_max_pool(1.5)(conv_1)
 
@@ -178,7 +78,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         t_conv_2 = cross_channel_normalization(name='cross_chan_norm_12%d' % towerInd)(t_conv_2)
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = ModelBlock(mult * 8, 5, strides=(2, 2),
+        t_conv_2 = ModelBlock2(mult * 8, 5, strides=(2, 2),
                           activation='relu',
                           name='conv_12_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                           kernel_initializer=MyVarianceScalingInitializer(1.0/16 * (towerInd + 1)))(t_conv_2)
@@ -195,7 +95,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
             # t_conv_3 = Dropout(0.3)(t_conv_2)
             t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = ModelBlock(mult * 8, 3, padding='same', strides=(1, 1),
+            t_conv_3 = ModelBlock2(mult * 8, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_13_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.35))(t_conv_3)
@@ -235,22 +135,39 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     # conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
     conv_2 = fractional_max_pool(1.26)(conv_2)
     conv_2 = BatchNormalization()(conv_2)
-    conv_2 = ModelBlock(mult * 16, 3, strides=(1, 1),
-                   activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
-                   name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
-        # Input - 17 * 17
-    # conv_2 = SpatialDropout2D(0.1)(conv_2)
-    conv_2 = fractional_max_pool(1.3)(conv_2)
+
+    if DeepOptions.modelClass == 'ChanConvModel':
+        conv_2 = ModelBlock2(mult * 32, 3, strides=(1, 1),
+                       activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+                       name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
+            # Input - 17 * 17
+
+        conv_2 = Reshape((conv_2.shape[1], conv_2.shape[2], 4, mult * 8))(conv_2)
+        conv_22 = MaxPooling3D((1, 1, 4), name='max_pool_22')(conv_2)       # E.g. (batch, 25, 25, 1, 64)
+        conv_23 = Conv3D(mult * 8, (1, 1, 4), name='conv_23')(conv_2)
+        conv_23 = Concatenate(axis=3, name='concat_23')([conv_22, conv_23])
+        conv_23 = Reshape((conv_2.shape[1], conv_2.shape[2], mult * 16))(conv_23)
+
+        conv_2 = fractional_max_pool(1.3)(conv_23)
+    elif DeepOptions.modelClass == 'ChanUnitingModel':
+        conv_2 = ModelBlock2(mult * 16, 3, strides=(1, 1),
+                       activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+                       name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
+            # Input - 17 * 17
+
+        # conv_2 = SpatialDropout2D(0.1)(conv_2)
+        conv_2 = fractional_max_pool(1.3)(conv_2)
+        conv_2 = Reshape((conv_2.shape[1], conv_2.shape[2] * 4, conv_2.shape[3] // 4))(conv_2)
 
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_2
-        t_conv_2 = cross_channel_normalization(name='cross_chan_norm_22%d' % towerInd)(t_conv_2)
+        t_conv_2 = cross_channel_normalization(name='cross_chan_norm_24%d' % towerInd)(t_conv_2)
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = ModelBlock(mult * 16, 3, strides=(1, 1),
+        t_conv_2 = ModelBlock2(mult * 16, 3, strides=(1, 1),
                           activation='relu' if towerInd == 0 else 'sigmoid',
-                          name='conv_22_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
+                          name='conv_24_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                           kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.3))(t_conv_2)
         # t_conv_2 = SpatialDropout2D(0.5)(t_conv_2)
 
@@ -260,15 +177,15 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         else:
             t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_3)
+            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_25%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = ModelBlock(mult * 16, 3, padding='same', strides=(1, 1),
+            t_conv_3 = ModelBlock2(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
-                              name='conv_23_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
+                              name='conv_25_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyInitializer)(t_conv_3)
             t_conv_3 = SpatialDropout2D(0.4)(t_conv_3)
             # conv_3s.append(t_conv_3)
-            t_conv_3 = Add(name='add_223_%d' % towerInd)([t_conv_2, t_conv_3])
+            t_conv_3 = Add(name='add_245_%d' % towerInd)([t_conv_2, t_conv_3])
             # add_23s.append(t_conv_3)
         # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
 
@@ -279,14 +196,14 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
                 # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
                 t_conv_4 = Conv2D(mult * 16, 3, padding='same', strides=(1, 1),
                                   activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(0.03),
-                                  name='conv_24_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
+                                  name='conv_26_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                                   kernel_initializer=MyInitializer)(t_conv_3)
                     # Output - 4 * 4
                 # t_conv_4 = SpatialDropout2D(0.3)(t_conv_4)
                 # conv_4s.append(t_conv_4)
                 t_conv_4 = Multiply()([t_conv_4, get_tensor_array_element(towerCount * 2 + 1)(towerWeights)])
                     # Switches off level 14
-                t_conv_4 = Add(name='add_234_%d' % towerInd)([t_conv_3, t_conv_4])
+                t_conv_4 = Add(name='add_256_%d' % towerInd)([t_conv_3, t_conv_4])
                 # t_conv_4 = Multiply()([ReLU()(t_conv_4), get_tensor_array_element(towerInd)(towerWeights)])
                         # K.constant(value=np.ones([1, 1, 1]), dtype='float32')])   # if towerInd in [0, 3] else \
                             # K.constant(value=0, dtype='float32')])
@@ -298,9 +215,13 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         last_tower_convs.append(last_tower_conv)
 
     conv_3 = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
+    if DeepOptions.modelClass == 'ChanUnitingModel':
+        conv_3 = ZeroPadding2D((0, 1))(conv_3)
+    #     print('conv_3.shape ', conv_3.shape)
+        conv_3 = Reshape((conv_3.shape[1], conv_3.shape[2] // 4, conv_3.shape[3] * 4))(conv_3)
     conv_3 = fractional_max_pool(1.25)(conv_3)
     conv_3 = BatchNormalization()(conv_3)
-    conv_3 = ModelBlock(mult * 12, 3, strides=(1, 1), activation='sigmoid',
+    conv_3 = ModelBlock2(mult * 12, 3, strides=(1, 1), activation='sigmoid',
                         name='conv_3', doubleSizeLayerNames=doubleSizeLayerNames)(conv_3)
 
     conv_last = conv_3
@@ -309,7 +230,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     # conv_last = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
     conv_last = SpatialDropout2D(0.4)(conv_last)
     conv_last = fractional_max_pool(1.3)(conv_last)
-    conv_last = ModelBlock(mult * 24, 3, strides=(1, 1), activation='relu',
+    conv_last = ModelBlock2(mult * 24, 3, strides=(1, 1), activation='relu',
                            name='conv_4', doubleSizeLayerNames=doubleSizeLayerNames)(conv_last)
     # conv_2 = DepthwiseConv2D(3, depth_multiplier=4, activation='relu', name='conv_2')(conv_1)
 
@@ -340,7 +261,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     prediction = Activation("softmax", name="softmax")(pow(1.2)(dense_3))
 
     model = Model(inputs=[inputs, towerWeights], outputs=prediction)
-    # print(model.summary())
+    print(model.summary())
 
     # if not weights_path is None:
     #     model.load_weights(weights_path)
@@ -356,17 +277,28 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
 
     model.debug_layers = dict()
     for blockInd in range(2):
+        # Maybe layers like conv_22, _23, _24 are above, maybe _24, _25, _26. It's simpler to unite all existing
         name = 'conv_%d2' % (blockInd + 1)
+        model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
+        name = 'conv_%d4' % (blockInd + 1)
         model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
         if additLayerCounts[blockInd] >= 1:
             name = 'conv_%d3' % (blockInd + 1)
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
             name = 'add_%d23' % (blockInd + 1)
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
+            name = 'conv_%d5' % (blockInd + 1)
+            model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
+            name = 'add_%d45' % (blockInd + 1)
+            model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
         if additLayerCounts[blockInd] >= 2:
             name = 'conv_%d4' % (blockInd + 1)
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
             name = 'add_%d34' % (blockInd + 1)
+            model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
+            name = 'conv_%d6' % (blockInd + 1)
+            model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
+            name = 'add_%d56' % (blockInd + 1)
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
 
     return model

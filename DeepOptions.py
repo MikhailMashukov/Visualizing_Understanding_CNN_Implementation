@@ -3,6 +3,9 @@ import math
 # fastDebugMode = 1      # True means that net is very small and heavy statistics is not gathered
 towerCount = 2
 netSizeMult = 12
+# modelClass = 'ImageModel'
+modelClass = 'ChanConvModel'
+# modelClass = 'ChanUnitingModel'
 additLayerCounts = (1, 1)  # (2, 2)
 # deeperNet = 0          # True means that exended network is created but smaller subnet can be loaded from checkpoint
 # hlAndIndicsDivision = False   # To divide input data onto 3 blocks. Currently implemented only for GRU network

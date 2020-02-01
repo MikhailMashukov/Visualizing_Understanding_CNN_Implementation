@@ -67,9 +67,12 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                         self.layerName, imageNums, self.epochNum)
             if len(batchActivations.shape) == 2:
                 batchActivations = np.expand_dims(np.expand_dims(batchActivations, axis=2), 2)
+            elif len(batchActivations.shape) > 4:
+                batchActivations = batchActivations.reshape(list(batchActivations.shape)[:3] + \
+                        [np.prod(list(batchActivations.shape)[3:])])
 
             for imageNum in imageNums:
-                activations = batchActivations[imageNum - imageNums[0]][:self.chanCount]
+                activations = batchActivations[imageNum - imageNums[0]][:self.chanCount]    # TODO? channels are at axis now 3?
                 # self._saveBestActivationsCoords(bestSourceCoords, activations, self)
 
                 # if layerNum <= 2:

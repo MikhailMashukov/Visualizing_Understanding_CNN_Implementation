@@ -525,7 +525,7 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         self.gridSpec = matplotlib.gridspec.GridSpec(2,2, width_ratios=[1,3], height_ratios=[1,1])
                                                  #    hspace=0.3)
 
-        self.blockComboBox.setCurrentIndex(1)
+        self.blockComboBox.setCurrentIndex(9)
         # self.blockComboBox.setCurrentIndex(7)
         # self.lastAction = self.onShowActTopsPressed   #d_
 
@@ -2871,7 +2871,7 @@ if __name__ == "__main__":
         mainWindow.loadCacheState()
 
         try:
-            mainWindow.loadState(mainWindow.getSelectedEpochNum())
+            # mainWindow.loadState(mainWindow.getSelectedEpochNum())
             # mainWindow.netWrapper.getGradients()
             # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
             # mainWindow.onDoItersPressed(1)
@@ -2881,7 +2881,7 @@ if __name__ == "__main__":
             # mainWindow.onDisplayIntermResultsPressed()
             # mainWindow.onDisplayPressed()
             # mainWindow.onShowActivationsPressed()
-            # mainWindow.onShowMultActTopsPressed()
+            mainWindow.onShowMultActTopsPressed()
             # mainWindow.onShowSortedChanActivationsPressed()
             # mainWindow.onSpinBoxValueChanged()
             # mainWindow.calcMultActTops_MultiThreaded()
@@ -2889,8 +2889,8 @@ if __name__ == "__main__":
             # mainWindow.onShowWorstImagesPressed()
             # mainWindow.onShowImagesWithTSnePressed()
             # mainWindow.onCorrelationToOtherModelPressed()
-            mainWindow.netWrapper.setLearnRate(mainWindow.netWrapper.getRecommendedLearnRate())
-            mainWindow.netWrapper.doubleLayerWeights(['conv_21'])
+            # mainWindow.netWrapper.setLearnRate(mainWindow.netWrapper.getRecommendedLearnRate())
+            # mainWindow.netWrapper.doubleLayerWeights(['conv_21'])
             pass
         except Exception as ex:
             print('Exception in main procedure: %s' % str(ex))
