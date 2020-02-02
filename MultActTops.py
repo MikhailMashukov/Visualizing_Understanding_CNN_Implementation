@@ -65,6 +65,12 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                 # print("Batch: ", ','.join(str(i) for i in imageNums))
                 batchActivations = self.netWrapper.getImagesActivations_Batch(
                         self.layerName, imageNums, self.epochNum)
+            if batchNum == 0:
+                print('Layer %s batch activations: %s, min %.4f, max %.4f (%s)' % \
+                        (self.layerName, str(batchActivations.shape),
+                         batchActivations.min(), batchActivations.max(),
+                         str([int(v[0]) for v in np.where(batchActivations == batchActivations.max())])))
+
             if len(batchActivations.shape) == 2:
                 batchActivations = np.expand_dims(np.expand_dims(batchActivations, axis=2), 2)
             elif len(batchActivations.shape) > 4:
@@ -293,7 +299,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                 blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
                 if blockData.shape[0] == 0 or blockData.shape[1] == 0:
                     # Reproduced with incorrect sorting in calcBestSourceCoords
-                    print("0 block: %s, %d, %s" % (str(curVal), curImageNum, str(sourceBlock)))
+                    print("Warning: 0 block %s, %d, %s" % (str(curVal), curImageNum, str(sourceBlock)))
                 if self.embedImageNums and curImageNum <= 255 and imageData.max() > 1.01:
                     blockData[-1][-1] = curImageNum
                 selectedImageList.append(blockData)

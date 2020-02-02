@@ -41,7 +41,7 @@ class CImageNetVisWrapper:
 
     def getNetLayersToVisualize(self):
         return ['conv_1', 'conv_2', 'conv_3'] + \
-            ['conv_11', 'conv_12', 'conv_13', 'conv_21', 'conv_22', 'conv_23', 'concat_23',
+            ['conv_11', 'conv_12', 'conv_13', 'conv_21', 'conv_22', 'conv_23', 'max_pool_22', 'concat_23',
              'conv_24', 'conv_25',
              'dense_1', 'dense_2', 'dense_3']
 
@@ -67,11 +67,7 @@ class CImageNetVisWrapper:
         activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
 
         if self.netPreprocessStageName == 'net':
-            # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
-            if len(activations.shape) == 4:
-                activations = activations.transpose((0, -1, 1, 2))
-            elif len(activations.shape) == 3:
-                activations = activations.transpose((0, -1, 1))
+            activations = self._transposeToOutBatchDims(activations)
         self.activationCache.saveObject(itemCacheName, activations)
         return activations
 
@@ -104,11 +100,7 @@ class CImageNetVisWrapper:
         # print("Predicted")
 
         if self.netPreprocessStageName == 'net':
-            # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
-            if len(activations.shape) == 4:
-                activations = activations.transpose((0, -1, 1, 2))
-            elif len(activations.shape) == 3:
-                activations = activations.transpose((0, -1, 1))
+            activations = self._transposeToOutBatchDims(activations)
 
         predictedI = 0
         for i in range(len(imageNums)):
@@ -153,7 +145,9 @@ class CImageNetVisWrapper:
             else:
                 raise Exception('No weights found for layer %s' % layerName)
 
-        if len(weights.shape) == 4:
+        if len(weights.shape) == 5:
+            weights = weights.transpose((2, 3, 4, 0, 1)) # Not sure too
+        elif len(weights.shape) == 4:
             weights = weights.transpose((2, 3, 0, 1))
         elif len(weights.shape) == 3:
             weights = weights.transpose((2, 0, 1))       # I suppose channels_first mean this
@@ -168,7 +162,9 @@ class CImageNetVisWrapper:
         model = self._getNet()
         layer = model.base_model.get_layer(layerName)
         allWeights = layer.get_weights()
-        if len(weights.shape) == 4:
+        if len(weights.shape) == 5:
+            weights = weights.transpose((2, 3, 4, 0, 1))   # Not sure here
+        elif len(weights.shape) == 4:
             weights = weights.transpose((2, 3, 0, 1))
         elif len(weights.shape) == 3:
             weights = weights.transpose((1, 2, 0))
@@ -246,7 +242,9 @@ class CImageNetVisWrapper:
         else:
             gradients = gradients[layerInd]
 
-        if len(gradients.shape) == 4:
+        if len(gradients.shape) == 5:
+            gradients = gradients.transpose((2, 3, 4, 0, 1)) # Not sure here
+        elif len(gradients.shape) == 4:
             gradients = gradients.transpose((2, 3, 0, 1))    # Becomes (in channel, out channel, y, x)
         elif len(gradients.shape) == 3:
             gradients = gradients.transpose((-1, 0, 1))
@@ -446,6 +444,23 @@ class CImageNetVisWrapper:
         # return 0.1      # SGD
         return 0.001    # Adam
 
+
+    # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
+    def _transposeToOutBatchDims(self, activations):
+        if len(activations.shape) == 5:    # Something like (batch, y, x, 4, channels / 4)
+            if activations.shape[4] == 1:
+                activations = np.squeeze(activations, 4)
+            elif activations.shape[3] == 1:
+                activations = np.squeeze(activations, 3)
+            else:
+                activations = activations.transpose((0, -1, 1, 2, 3))
+
+        if len(activations.shape) == 4:
+            activations = activations.transpose((0, -1, 1, 2))
+        elif len(activations.shape) == 3:
+            activations = activations.transpose((0, -1, 1))
+        return activations
+
     # LayerNames - list of names or one name
     def doubleLayerWeights(self, layerNames, allowCombinedLayers=True):
         if not self.net:
@@ -521,6 +536,17 @@ class CImageNetVisWrapper:
                                         weights = weights[:, :, inds, :]
                                     else:
                                         weights = weights[:, :, :, inds]
+                                elif len(weights.shape) == 5:
+                                    if axis == 0:
+                                        weights = weights[inds, :, :, :, :]
+                                    elif axis == 1:
+                                        weights = weights[:, inds, :, :, :]
+                                    elif axis == 2:
+                                        weights = weights[:, :, inds, :, :]
+                                    elif axis == 3:
+                                        weights = weights[:, :, :, inds, :]
+                                    else:
+                                        weights = weights[:, :, :, :, inds]
 
                         if not oldLayer.name.find('batch_norm') >= 0:
                             weights /= 2
@@ -620,7 +646,8 @@ class CSourceBlockCalculator:
             fractMult = 6 * 35 / 27
             size += fractMult * 2
             if layerName == 'conv_21' or \
-                    (DeepOptions.modelClass[:4] == 'Conv' and layerName in ['conv_23', 'concat_23']):
+                    (DeepOptions.modelClass.find('Chan') >= 0 and \
+                     layerName in ['max_pool_22', 'conv_23', 'concat_23']):
                 def get_source_block(x, y):
                     source_xy_0 = (int(x * fractMult), int(y * fractMult))
                     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
