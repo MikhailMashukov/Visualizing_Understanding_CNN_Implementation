@@ -10,6 +10,7 @@ import numpy as np
 import DeepOptions
 import ImageModels
 import ChanConvModel
+import ChanMatrixModel
 from MnistModel2 import get_tensor_array_element
 from MyUtils import getCpuCoreCount
 
@@ -66,7 +67,10 @@ class CImageRecognitionNet:
             if DeepOptions.modelClass == 'ImageModel':
                 self.base_model = ImageModels.ImageModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
             elif DeepOptions.modelClass in ['ChanConvModel', 'ChanUnitingModel']:
+            # elif DeepOptions.modelClass.find('Chan') >= 0:
                 self.base_model = ChanConvModel.ChanConvModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
+            elif DeepOptions.modelClass == 'ChanMatrixModel':
+                self.base_model = ChanMatrixModel.ChanMatrixModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
             else:
                 # import ImageModels_6_VKI
                 #

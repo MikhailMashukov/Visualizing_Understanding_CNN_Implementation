@@ -4,8 +4,9 @@ import math
 towerCount = 2
 netSizeMult = 12
 # modelClass = 'ImageModel'
-modelClass = 'ChanConvModel'
+# modelClass = 'ChanConvModel'
 # modelClass = 'ChanUnitingModel'
+modelClass = 'ChanMatrixModel'
 additLayerCounts = (1, 1)  # (2, 2)
 # deeperNet = 0          # True means that exended network is created but smaller subnet can be loaded from checkpoint
 # hlAndIndicsDivision = False   # To divide input data onto 3 blocks. Currently implemented only for GRU network

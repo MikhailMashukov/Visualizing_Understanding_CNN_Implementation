@@ -56,7 +56,7 @@ def ModelBlock2_3D(filters, kernel_size, **kwargs):
 
     return Conv3D(filters * sizeMult, kernel_size, **kwargs)
 
-def ChanConvModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
+def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     import tensorflow as tf
 
     # K.set_image_dim_ordering('th')
@@ -88,7 +88,7 @@ def ChanConvModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         t_conv_2 = cross_channel_normalization(name='cross_chan_norm_12%d' % towerInd)(t_conv_2)
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = ModelBlock2(mult * 8, 5, strides=(2, 2),
+        t_conv_2 = ModelBlock2(mult * 16, 5, strides=(2, 2),
                           activation='relu',
                           name='conv_12_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                           kernel_initializer=MyVarianceScalingInitializer(1.0/16 * (towerInd + 1)))(t_conv_2)
@@ -105,7 +105,7 @@ def ChanConvModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
             # t_conv_3 = Dropout(0.3)(t_conv_2)
             # t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = ModelBlock2(mult * 8, 3, padding='same', strides=(1, 1),
+            t_conv_3 = ModelBlock2(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_13_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.35))(t_conv_3)
@@ -146,130 +146,63 @@ def ChanConvModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     conv_2 = fractional_max_pool(1.26)(conv_2)
     conv_2 = BatchNormalization()(conv_2)
 
-    if DeepOptions.modelClass == 'ChanConvModel':
+    if DeepOptions.modelClass == 'ChanMatrixModel':
         # conv_2 = ModelBlock2(mult * 32, 3, strides=(1, 1),
         #                activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
         #                name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
         #     # Input - 17 * 17
 
-        # print(conv_2.shape)
-        conv_2 = Reshape((conv_2.shape[1], conv_2.shape[2], 4, mult * 2 * towerCount))(conv_2)
-        max_pool_22 = MaxPooling3D((1, 1, 4), name='max_pool_22')(conv_2)       # E.g. (batch, 25, 25, 1, 64)
-        max_pool_22 = Reshape((conv_2.shape[1], conv_2.shape[2], conv_2.shape[4]))(max_pool_22)
+        print(conv_2.shape)                    # TODO: to try 4 and 5
+        conv_22 = Reshape((conv_2.shape[1], conv_2.shape[2], mult, conv_2.shape[3] // mult))(conv_2)
+        # max_pool_22 = MaxPooling3D((1, 1, 4), name='max_pool_22')(conv_2)       # E.g. (batch, 25, 25, 1, 64)
+        # max_pool_22 = Reshape((conv_2.shape[1], conv_2.shape[2], conv_2.shape[4]))(max_pool_22)
         # print(max_pool_22.shape)
-        max_pool_22 = keras.layers.Cropping2D(1)(max_pool_22)
-        # print(max_pool_22.shape)
-        conv_23 = ModelBlock2_3D(mult * 4, (3, 3, 1),
-                        name='conv_23', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
-        print(conv_23.shape)
-        conv_23 = Reshape((conv_23.shape[1], conv_23.shape[2], conv_23.shape[3] * conv_23.shape[4]))(conv_23)
-        l = [max_pool_22, conv_23]
-        if 'conv_23' in doubleSizeLayerNames:
-            l = [max_pool_22] + l
-        conv_23 = Concatenate(axis=3, name='concat_23')(l)
+        # max_pool_22 = keras.layers.Cropping2D(1)(max_pool_22)
+        conv_22 = ModelBlock2_3D(mult * 4, (3, 3, 1),        # E.g. batch, 25, 25, 12, 48
+                        name='conv_22_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_22)
+        print('conv_22_1: ', conv_22.shape)
 
-        conv_2 = fractional_max_pool(1.3)(conv_23)
-    elif DeepOptions.modelClass == 'ChanUnitingModel':
-        conv_2 = ModelBlock2(mult * 16, 3, strides=(1, 1),
-                       activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
-                       name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
-            # Input - 17 * 17
+        assert conv_2.shape[3] // mult != mult        # In that case need another idea how to divide
+        conv_222 = Reshape((conv_2.shape[1], conv_2.shape[2], conv_2.shape[3] // mult, mult))(conv_2)
+        conv_222 = ModelBlock2_3D(mult * 4, (3, 3, 1),       # E.g. batch, 25, 25, 32, 48
+                        name='conv_22_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_222)
+        print('conv_22_2: ', conv_222.shape)
+        conv_23 = Concatenate(axis=3, name='concat_23')([conv_22, conv_222])
 
-        # conv_2 = SpatialDropout2D(0.1)(conv_2)
-        conv_2 = fractional_max_pool(1.3)(conv_2)
-        conv_2 = ZeroPadding2D((0, 3))(conv_2)   # 3 or so
-        conv_2 = Reshape((conv_2.shape[1], conv_2.shape[2] * 4, conv_2.shape[3] // 4))(conv_2)
-    # elif DeepOptions.modelClass == 'ChanMatrixModel':
-    #     # conv_2 = ModelBlock2(mult * 32, 3, strides=(1, 1),
-    #     #                activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
-    #     #                name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
-    #     #     # Input - 17 * 17
-    #
-    #     print(conv_2.shape)                    # TODO: to try 4 and 5
-    #     conv_22 = Reshape((conv_2.shape[1], conv_2.shape[2], mult, conv_2.shape[3] // mult))(conv_2)
-    #     # max_pool_22 = MaxPooling3D((1, 1, 4), name='max_pool_22')(conv_2)       # E.g. (batch, 25, 25, 1, 64)
-    #     # max_pool_22 = Reshape((conv_2.shape[1], conv_2.shape[2], conv_2.shape[4]))(max_pool_22)
-    #     # print(max_pool_22.shape)
-    #     # max_pool_22 = keras.layers.Cropping2D(1)(max_pool_22)
-    #     conv_22 = ModelBlock2_3D(mult * 4, (3, 3, 1),       # E.g. batch, 25, 25, 12, 48
-    #                     name='conv_22_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_22)
-    #     print(conv_22.shape)
-    #
-    #     assert conv_2.shape[3] // mult != mult        # In that case need another idea how to divide
-    #     conv_222 = Reshape((conv_2.shape[1], conv_2.shape[2], conv_2.shape[3] // mult, mult))(conv_2)
-    #     conv_222 = ModelBlock2_3D(mult * 4, (3, 3, 1),
-    #                     name='conv_22_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_222)
-    #     print(conv_222.shape)
-    #     conv_23 = Concatenate(axis=3, name='concat_23')([conv_22, conv_222])
-    #
-    #     # conv_23 = Reshape((conv_23.shape[1], conv_23.shape[2], conv_23.shape[3] * conv_23.shape[4]))(conv_23)
-    #     # l = [max_pool_22, conv_23]
-    #     # if 'conv_23' in doubleSizeLayerNames:
-    #     #     l = [max_pool_22] + l
-    #     # conv_23 = Concatenate(axis=3, name='concat_23')(l)
-    #
-    #     conv_2 = fractional_max_pool(1.3)(conv_23)
+        # conv_23 = Reshape((conv_23.shape[1], conv_23.shape[2], conv_23.shape[3] * conv_23.shape[4]))(conv_23)
+        # l = [max_pool_22, conv_23]
+        # if 'conv_23' in doubleSizeLayerNames:
+        #     l = [max_pool_22] + l
+        # conv_23 = Concatenate(axis=3, name='concat_23')(l)
 
-    last_tower_convs = []
-    for towerInd in range(towerCount):
-        t_conv_2 = conv_2
-        # t_conv_2 = cross_channel_normalization(name='cross_chan_norm_24%d' % towerInd)(t_conv_2)
-        t_conv_2 = BatchNormalization()(t_conv_2)
-        t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = ModelBlock2(mult * 16, 3, strides=(1, 1),
-                          activation='relu' if towerInd == 0 else 'sigmoid',
-                          name='conv_24_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
-                          kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.3))(t_conv_2)
-        # t_conv_2 = SpatialDropout2D(0.5)(t_conv_2)
+        conv_24 = Reshape((conv_23.shape[1], conv_23.shape[2],
+                           conv_23.shape[3] * conv_23.shape[4]))(conv_23)
+        conv_24 = fractional_max_pool(1.3)(conv_24)
+        conv_24 = BatchNormalization()(conv_24)              # E.g. batch, 19, 19, 44, 48
+        conv_24 = Reshape((conv_24.shape[1], conv_24.shape[2],
+                           conv_23.shape[3] // 2, conv_23.shape[4] * 2))(conv_24)
+        conv_241 = ModelBlock2_3D(mult * 4, (3, 3, 1),
+                        name='conv_24_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_24)
+        print('conv_24_1: ', conv_241.shape)
 
-        if additLayerCounts[1] < 1:
-            last_tower_conv = t_conv_2
-            # With smallerInputAreas == False actually there are no towers here
-        else:
-            t_conv_3 = BatchNormalization()(t_conv_2)
-            # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_25%d' % towerInd)(t_conv_3)
-            # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = ModelBlock2(mult * 16, 3, padding='same', strides=(1, 1),
-                              activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
-                              name='conv_25_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
-                              kernel_initializer=MyInitializer)(t_conv_3)
-            t_conv_3 = SpatialDropout2D(0.4)(t_conv_3)
-            # conv_3s.append(t_conv_3)
-            t_conv_3 = Add(name='add_245_%d' % towerInd)([t_conv_2, t_conv_3])
-            # add_23s.append(t_conv_3)
-        # # t_conv_3 = MaxPooling2D((2, 2), strides=(2, 2))(t_conv_2)
+        conv_242 = Reshape((conv_24.shape[1], conv_24.shape[2], 12,
+                            (conv_24.shape[3] * conv_24.shape[4]) // 12))(conv_24)   # E.g. batch, 19, 19, 96, 14
+        conv_242 = ModelBlock2_3D(mult * 4, (3, 3, 1),                               # batch, 19, 19, 96, 48
+                        name='conv_24_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_242)
+        print('conv_24_2: ', conv_242.shape)
 
-            if additLayerCounts[1] < 2:
-                last_tower_conv = t_conv_3
-            else:
-                # t_conv_4 = BatchNormalization()(t_conv_3)
-                # t_conv_4 = ZeroPadding2D((1, 1))(t_conv_4)
-                t_conv_4 = Conv2D(mult * 16, 3, padding='same', strides=(1, 1),
-                                  activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(0.03),
-                                  name='conv_26_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
-                                  kernel_initializer=MyInitializer)(t_conv_3)
-                    # Output - 4 * 4
-                # t_conv_4 = SpatialDropout2D(0.3)(t_conv_4)
-                # conv_4s.append(t_conv_4)
-                t_conv_4 = Multiply()([t_conv_4, get_tensor_array_element(towerCount * 2 + 1)(towerWeights)])
-                    # Switches off level 14
-                t_conv_4 = Add(name='add_256_%d' % towerInd)([t_conv_3, t_conv_4])
-                # t_conv_4 = Multiply()([ReLU()(t_conv_4), get_tensor_array_element(towerInd)(towerWeights)])
-                        # K.constant(value=np.ones([1, 1, 1]), dtype='float32')])   # if towerInd in [0, 3] else \
-                            # K.constant(value=0, dtype='float32')])
-                     # split_tensor(axis=1, ratio_split=towerCount, id_split=towerInd)(towerWeights)])
-                last_tower_conv = t_conv_4
-                # add_34s.append(t_conv_4)
+        # conv_25 = Concatenate(axis=3, name='concat_25')([conv_241, conv_242])
+        conv_251 = Reshape((conv_241.shape[1], conv_241.shape[2],
+                            (conv_241.shape[3] * conv_241.shape[4])))(conv_241)
+        conv_251 = ModelBlock2(mult * 32, 2, strides=(1, 1), activation='relu',
+                        name='conv_25_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_251)
 
-        last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerCount + towerInd)(towerWeights)])
-        last_tower_convs.append(last_tower_conv)
+        conv_252 = Reshape((conv_242.shape[1], conv_242.shape[2],
+                            (conv_242.shape[3] * conv_242.shape[4])))(conv_242)
+        conv_252 = ModelBlock2(mult * 32, 2, strides=(1, 1), activation='relu',
+                        name='conv_25_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_252)
 
-    conv_3 = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
-    if DeepOptions.modelClass == 'ChanUnitingModel':
-        # conv_3 = ZeroPadding2D((0, 1))(conv_3)
-    #     print('conv_3.shape ', conv_3.shape)
-        conv_3 = Reshape((conv_3.shape[1], conv_3.shape[2] // 4, conv_3.shape[3] * 4))(conv_3)
+    conv_3 = Concatenate(axis=3, name='concat_3')([conv_251, conv_252])
     conv_3 = fractional_max_pool(1.25)(conv_3)
     conv_3 = BatchNormalization()(conv_3)
     conv_3 = ModelBlock2(mult * 12, 3, strides=(1, 1), activation='sigmoid',
