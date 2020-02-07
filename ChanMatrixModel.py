@@ -76,7 +76,7 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
 
-    conv_1 = ModelBlock2(mult * 8, 7, strides=(2, 2), activation='relu',
+    conv_1 = ModelBlock2(mult * 32, 7, strides=(2, 2), activation='relu',
                     name='conv_11', doubleSizeLayerNames=doubleSizeLayerNames)(inputs)
     conv_1 = fractional_max_pool(1.5)(conv_1)
 
@@ -85,17 +85,17 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_1
-        t_conv_2 = cross_channel_normalization(name='cross_chan_norm_12%d' % towerInd)(t_conv_2)
+        # t_conv_2 = cross_channel_normalization(name='cross_chan_norm_12%d' % towerInd)(t_conv_2)
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = ModelBlock2(mult * 16, 5, strides=(2, 2),
+        t_conv_2 = ModelBlock2(mult * 32, 5, strides=(2, 2),
                           activation='relu',
                           name='conv_12_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                           kernel_initializer=MyVarianceScalingInitializer(1.0/16 * (towerInd + 1)))(t_conv_2)
             # Source pixels: 11111111222333     Output size - roughly 35 * 35
             # # 111112233
             # #     333334455
-        t_conv_2 = SpatialDropout2D(0.5)(t_conv_2)
+        # t_conv_2 = SpatialDropout2D(0.5)(t_conv_2)
 
         if additLayerCounts[0] < 1:
             last_tower_conv = t_conv_2
@@ -105,7 +105,7 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
             # t_conv_3 = Dropout(0.3)(t_conv_2)
             # t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = ModelBlock2(mult * 16, 3, padding='same', strides=(1, 1),
+            t_conv_3 = ModelBlock2(mult * 32, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_13_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.35))(t_conv_3)
@@ -175,30 +175,32 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         #     l = [max_pool_22] + l
         # conv_23 = Concatenate(axis=3, name='concat_23')(l)
 
-        conv_24 = Reshape((conv_23.shape[1], conv_23.shape[2],
-                           conv_23.shape[3] * conv_23.shape[4]))(conv_23)
+        conv_24 = Reshape((conv_23.shape[1], conv_23.shape[2],      # E.g. batch, 19, 19, 44 * 48
+                           conv_23.shape[3] * conv_23.shape[4]), name='reshape_24')(conv_23)
         conv_24 = fractional_max_pool(1.3)(conv_24)
-        conv_24 = BatchNormalization()(conv_24)              # E.g. batch, 19, 19, 44, 48
+        conv_24 = BatchNormalization()(conv_24)
         conv_24 = Reshape((conv_24.shape[1], conv_24.shape[2],
                            conv_23.shape[3] // 2, conv_23.shape[4] * 2))(conv_24)
-        conv_241 = ModelBlock2_3D(mult * 4, (3, 3, 1),
+        conv_241 = ModelBlock2_3D(mult * 4, (3, 3, 1),              # E.g. batch, 19, 19, 22, 48
                         name='conv_24_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_24)
         print('conv_24_1: ', conv_241.shape)
 
         conv_242 = Reshape((conv_24.shape[1], conv_24.shape[2], 12,
-                            (conv_24.shape[3] * conv_24.shape[4]) // 12))(conv_24)   # E.g. batch, 19, 19, 96, 14
+                            (conv_24.shape[3] * conv_24.shape[4]) // 12))(conv_24)   # E.g. batch, 19, 19, 12, 64
         conv_242 = ModelBlock2_3D(mult * 4, (3, 3, 1),                               # batch, 19, 19, 96, 48
                         name='conv_24_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_242)
         print('conv_24_2: ', conv_242.shape)
 
         # conv_25 = Concatenate(axis=3, name='concat_25')([conv_241, conv_242])
         conv_251 = Reshape((conv_241.shape[1], conv_241.shape[2],
-                            (conv_241.shape[3] * conv_241.shape[4])))(conv_241)
+                            (conv_241.shape[3] * conv_241.shape[4])), name='reshape_25_1')(conv_241)
+        conv_251 = BatchNormalization()(conv_251)
         conv_251 = ModelBlock2(mult * 32, 2, strides=(1, 1), activation='relu',
                         name='conv_25_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_251)
 
         conv_252 = Reshape((conv_242.shape[1], conv_242.shape[2],
-                            (conv_242.shape[3] * conv_242.shape[4])))(conv_242)
+                            (conv_242.shape[3] * conv_242.shape[4])), name='reshape_25_2')(conv_242)
+        conv_252 = BatchNormalization()(conv_252)
         conv_252 = ModelBlock2(mult * 32, 2, strides=(1, 1), activation='relu',
                         name='conv_25_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_252)
 
@@ -209,10 +211,10 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
                         name='conv_3', doubleSizeLayerNames=doubleSizeLayerNames)(conv_3)
 
     conv_last = conv_3
-    # conv_last = BatchNormalization()(conv_last)
+    conv_last = BatchNormalization()(conv_last)
     # conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
     # conv_last = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
-    conv_last = SpatialDropout2D(0.4)(conv_last)
+    # conv_last = SpatialDropout2D(0.4)(conv_last)
     conv_last = fractional_max_pool(1.3)(conv_last)
     conv_last = ModelBlock2(mult * 24, 3, strides=(1, 1), activation='relu',
                            name='conv_4', doubleSizeLayerNames=doubleSizeLayerNames)(conv_last)
@@ -233,7 +235,7 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
                     name='dense_1')(dense_1)
 
     # dense_2 = BatchNormalization()(dense_1)
-    dense_2 = Dropout(0.5)(dense_1)
+    dense_2 = Dropout(0.3)(dense_1)
     dense_2 = Dense(mult * 16, name='dense_2')(dense_2)
 
     # dense_3 = BatchNormalization()(dense_2)
@@ -284,6 +286,8 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
             name = 'add_%d56' % (blockInd + 1)
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
+    name = 'reshape_25'
+    model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
 
     return model
 

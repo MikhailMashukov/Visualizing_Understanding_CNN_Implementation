@@ -621,6 +621,8 @@ class NetControlObject():
         #     activations1 = self.net.getCombinedLayerImageActivations(layerName, 1, options.epochNum)
         activations1 = self.getChannelsToAnalyze(activations1[0])
         (options.chanCount, options.colCount) = self.getChannelToAnalyzeCount(activations1)
+        if layerName.find('reshape') >= 0:
+            options.colCount = 32
         print('options.chanCount', options.chanCount)
 
         calculator.progressCallback = NetControlObject.TProgressIndicator(self, calculator)
@@ -1179,7 +1181,7 @@ class NetControlObject():
 
         # self.f(2)
         # self.clearFigure()
-        print('ver 17')
+        # print('ver 17')
 
         if 1:
             # ax = self.figure2.add_subplot()

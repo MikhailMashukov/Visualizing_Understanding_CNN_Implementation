@@ -619,7 +619,7 @@ class CSourceBlockCalculator:
         @staticmethod
         def get_source_block_calc_func(layerName):     # For ImageModel with towers
             print('ver 3')
-            size = 9
+            size = 7
             if layerName == 'conv_11':
                 def get_source_block(x, y):
                     source_xy_0 = (x * 2, y * 2)
@@ -646,8 +646,9 @@ class CSourceBlockCalculator:
             fractMult = 6 * 35 / 27
             size += fractMult * 2
             if layerName == 'conv_21' or \
-                    (DeepOptions.modelClass.find('Chan') >= 0 and \
-                     layerName in ['max_pool_22', 'conv_23', 'concat_23']):
+               (DeepOptions.modelClass.find('Chan') >= 0 and \
+                (layerName in ['max_pool_22', 'conv_22', 'conv_23', 'concat_23'] or \
+                 layerName.find('reshape_2') == 0)):
                 def get_source_block(x, y):
                     source_xy_0 = (int(x * fractMult), int(y * fractMult))
                     return CSourceBlockCalculator.correctZeroCoords(source_xy_0, size)
