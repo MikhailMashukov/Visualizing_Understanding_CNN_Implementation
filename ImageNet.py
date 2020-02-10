@@ -65,7 +65,9 @@ class CImageRecognitionNet:
         if not self.base_model:
             # self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
             if DeepOptions.modelClass == 'ImageModel':
-                self.base_model = ImageModels.ImageModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
+                # self.base_model = ImageModels.ImageModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
+                self.base_model = ImageModels.ImageModel4_PrevChannelsSE(
+                        doubleSizeLayerNames=self.doubleSizeLayerNames)
             elif DeepOptions.modelClass in ['ChanConvModel', 'ChanUnitingModel']:
             # elif DeepOptions.modelClass.find('Chan') >= 0:
                 self.base_model = ChanConvModel.ChanConvModel(doubleSizeLayerNames=self.doubleSizeLayerNames)

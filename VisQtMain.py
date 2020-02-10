@@ -36,6 +36,10 @@ Further ideas:
   and theirs output connections get about 1/2 of initial strength;
 * to turn SE blocks initially off;
 * to investigate how weights of particular neirons changed during training;
+* to average values for each channel, then multiply channels by them and to sum -
+  there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
+* to look at activatity maps on incorrectly classified images
+  https://raghakot.github.io/keras-vis/visualizations/class_activation_maps/;
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
   in a matrix network;
@@ -43,6 +47,7 @@ Further ideas:
 * to try 3D max pooling for neighbour channels;
 * to add towers to teached net and to make much higher noise to the teached part;
 * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
+* to apply the same convolutions to neighbour layers - to recognize the same on different scales
 """
 
 

@@ -75,7 +75,7 @@ def squeeze_excitation_layer(x, ratio, activation='elu'): # , out_dim):
 # Implementation of Squeeze-and-Excitation(SE) block as described in https://arxiv.org/abs/1709.01507.
 # From https://github.com/kobiso/CBAM-keras/blob/master/models/attention_module.py.
 # There also double, CBAM blocks, there. They apply the same at first to channels and then - to pixels
-def se_block(input_feature, ratio=8):
+def SeBlock(input_feature, ratio=8):
     global g_excLayerCount
 
     g_excLayerCount += 1
@@ -105,6 +105,40 @@ def se_block(input_feature, ratio=8):
 
     se_feature = keras.layers.multiply([input_feature, se_feature])
     return se_feature
+
+def SeBlock4_PrevChannels(input_feature, prevChans, ratio=8):
+    global g_excLayerCount
+
+    g_excLayerCount += 1
+    channel_axis = 1 if K.image_data_format() == "channels_first" else -1
+    channel = input_feature._keras_shape[channel_axis]
+
+    se_feature = keras.layers.pooling.GlobalAveragePooling2D()(input_feature)
+    se_feature = keras.layers.Reshape((1, 1, channel))(se_feature)
+    assert se_feature._keras_shape[1:] == (1,1,channel)
+    if not prevChans is None:
+        se_feature = Concatenate(axis=3)([se_feature, prevChans])
+    newChans = se_feature
+    se_feature = Dense(channel // ratio,
+					   activation='relu',
+                       name='dense_exc_%d' % (g_excLayerCount * 2 - 1),
+					   # kernel_initializer='he_normal',
+                       kernel_initializer=My1PlusInitializer(1.0 / 256),
+					   use_bias=True,
+					   bias_initializer='zeros')(se_feature)
+    assert se_feature._keras_shape[1:] == (1,1,channel//ratio)
+    se_feature = Dense(channel,
+					   activation='sigmoid',
+                       name='dense_exc_%d' % (g_excLayerCount * 2),
+					   kernel_initializer='he_normal',
+					   use_bias=True,
+					   bias_initializer='zeros')(se_feature)
+    assert se_feature._keras_shape[1:] == (1,1,channel)
+    if K.image_data_format() == 'channels_first':
+        se_feature = keras.layers.Permute((3, 1, 2))(se_feature)
+
+    se_feature = keras.layers.multiply([input_feature, se_feature])
+    return (se_feature, newChans)
 
 
 def get_tensor_array_element(x):
