@@ -67,6 +67,7 @@ class CImageRecognitionNet:
             if DeepOptions.modelClass == 'ImageModel':
                 # self.base_model = ImageModels.ImageModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
                 self.base_model = ImageModels.ImageModel4_PrevChannelsSE(
+                # self.base_model = ImageModels.ImageModel5_ShiftedCopy(
                         doubleSizeLayerNames=self.doubleSizeLayerNames)
             elif DeepOptions.modelClass in ['ChanConvModel', 'ChanUnitingModel']:
             # elif DeepOptions.modelClass.find('Chan') >= 0:

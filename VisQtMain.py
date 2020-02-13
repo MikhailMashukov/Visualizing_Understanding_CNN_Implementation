@@ -30,6 +30,9 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
 10_2: most probably bad variance on one tower on conv_12 because relu beats tanh.
 10_4: relu beats sigmoid on conv_13
 10_5: different initial weights distribution amplitudes on different towers
+16_2: tried applying of the same convolutions to shifted image in order to get different picture
+  according to strides on the first 2 layers. Seems to give additional 3% on validataion data
+16_3: tried simply stride 1 instead of shifting. The improvement seems the same as in 16_2
 
 Further ideas:
 * to implement division of neirons: each is divided onto two with close weights
@@ -44,7 +47,7 @@ Further ideas:
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
   in a matrix network;
 * to try max pooling with strides (1, 1) and 3 * 2 with strides (2, 1);
-* to try 3D max pooling for neighbour channels;
+-+ * to try 3D max pooling for neighbour channels;
 * to add towers to teached net and to make much higher noise to the teached part;
 * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
 * to apply the same convolutions to neighbour layers - to recognize the same on different scales

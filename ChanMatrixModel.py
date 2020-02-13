@@ -14,6 +14,7 @@ if 1:
 
     from keras.optimizers import Adam, SGD
     from keras import backend as K
+#     from K import stack
     import keras.callbacks
     import keras.initializers
     import keras.regularizers
@@ -76,7 +77,7 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     # towerWeights.add_weight(shape=[towerCount], trainable=False, initializer='ones')
     # towerWeights = Input(tensor=K.variable(np.ones([4, 1, 1]), name="ones_variable"))
 
-    conv_1 = ModelBlock2(mult * 32, 7, strides=(2, 2), activation='relu',
+    conv_1 = ModelBlock2(mult * 16, 7, strides=(2, 2), activation='relu',
                     name='conv_11', doubleSizeLayerNames=doubleSizeLayerNames)(inputs)
     conv_1 = fractional_max_pool(1.5)(conv_1)
 
@@ -88,10 +89,9 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         # t_conv_2 = cross_channel_normalization(name='cross_chan_norm_12%d' % towerInd)(t_conv_2)
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
-        t_conv_2 = ModelBlock2(mult * 32, 5, strides=(2, 2),
+        t_conv_2 = ModelBlock2(mult * 16, 5, strides=(2, 2),
                           activation='relu',
-                          name='conv_12_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
-                          kernel_initializer=MyVarianceScalingInitializer(1.0/16 * (towerInd + 1)))(t_conv_2)
+                          name='conv_12_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames)(t_conv_2)
             # Source pixels: 11111111222333     Output size - roughly 35 * 35
             # # 111112233
             # #     333334455
@@ -105,7 +105,7 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
             # t_conv_3 = Dropout(0.3)(t_conv_2)
             # t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
-            t_conv_3 = ModelBlock2(mult * 32, 3, padding='same', strides=(1, 1),
+            t_conv_3 = ModelBlock2(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_13_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.35))(t_conv_3)
@@ -140,7 +140,10 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         # last_tower_convs.append(fractional_max_pool(1.42)(last_tower_conv))
         last_tower_convs.append(last_tower_conv)
 
-    conv_2 = Concatenate(axis=3, name='conv_1_adds')(last_tower_convs)
+    if len(last_tower_convs) > 1:
+        conv_2 = Concatenate(axis=3, name='conv_1_adds')(last_tower_convs)
+    else:
+        conv_2 = last_tower_convs[0]
     # conv_2 = cross_channel_normalization(name="cross_chan_norm_1")(conv_2)
     # conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
     conv_2 = fractional_max_pool(1.26)(conv_2)
@@ -152,8 +155,15 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         #                name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
         #     # Input - 17 * 17
 
-        print(conv_2.shape)                    # TODO: to try 4 and 5
-        conv_22 = Reshape((conv_2.shape[1], conv_2.shape[2], mult, conv_2.shape[3] // mult))(conv_2)
+        usual_conv_2 = ModelBlock2(mult * 4, 3,
+                      activation='relu',
+                      name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2)
+            # Actually 22, but they are incompatible for concatenateLayersByNameBegin
+
+        conv_22 = Concatenate(axis=3)([conv_2, Lambda(lambda x : x[:, :, :, 1:-5])(conv_2)])
+            # This has almost double used channels in each slice
+        print('conv_2 after extension: ', conv_22.shape)
+        conv_22 = Reshape((conv_2.shape[1], conv_2.shape[2], 6, conv_22.shape[3] // 6))(conv_22)
         # max_pool_22 = MaxPooling3D((1, 1, 4), name='max_pool_22')(conv_2)       # E.g. (batch, 25, 25, 1, 64)
         # max_pool_22 = Reshape((conv_2.shape[1], conv_2.shape[2], conv_2.shape[4]))(max_pool_22)
         # print(max_pool_22.shape)
@@ -162,8 +172,10 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
                         name='conv_22_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_22)
         print('conv_22_1: ', conv_22.shape)
 
-        assert conv_2.shape[3] // mult != mult        # In that case need another idea how to divide
-        conv_222 = Reshape((conv_2.shape[1], conv_2.shape[2], conv_2.shape[3] // mult, mult))(conv_2)
+#         assert conv_2.shape[3] // mult != mult        # In that case need another idea how to divide
+        conv_222 = Concatenate(axis=3)([conv_2, Lambda(lambda x : x[:, :, :, 1:-7])(conv_2)])
+        print('conv_2 after extension 2: ', conv_222.shape, ', ', float(conv_222.shape[3]) / 8)
+        conv_222 = Reshape((conv_2.shape[1], conv_2.shape[2], 8, conv_222.shape[3] // 8))(conv_222)
         conv_222 = ModelBlock2_3D(mult * 4, (3, 3, 1),       # E.g. batch, 25, 25, 32, 48
                         name='conv_22_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_222)
         print('conv_22_2: ', conv_222.shape)
@@ -175,21 +187,46 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         #     l = [max_pool_22] + l
         # conv_23 = Concatenate(axis=3, name='concat_23')(l)
 
+        usual_conv_22 = fractional_max_pool(1.3)(usual_conv_2)
+        usual_conv_22 = BatchNormalization()(usual_conv_22)
+        print('conv_22 usual after max pool: ', usual_conv_22.shape)
+
+        usual_conv_24 = ModelBlock2(mult * 4, 3,
+                      activation='relu',
+                      doubleSizeLayerNames=doubleSizeLayerNames)(usual_conv_22)
+        usual_conv_24_5d = Lambda(lambda x: K.expand_dims(x, axis=3), name='conv_24_usual')(usual_conv_24)
+
+        usual_conv_22 = Lambda(lambda x: K.expand_dims(x, axis=3))(usual_conv_22)   # Reshape((usual_conv_22.shape[1], usual_conv_22.shape[2],
+#                                  1, usual_conv_22.shape[3]))(usual_conv_22)
+        print('conv_22 usual after expand_dims: ', usual_conv_22.shape)
+
         conv_24 = Reshape((conv_23.shape[1], conv_23.shape[2],      # E.g. batch, 19, 19, 44 * 48
                            conv_23.shape[3] * conv_23.shape[4]), name='reshape_24')(conv_23)
         conv_24 = fractional_max_pool(1.3)(conv_24)
         conv_24 = BatchNormalization()(conv_24)
-        conv_24 = Reshape((conv_24.shape[1], conv_24.shape[2],
+        conv_24 = Reshape((conv_24.shape[1], conv_24.shape[2],      # E.g. batch, 19, 19, 22, 96
                            conv_23.shape[3] // 2, conv_23.shape[4] * 2))(conv_24)
-        conv_241 = ModelBlock2_3D(mult * 4, (3, 3, 1),              # E.g. batch, 19, 19, 22, 48
-                        name='conv_24_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_24)
+        print('conv_24_1: ', conv_24.shape)
+
+        usual_addition = Lambda(lambda x: K.tile(x, (1, 1, 1, conv_24.shape[3], 1)))(usual_conv_22)
+        print('conv_22 usual after tile: ', usual_addition.shape)
+        conv_241 = Concatenate(axis=4)([conv_24, usual_addition])
+        conv_241 = ModelBlock2_3D(mult * 4, (3, 3, 1),
+                        name='conv_24_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_241)
         print('conv_24_1: ', conv_241.shape)
 
+        usual_addition = Lambda(lambda x: K.tile(x, (1, 1, 1, 12, 1)))(usual_conv_22)
         conv_242 = Reshape((conv_24.shape[1], conv_24.shape[2], 12,
-                            (conv_24.shape[3] * conv_24.shape[4]) // 12))(conv_24)   # E.g. batch, 19, 19, 12, 64
+                            (conv_24.shape[3] * conv_24.shape[4]) // 12))(conv_24)  # E.g. batch, 19, 19, 12, 64
+        conv_242 = Concatenate(axis=4)([conv_242, usual_addition])
         conv_242 = ModelBlock2_3D(mult * 4, (3, 3, 1),                               # batch, 19, 19, 96, 48
                         name='conv_24_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_242)
         print('conv_24_2: ', conv_242.shape)
+
+        usual_conv_25 = ModelBlock2(mult * 8, 2,
+                      activation='relu',
+                      doubleSizeLayerNames=doubleSizeLayerNames)(usual_conv_24)
+#         usual_conv_25_5d = Lambda(lambda x: K.expand_dims(x, axis=3), name='conv_25_usual')(usual_conv_25)
 
         # conv_25 = Concatenate(axis=3, name='concat_25')([conv_241, conv_242])
         conv_251 = Reshape((conv_241.shape[1], conv_241.shape[2],
@@ -197,6 +234,7 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         conv_251 = BatchNormalization()(conv_251)
         conv_251 = ModelBlock2(mult * 32, 2, strides=(1, 1), activation='relu',
                         name='conv_25_1', doubleSizeLayerNames=doubleSizeLayerNames)(conv_251)
+        print('conv_25_1: ', conv_251.shape)
 
         conv_252 = Reshape((conv_242.shape[1], conv_242.shape[2],
                             (conv_242.shape[3] * conv_242.shape[4])), name='reshape_25_2')(conv_242)
@@ -204,7 +242,10 @@ def ChanMatrixModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         conv_252 = ModelBlock2(mult * 32, 2, strides=(1, 1), activation='relu',
                         name='conv_25_2', doubleSizeLayerNames=doubleSizeLayerNames)(conv_252)
 
-    conv_3 = Concatenate(axis=3, name='concat_3')([conv_251, conv_252])
+#     usual_addition = Reshape((usual_addition.shape[1], usual_addition.shape[2],
+#                             (usual_addition.shape[3] * usual_addition.shape[4])), name='rese_25_2')(usual_addition)
+
+    conv_3 = Concatenate(axis=3, name='concat_3')([conv_251, conv_252, usual_conv_25])
     conv_3 = fractional_max_pool(1.25)(conv_3)
     conv_3 = BatchNormalization()(conv_3)
     conv_3 = ModelBlock2(mult * 12, 3, strides=(1, 1), activation='sigmoid',

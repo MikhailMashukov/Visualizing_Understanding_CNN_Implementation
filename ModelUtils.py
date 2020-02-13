@@ -164,7 +164,7 @@ def concatenateLayersByNameBegin(model, nameBegin):
     l = len(nameBegin)
     for layer in model.layers:
         if layer.name[:l] == nameBegin:
-            foundLayers.append(layer.output)
+            foundLayers.append(layer.get_output_at(0))   # output)
 
     if not foundLayers:
         return None
