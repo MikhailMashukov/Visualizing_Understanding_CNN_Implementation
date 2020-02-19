@@ -51,6 +51,7 @@ Further ideas:
 * to add towers to teached net and to make much higher noise to the teached part;
 * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
 * to apply the same convolutions to neighbour layers - to recognize the same on different scales
+* to try ELU
 """
 
 
@@ -362,7 +363,7 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Set towers weights', self)
-        button.clicked.connect(self.onSetTowersWeightsPressed)
+        button.clicked.connect(self.onSetTowerWeightsPressed)
         curHorizWidget.addWidget(button)
         layout.addLayout(curHorizWidget)
 
@@ -1764,7 +1765,7 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         self.onDoItersPressed(iterCount, imageNums)
 
     # Expects number like 9990 at channel number spin box (each 0 to 9 - weight from 0 to 100%)
-    def onSetTowersWeightsPressed(self):
+    def onSetTowerWeightsPressed(self):
         try:
             # curWeights = self.netWrapper.getMultWeights('tower_weights')
             curWeights = self.netWrapper.getVariableValue('tower_weights')

@@ -1374,15 +1374,18 @@ class NetControlObject():
 
         self.onDoItersPressed(iterCount, imageNums)
 
+    def getTowerWeights(self):
+        return self.netWrapper.getVariableValue('tower_weights')
+
     # Expects number like 9990 at channel number spin box (each 0 to 9 - weight from 0 to 100%)
-    def onSetTowersWeightsPressed(self):
+    def setTowerWeights(self, newWeights):
         try:
             # curWeights = self.netWrapper.getMultWeights('tower_weights')
             curWeights = self.netWrapper.getVariableValue('tower_weights')
-            intValue = self.chanNumEdit.value()
-            strValue = '%04d' % intValue
-            newWeights = [int(ch) / 9.0 for ch in strValue]
-            newWeights = ([0] * (len(curWeights) - len(newWeights))) + newWeights
+            # intValue = self.chanNumEdit.value()
+            # strValue = '%04d' % intValue
+            # newWeights = [int(ch) / 9.0 for ch in strValue]
+            # newWeights = ([0] * (len(curWeights) - len(newWeights))) + newWeights
             print('Tower weights: %s, replacing with %s' % (str(curWeights), str(newWeights)))
             self.netWrapper.setVariableValue('tower_weights', newWeights)
             self.activationCache.clear()

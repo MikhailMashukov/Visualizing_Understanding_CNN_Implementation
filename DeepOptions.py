@@ -1,8 +1,8 @@
 import math
 
 # fastDebugMode = 1      # True means that net is very small and heavy statistics is not gathered
-towerCount = 2
-netSizeMult = 12
+towerCount = 5
+netSizeMult = 8
 modelClass = 'ImageModel'
 # modelClass = 'ChanConvModel'
 # modelClass = 'ChanUnitingModel'
