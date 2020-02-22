@@ -1,9 +1,10 @@
 import math
 
 # fastDebugMode = 1      # True means that net is very small and heavy statistics is not gathered
-towerCount = 5
+towerCount = 2
 netSizeMult = 8
-modelClass = 'ImageModel'
+# modelClass = 'AlexnetModel'
+modelClass = 'ImageModel4'
 # modelClass = 'ChanConvModel'
 # modelClass = 'ChanUnitingModel'
 # modelClass = 'ChanMatrixModel'
@@ -24,8 +25,12 @@ additLayerCounts = (1, 1)  # (2, 2)
 # dropoutByChannels = False
 # noiseChangeCount = 3
 
-imagesMainFolder = 'ImageNetPart'
-classCount = 24
+if 0:
+    imagesMainFolder = 'ImageNetPart'
+    classCount = 24
+else:
+    imagesMainFolder = 'ImageNet'
+    classCount = 1000
 
 # startSeed = None
 #

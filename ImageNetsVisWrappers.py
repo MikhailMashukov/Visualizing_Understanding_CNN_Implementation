@@ -7,12 +7,16 @@ import os
 import psutil
 # import time
 import numpy as np
+import warnings
 
 import DeepOptions
 import DataCache
 from MyUtils import *
 from MnistNetVisWrapper import *
 import AlexNetVisWrapper
+
+warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
+
 
 # My own model for images recognition (classification)
 class CImageNetVisWrapper:
@@ -24,6 +28,7 @@ class CImageNetVisWrapper:
         self.imageDataset = CImageNetPartDataset(self.imageCache) if imageDataset is None else imageDataset
         # self.imageDataset = CAugmentedMnistDataset(CImageNetPartDataset()) if imageDataset is None else imageDataset
         self.net = None
+        self.optimizer = None
         self.netPreprocessStageName = 'net'  # for self.net = alexnet.AlexNet()
         self.doubleSizeLayerNames = []    # Not stored in saveState
         self.curEpochNum = 0
@@ -264,6 +269,37 @@ class CImageNetVisWrapper:
         self.isLearning = True
         try:
             epochNum = 0    # Number for starting from small epochs each time
+
+            trainImageNums = np.arange(1, self.imageDataset.getImageCount('train') + 1)
+            testImageNums = np.arange(1, self.imageDataset.getImageCount('test') + 1)
+                # TODO: actually doesn't pass to image dataset now
+
+            # fullTestDataset = self.imageDataset.getNetSource('test')
+            if 1:
+            #     # Old variant, without augmentation but with simple CimageDataset support
+            #
+            #     fullDataset = self.imageDataset.getNetSource('train')
+                if not options.trainImageNums is None:
+                    trainImageNums = options.trainImageNums
+                    if options.additTrainImageCount > 0:
+                        trainImageNums = np.concatenate([trainImageNums, np.random.randint(
+                                low=1, high=self.imageDataset.getImageCount('train'),
+                                size=options.additTrainImageCount)])
+            #         trainDataset = (fullDataset[0][imageNums - 1],
+            #                        fullDataset[1][imageNums - 1])
+            # else:
+            #     # Optionally augmented and optimized for this variant
+            #
+            #     if options.trainImageNums is None:
+            #         trainDataset = self.imageDataset.getAugmentedImages(epochImageCount)
+            #     else:
+            #         imageNums = options.trainImageNums
+            #         if options.additTrainImageCount > 0:
+            #             fullDataset = self.imageDataset.getNetSource('train')
+            #             imageNums = np.concatenate([imageNums, np.random.randint(
+            #                     low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
+            #         trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
+
             for _ in range(int(math.ceil(iterCount / 100))):
                 if 1:
                     if iterCount > 500:
@@ -277,44 +313,22 @@ class CImageNetVisWrapper:
                         epochImageCount = 2000
                 else:
                     epochImageCount = 2000
+                if DeepOptions.imagesMainFolder.lower().find('imagenet') >= 0 and \
+                   DeepOptions.imagesMainFolder != 'ImageNetPart':
+                    epochImageCount *= 2
 
                 if self.curModelLearnRate != options.learnRate:
                     self.setLearnRate(options.learnRate)
                     print('Learning rate switched to %f' % options.learnRate)
 
-                trainImageNums = np.arange(1, self.imageDataset.getImageCount('train') + 1)
-                testImageNums = np.arange(1, self.imageDataset.getImageCount('test') + 1)
-
-                # fullTestDataset = self.imageDataset.getNetSource('test')
-                if 1:
-                #     # Old variant, without augmentation but with simple CimageDataset support
-                #
-                #     fullDataset = self.imageDataset.getNetSource('train')
-                    if not options.trainImageNums is None:
-                        trainImageNums = options.trainImageNums
-                        if options.additTrainImageCount > 0:
-                            trainImageNums = np.concatenate([trainImageNums, np.random.randint(
-                                    low=1, high=self.imageDataset.getImageCount('train'),
-                                    size=options.additTrainImageCount)])
-                #         trainDataset = (fullDataset[0][imageNums - 1],
-                #                        fullDataset[1][imageNums - 1])
-                # else:
-                #     # Optionally augmented and optimized for this variant
-                #
-                #     if options.trainImageNums is None:
-                #         trainDataset = self.imageDataset.getAugmentedImages(epochImageCount)
-                #     else:
-                #         imageNums = options.trainImageNums
-                #         if options.additTrainImageCount > 0:
-                #             fullDataset = self.imageDataset.getNetSource('train')
-                #             imageNums = np.concatenate([imageNums, np.random.randint(
-                #                     low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
-                #         trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
-
                 # print('Train images: ', trainImageNums)
-                infoStr = self.net.doLearning(1, callback,
-                                              trainImageNums, testImageNums,
-                                              epochImageCount, self.curEpochNum)
+                if epochNum == 0:
+                    infoStr = self.net.doLearning(1, callback,
+                            trainImageNums, testImageNums,
+                            epochImageCount, self.curEpochNum)
+                else:
+                    infoStr = self.net.doLearningWithPrevDataset(1, callback,
+                            epochImageCount, self.curEpochNum)
                 self.curEpochNum += 1
                 epochNum += 1
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
@@ -428,7 +442,10 @@ class CImageNetVisWrapper:
     def setLearnRate(self, learnRate):
         if not self.net:
             self._initMainNet()
+        # if self.optimizer is None:      # Would need to import K here (need something like K.set_value(model.optimizer.lr, 1e-5))
         self._compileModel(learnRate)
+        # else:
+        #     self.net.optimizer
         self.curModelLearnRate = learnRate
 
     def setLayerTrainable(self, layerName, trainable, allowCombinedLayers=True):
@@ -507,54 +524,27 @@ class CImageNetVisWrapper:
                     if allNewWeights[i].shape != allWeights[i].shape:
                         weights = allWeights[i]     # E.g. [5, 5, 48, 96]
                         stdDev = np.std(weights)
-                        mean = np.mean(weights)
-                        # print('%s: %s -> %s' % (oldLayer.name, allWeights[i].shape, allNewWeights[i].shape))
+                        # mean = np.mean(weights)
+                        print('%s: %s -> %s' % (oldLayer.name, allWeights[i].shape, allNewWeights[i].shape))
                         for axis in range(len(allWeights[i].shape)):
                             if allNewWeights[i].shape[axis] != allWeights[i].shape[axis]:
-                                inds = np.arange(0, weights.shape[axis])
-                                inds = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
-                                if len(weights.shape) == 1:
-                                    weights = weights[inds]
-                                elif len(weights.shape) == 2:
-                                    if axis == 0:
-                                        weights = weights[inds, :]
-                                    else:
-                                        weights = weights[:, inds]
-                                elif len(weights.shape) == 3:
-                                    if axis == 0:
-                                        weights = weights[inds, :, :]
-                                    elif axis == 1:
-                                        weights = weights[:, inds, :]
-                                    else:
-                                        weights = weights[:, :, inds]
-                                elif len(weights.shape) == 4:
-                                    if axis == 0:
-                                        weights = weights[inds, :, :, :]
-                                    elif axis == 1:
-                                        weights = weights[:, inds, :, :]
-                                    elif axis == 2:
-                                        weights = weights[:, :, inds, :]
-                                    else:
-                                        weights = weights[:, :, :, inds]
-                                elif len(weights.shape) == 5:
-                                    if axis == 0:
-                                        weights = weights[inds, :, :, :, :]
-                                    elif axis == 1:
-                                        weights = weights[:, inds, :, :, :]
-                                    elif axis == 2:
-                                        weights = weights[:, :, inds, :, :]
-                                    elif axis == 3:
-                                        weights = weights[:, :, :, inds, :]
-                                    else:
-                                        weights = weights[:, :, :, :, inds]
+                                baseDelta = np.random.normal(loc=0, scale=stdDev / 128, size=weights.shape)
 
-                        if not oldLayer.name.find('batch_norm') >= 0:
-                            weights /= 2
-                        weights += np.random.normal(loc=0, scale=stdDev / 64, size=weights.shape)
+                                inds = np.arange(0, weights.shape[axis])
+                                indsX2 = np.stack([inds, inds]).reshape(inds.shape[0] * 2, order='F')
+                                weights = getSubarrByIndices(weights, axis, indsX2)
+                                if not oldLayer.name.find('batch_norm') >= 0:
+                                    weights /= 2
+
+                                delta = np.zeros(weights.shape)
+                                assignSubarrByIndices(delta, baseDelta, axis, inds * 2)
+                                assignSubarrByIndices(delta, -baseDelta, axis, inds * 2 + 1)
+                                weights += delta
                         allWeights[i] = weights
-                        changed = True
+                        # changed = True
             newLayer.set_weights(allWeights)
 
+        print('Doubling done')
         self.netsCache = dict()
         self.activationCache.clear()
         assert self.curModelLearnRate
@@ -581,11 +571,11 @@ class CImageNetVisWrapper:
     def _compileModel(self, learnRate):
         from keras.optimizers import Adam, SGD
 
-        # optimizer = SGD(lr=learnRate, decay=5e-6, momentum=0.9, nesterov=True)
-        optimizer = Adam(learning_rate=learnRate, decay=5e-5)
+        # self.optimizer = SGD(lr=learnRate, decay=5e-6, momentum=0.9, nesterov=True)
+        self.optimizer = Adam(learning_rate=learnRate, decay=5e-5, epsilon=0.01)
         # It's possible to turn off layers' weights updating with layer.trainable = False/
         # It requires model.compile for changes to take effect
-        self.net.model.compile(optimizer=optimizer, loss='mse', metrics=['accuracy'])
+        self.net.model.compile(optimizer=self.optimizer, loss='mse', metrics=['accuracy'])
 
 # class CImageNetVisWrapper_6_VKI(CImageNetVisWrapper):
 #     def _initMainNet(self):
@@ -618,7 +608,9 @@ class CSourceBlockCalculator:
     else:
         @staticmethod
         def get_source_block_calc_func(layerName):     # For ImageModel with towers
-            print('ver 3')
+            if DeepOptions.modelClass == 'AlexnetModel':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_source_block_calc_func(layerName)
+
             size = 7
             if layerName == 'conv_11':
                 def get_source_block(x, y):
@@ -762,7 +754,8 @@ class CImageNetSubset:
         self.subsetName = subsetName
         self.mainFolder = '%s/%s' % (DeepOptions.imagesMainFolder, self.subsetName)
         # print('Subset folder: ', self.mainFolder)
-        self.foldersInfoCacheFileName = 'Data/ImageNet%sCache.dat' % self.subsetName
+        self.foldersInfoCacheFileName = 'Data/%s%sCache.dat' % \
+                (os.path.basename(DeepOptions.imagesMainFolder), self.subsetName)
         self.cache = cache
         self.cachePackedImages = True       # Cache images in int8
         self.parent = parent
@@ -787,7 +780,8 @@ class CImageNetSubset:
     readImageCount =0   #d_
     def getImage(self, imageNum, preprocessStage='net'):
         self.readImageCount += 1
-        # print('getImage %s %d' % (subsetName, self.readImageCount))
+#         if self.readImageCount % 1000 == 0:
+#             print('getImage %s %d %d' % (self.subsetName, self.readImageCount, imageNum))
         itemCacheName = self._getImageCacheName(imageNum, preprocessStage)
         cacheItem = self.cache.getObject(itemCacheName)
         if not cacheItem is None:
@@ -926,6 +920,8 @@ class CImageNetSubset:
         #     image = tf.py_function(_loadImage, [imageNum], tf.float32)
         #     return image
 
+        if not self.isLoaded():
+            self._loadData()
         imageNums = np.arange(1, self.getImageCount() + 1)
         # path_ds = tf.data.Dataset.from_tensor_slices(self.imagesFileNames)
         numDs = tf.data.Dataset.from_tensor_slices(imageNums)

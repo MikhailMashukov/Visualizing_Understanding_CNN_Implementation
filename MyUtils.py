@@ -20,6 +20,81 @@ def mixColors(color1, coef1, color2, coef2):     # Accepts QColor
                   checkColorComponet(color1.blue()  * coef1 + color2.blue()  * coef2),
                   checkColorComponet(color1.alpha() * coef1 + color2.alpha() * coef2))
 
+def getSubarrByIndices(npArr, axis, inds):
+    assert len(npArr.shape) <= 5    # Simply not implemented here for more
+    if len(npArr.shape) == 1:
+        npArr = npArr[inds]
+    elif len(npArr.shape) == 2:
+        if axis == 0:
+            npArr = npArr[inds, :]
+        else:
+            npArr = npArr[:, inds]
+    elif len(npArr.shape) == 3:
+        if axis == 0:
+            npArr = npArr[inds, :, :]
+        elif axis == 1:
+            npArr = npArr[:, inds, :]
+        else:
+            npArr = npArr[:, :, inds]
+    elif len(npArr.shape) == 4:
+        if axis == 0:
+            npArr = npArr[inds, :, :, :]
+        elif axis == 1:
+            npArr = npArr[:, inds, :, :]
+        elif axis == 2:
+            npArr = npArr[:, :, inds, :]
+        else:
+            npArr = npArr[:, :, :, inds]
+    elif len(npArr.shape) == 5:
+        if axis == 0:
+            npArr = npArr[inds, :, :, :, :]
+        elif axis == 1:
+            npArr = npArr[:, inds, :, :, :]
+        elif axis == 2:
+            npArr = npArr[:, :, inds, :, :]
+        elif axis == 3:
+            npArr = npArr[:, :, :, inds, :]
+        else:
+            npArr = npArr[:, :, :, :, inds]
+    return npArr
+
+def assignSubarrByIndices(destNpArr, srcNpArr, axis, destInds):
+    assert len(destNpArr.shape) <= 5    # Simply not implemented here for more
+    if len(destNpArr.shape) == 1:
+        destNpArr[destInds] = srcNpArr
+    elif len(destNpArr.shape) == 2:
+        if axis == 0:
+            destNpArr[destInds, :] = srcNpArr
+        else:
+            destNpArr[:, destInds] = srcNpArr
+    elif len(destNpArr.shape) == 3:
+        if axis == 0:
+            destNpArr[destInds, :, :] = srcNpArr
+        elif axis == 1:
+            destNpArr[:, destInds, :] = srcNpArr
+        else:
+            destNpArr[:, :, destInds] = srcNpArr
+    elif len(destNpArr.shape) == 4:
+        if axis == 0:
+            destNpArr[destInds, :, :, :] = srcNpArr
+        elif axis == 1:
+            destNpArr[:, destInds, :, :] = srcNpArr
+        elif axis == 2:
+            destNpArr[:, :, destInds, :] = srcNpArr
+        else:
+            destNpArr[:, :, :, destInds] = srcNpArr
+    elif len(destNpArr.shape) == 5:
+        if axis == 0:
+            destNpArr[destInds, :, :, :, :] = srcNpArr
+        elif axis == 1:
+            destNpArr[:, destInds, :, :, :] = srcNpArr
+        elif axis == 2:
+            destNpArr[:, :, destInds, :, :] = srcNpArr
+        elif axis == 3:
+            destNpArr[:, :, :, destInds, :] = srcNpArr
+        else:
+            destNpArr[:, :, :, :, destInds] = srcNpArr
+
 def getPixelFromWidget(widget, point):
     pixmap = QPixmap.grabWidget(widget, QRect(point.x(), point.y(), 1, 1))
     return QColor.fromRgba(pixmap.toImage().pixel(0, 0))

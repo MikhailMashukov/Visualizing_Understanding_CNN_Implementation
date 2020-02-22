@@ -60,14 +60,21 @@ class CImageRecognitionNet:
         # self.gradTfVar = tf.Variable(np.zeros([128, 10], dtype=np.float32), name='grad_var')
 
         self.trainIterNum = 0
+        self.prevLearningParams = None
 
     def createModel(self):
         if not self.base_model:
             # self.base_model = MnistModel2.CMnistModel2()   # If no base_model, create net
+            if DeepOptions.modelClass == 'AlexnetModel':
+                self.base_model = ImageModels.MyAlexnetModel()
             if DeepOptions.modelClass == 'ImageModel':
-                # self.base_model = ImageModels.ImageModel(doubleSizeLayerNames=self.doubleSizeLayerNames)
+                self.base_model = ImageModels.ImageModel(
+                        doubleSizeLayerNames=self.doubleSizeLayerNames)
+            elif DeepOptions.modelClass == 'ImageModel4':
                 self.base_model = ImageModels.ImageModel4_PrevChannelsSE(
-                # self.base_model = ImageModels.ImageModel5_ShiftedCopy(
+                        doubleSizeLayerNames=self.doubleSizeLayerNames)
+            elif DeepOptions.modelClass == 'ImageModel5':
+                self.base_model = ImageModels.ImageModel5_ShiftedCopy(
                         doubleSizeLayerNames=self.doubleSizeLayerNames)
             elif DeepOptions.modelClass in ['ChanConvModel', 'ChanUnitingModel']:
             # elif DeepOptions.modelClass.find('Chan') >= 0:
@@ -129,6 +136,8 @@ class CImageRecognitionNet:
 
     def _getTfDatasets(self, trainImageNums, testImageNums,
                       epochImageCount):
+        print('_getTfDatasets %d, image nums %d, %d - %d' % \
+              (epochImageCount, len(trainImageNums), trainImageNums[0], trainImageNums[-1]))
         trainDatasetImageCount = trainImageNums.shape[0]
         classCount = self.imageDataset.getClassCount()
 
@@ -174,7 +183,7 @@ class CImageRecognitionNet:
             # ds = tfds.load('dataset', split='train',   as_supervised=True)
 
             tfTrainDataset = tf.data.Dataset.from_tensor_slices(curTrainDataset)
-            tfTrainDataset = tfTrainDataset.shuffle(epochImageCount * 2).map(_tfLoadTrainImage)
+            tfTrainDataset = tfTrainDataset.shuffle(buffer_size=epochImageCount * 2).map(_tfLoadTrainImage)
             tfTrainDataset = tfTrainDataset.batch(self.batchSize).prefetch(2)  # .map(_fixup_shape)
                 # TODO: tfTrainDataset object caching
             # for images, labels in tfTrainDataset.take(2):
@@ -202,7 +211,7 @@ class CImageRecognitionNet:
             tfTrainDataset = tf.data.Dataset.from_generator(generator, # args=flowFromDirParams,
                         output_types=(tf.float32, tf.float32), output_shapes=([227,227,3], [classCount]))
             try:
-                tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 4000))
+                tfTrainDataset = tfTrainDataset.shuffle(buffer_size=max(epochImageCount, 4000))
                 tfTrainDataset = tfTrainDataset.batch(self.batchSize)
                 tfTrainDataset = tfTrainDataset.prefetch(2)
                 # tfTrainDataset = tfTrainDataset.repeat(2)
@@ -264,10 +273,12 @@ class CImageRecognitionNet:
                         image[:, :, 1] -= 116
                         image[:, :, 2] -= 103
 
-                        image = next(datagen.flow(np.expand_dims(image, axis=0), batch_size=1))[0]
+#d_                         image = next(datagen.flow(np.expand_dims(image, axis=0), batch_size=1))[0]
                         image = image[rands[randI] : rands[randI] + crop_size[0],
                                       rands[randI + 1] : rands[randI + 1] + crop_size[1], :]
                         images.append(image)
+                        if imageNum % 8000 == 0:
+                            print('Batch image ', imageNum, ' l ', labels.numpy()[randI // 2])
                         randI += 2
 #                     images[:, :, :, 0] -= 123.68
 #                     images[:, :, :, 1] -= 116.779
@@ -283,10 +294,11 @@ class CImageRecognitionNet:
                     return images, labels
 
                 tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
-                tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 12000))
+                tfTrainDataset = tfTrainDataset.shuffle(buffer_size=max(epochImageCount, 12000))
                 tfTrainDataset = tfTrainDataset.batch(self.batchSize)
-                tfTrainDataset = tfTrainDataset.map(tfPrepareBatch, num_parallel_calls=4)
-                tfTrainDataset = tfTrainDataset.prefetch(3)
+                threadCount = 3 + getCpuCoreCount() // 4
+                tfTrainDataset = tfTrainDataset.map(tfPrepareBatch, num_parallel_calls=threadCount)
+                tfTrainDataset = tfTrainDataset.prefetch(threadCount)
             else:
                 # TODO: GPU augmentation
                 # import alexnet_utils
@@ -321,7 +333,7 @@ class CImageRecognitionNet:
                     return images, labels
 
                 tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
-                tfTrainDataset = tfTrainDataset.shuffle(max(epochImageCount, 12000))
+                tfTrainDataset = tfTrainDataset.shuffle(buffer_size=max(epochImageCount, 12000))
                 tfTrainDataset = tfTrainDataset.batch(self.batchSize)
                 tfTrainDataset = tfTrainDataset.map(tfPrepareBatch, num_parallel_calls=4)
                 tfTrainDataset = tfTrainDataset.prefetch(3)
@@ -341,11 +353,12 @@ class CImageRecognitionNet:
                 return x
 
             tfTestDataset = self.imageDataset.getTfDataset('test')   # .take(100).repeat()
-            tfTestDataset = tfTestDataset.shuffle(max(epochImageCount, 2000))
+            tfTestDataset = tfTestDataset.shuffle(buffer_size=max(epochImageCount, 2000))
             # tfTestDataset = tfTestDataset.take(curTestDatasetSize)
-            tfTestDataset = tfTestDataset.map(_tfLoadTestImage, num_parallel_calls=3)
+            threadCount = 2 + getCpuCoreCount() // 4
+            tfTestDataset = tfTestDataset.map(_tfLoadTestImage, num_parallel_calls=threadCount)
             tfTestDataset = tfTestDataset.batch(self.batchSize)
-            tfTestDataset = tfTestDataset.prefetch(2)
+            tfTestDataset = tfTestDataset.prefetch(threadCount)
 
 
         if 0:
@@ -371,21 +384,59 @@ class CImageRecognitionNet:
 
         return tfTrainDataset, tfTestDataset
 
+    class TLearningParams:
+        pass  # tfTrainDataset, ...
+
     # Each dataset = (list/np.array of image numbers, np.array of labels (numbers in [0, number of classes)))
     def doLearning(self, epochCount, learningCallback,
                    trainImageNums, testImageNums,   # trainDataset, testDataset,
                    epochImageCount=None, initialEpochNum=0):
-        from keras.callbacks import TensorBoard
-
         # epochCount = int(math.ceil(iterCount / 100))
         # trainDataset = self.mnistDataset.getNetSource('train')
         # testDataset = self.mnistDataset.getNetSource('test')
         trainDatasetImageCount = trainImageNums.shape[0]
         if epochImageCount is None or epochImageCount > trainDatasetImageCount:
             epochImageCount = trainDatasetImageCount
+
+        tfTrainDataset, tfTestDataset = self._getTfDatasets(trainImageNums, testImageNums,
+                epochImageCount)
+        tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
+        tfTestDataset = tf.compat.v1.data.make_one_shot_iterator(tfTestDataset)
+
+        params = CImageRecognitionNet.TLearningParams()
+        params.tfTrainDataset = tfTrainDataset
+        params.tfTestDataset = tfTestDataset
+        params.epochImageCount = epochImageCount
+        # params.testImageCount = testImageCount
+        params.testImageNums = testImageNums
+        self.prevLearningParams = params
+
+        return self._doLearning(epochCount, learningCallback,
+                                params, initialEpochNum)
+
+    # Reuses previous dataset. Each call of doLearning is limited
+    # with tr*Dataset.shuffle which starts from the very beginning
+    def doLearningWithPrevDataset(self, epochCount, learningCallback,
+                   epochImageCount=None, initialEpochNum=0):
+        if not epochImageCount is None:
+            self.prevLearningParams.epochImageCount = epochImageCount
+        return self._doLearning(epochCount, learningCallback,
+                                self.prevLearningParams, initialEpochNum)
+
+    # If trainImageNums is None, reusing
+    def _doLearning(self, epochCount, learningCallback,
+                   otherParams, initialEpochNum=0):
+        from keras.callbacks import TensorBoard
+
         # print("Running %d epoch(s) from %d, %d images each" % \
         #         (epochCount, initialEpochNum, epochImageCount))
         groupStartTime = datetime.datetime.now()
+
+        testImageCount = otherParams.epochImageCount // 6
+        if testImageCount >= len(otherParams.testImageNums):
+            testImageCount = len(otherParams.testImageNums)
+        if testImageCount < self.batchSize:
+            testImageCount = self.batchSize
 
         tensorBoardCallback = TensorBoard(log_dir=self.logDir, histogram_freq=0,
                 write_graph=False, write_grads=False, write_images=0,    # batch_size=32,
@@ -397,18 +448,13 @@ class CImageRecognitionNet:
         #         learningCallback)
         # tensorBoardCallback.set_model(self.model)
 
-        curTestDatasetSize = epochImageCount // 6
-        if curTestDatasetSize >= len(testImageNums):
-            curTestDatasetSize = len(testImageNums)
-        tfTrainDataset, tfTestDataset = self._getTfDatasets(trainImageNums, testImageNums,
-                epochImageCount)
-        tfTrainDataset = tf.compat.v1.data.make_one_shot_iterator(tfTrainDataset)
-        tfTestDataset = tf.compat.v1.data.make_one_shot_iterator(tfTestDataset)
+        print('epochImageCount2', otherParams.epochImageCount, ', testImageCount2', testImageCount)
 
-        history = self.model.fit_generator(tfTrainDataset,
+        history = self.model.fit_generator(otherParams.tfTrainDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
-                                 steps_per_epoch=epochImageCount // self.batchSize,
-                                 validation_data=tfTestDataset, validation_steps=curTestDatasetSize // self.batchSize,
+                                 steps_per_epoch=otherParams.epochImageCount // self.batchSize,
+                                 validation_data=otherParams.tfTestDataset,
+                                 validation_steps=testImageCount // self.batchSize,
                                  verbose=2) #, callbacks=[tensorBoardCallback])
             #, summaryCallback])
             # Without make_one_shot_iterator - error fused convolution not supported
@@ -416,8 +462,8 @@ class CImageRecognitionNet:
         try:
             if not history.history:
                 raise Exception('empty history object')
-            infoStr = "loss %.5f" % history.history['loss'][-1]
-            infoStr += ", acc %.4f" % history.history['accuracy'][-1]
+            infoStr = "loss %.7g" % history.history['loss'][-1]
+            infoStr += ", acc %.5f" % history.history['accuracy'][-1]
         except Exception as ex:
             print("Error in doLearning: %s" % str(ex))
             infoStr = ''

@@ -56,6 +56,7 @@ def MyAlexnetModel(classCount=DeepOptions.classCount):
     and only slightly modified to work with TF backend
     """
 
+    mult = DeepOptions.netSizeMult
     if 0:
         # K.set_image_dim_ordering('th')
         K.set_image_data_format('channels_first')
@@ -65,13 +66,13 @@ def MyAlexnetModel(classCount=DeepOptions.classCount):
         inputs = Input(shape=(227, 227, 3))
         chanAxis = 3
 
-    conv_1 = Conv2D(96, 11, strides=4, activation='relu', name='conv_1')(inputs)
+    conv_1 = Conv2D(mult * 6, 11, strides=4, activation='relu', name='conv_1')(inputs)
 
     conv_2 = MaxPooling2D((3, 3), strides=(2, 2))(conv_1)
                 # 11  4  4 = 19, stride 8
     conv_2 = cross_channel_normalization(name="convpool_1")(conv_2)
     conv_2 = ZeroPadding2D((2, 2))(conv_2)
-    new_convs =[Conv2D(128, 5, activation="relu", name='conv_2_' + str(i + 1))
+    new_convs =[Conv2D(mult * 8, 5, activation="relu", name='conv_2_' + str(i + 1))
         (split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_2)
          ) for i in range(2)]
                 # 2 * 8 <- (shifted)    19 8 8 8 8 = 51
@@ -85,29 +86,34 @@ def MyAlexnetModel(classCount=DeepOptions.classCount):
                 # 51 8 8 = 67, stride 16
     conv_3 = cross_channel_normalization()(conv_3)
     conv_3 = ZeroPadding2D((1, 1))(conv_3)
-    conv_3 = Conv2D(384, 3, activation='relu', name='conv_3')(conv_3)
+    conv_3 = Conv2D(mult * 24, 3, activation='relu', name='conv_3')(conv_3)
                 # 2 * 8 + 16 <-    67 16 16
 
     conv_4 = ZeroPadding2D((1, 1))(conv_3)
     conv_4 = Concatenate(axis=chanAxis, name="conv_4")([
-        Conv2D(192, 3, activation="relu", name='conv_4_' + str(i + 1))(
+        Conv2D(mult * 12, 3, activation="relu", name='conv_4_' + str(i + 1))(
             split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_4)
         ) for i in range(2)])   # , mode='concat', concat_axis=1, name="conv_4")
 
     conv_5 = ZeroPadding2D((1, 1))(conv_4)
     conv_5 = Concatenate(axis=chanAxis, name="conv_5")([
-        Conv2D(128, 3, activation="relu", name='conv_5_' + str(i + 1))(
+        Conv2D(mult * 8, 3, activation="relu", name='conv_5_' + str(i + 1))(
             split_tensor(axis=chanAxis, ratio_split=2, id_split=i)(conv_5)
         ) for i in range(2)])   # mode='concat', concat_axis=1, name="conv_5")
 
     dense_1 = MaxPooling2D((3, 3), strides=(2, 2), name="convpool_5")(conv_5)
 
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(512, activation='relu', name='dense_1')(dense_1)
-    dense_2 = Dropout(0.5)(dense_1)
-    dense_2 = Dense(256, activation='relu', name='dense_2')(dense_2)
-    dense_3 = Dropout(0.5)(dense_2)
-    dense_3 = Dense(classCount, name='dense_3')(dense_3)   # Class count
+    if classCount > 100:
+        dense_1 = Dense(mult * 256, activation='relu', name='dense_1')(dense_1)
+        dense_2 = Dropout(0.5)(dense_1)
+        dense_2 = Dense(mult * 256, activation='relu', name='dense_2')(dense_2)
+    else:
+        dense_1 = Dense(512, activation='relu', name='dense_1')(dense_1)
+        dense_2 = Dropout(0.5)(dense_1)
+        dense_2 = Dense(256, activation='relu', name='dense_2')(dense_2)
+    # dense_3 = Dropout(0.5)(dense_2)
+    dense_3 = Dense(classCount, name='dense_3')(dense_2)   # Class count
     prediction = Activation("softmax", name="softmax")(dense_3)
 
     m = Model(input=inputs, output=prediction)
@@ -132,11 +138,11 @@ def ModelBlock(filters, kernel_size, **kwargs):
     if 0:
         return Conv2D(filters, kernel_size, **kwargs)
     else:
-        def blockLayer(x, prevChans):
+        def blockLayer(x, prevChans=None):    # prevChans is not used, it is just for compatibility here
             sizeMult = 1
             if 'doubleSizeLayerNames' in kwargs:
                 if 'name' in kwargs and isMatchedLayer(kwargs['name'], kwargs['doubleSizeLayerNames'], True):
-                    print("Layer '%s' has double size" % kwargs['name'])
+                    print("Layer '%s' has 2x size" % kwargs['name'])
                     sizeMult = 2
                 del kwargs['doubleSizeLayerNames']
             conv = Conv2D(filters * sizeMult, kernel_size,
@@ -268,8 +274,6 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         # last_tower_convs.append(MaxPooling2D((2, 2), strides=(2, 2))(last_tower_conv))
         # last_tower_convs.append(fractional_max_pool(1.42)(last_tower_conv))
         last_tower_convs.append(last_tower_conv)
-        # if towerInd == 0:
-        #     chans = t_chans
 
     conv_2 = Concatenate(axis=3, name='conv_1_adds')(last_tower_convs)
     conv_2 = cross_channel_normalization(name="cross_chan_norm_1")(conv_2)
@@ -337,8 +341,6 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
 
         last_tower_conv = Multiply()([last_tower_conv, get_tensor_array_element(towerCount + towerInd)(towerWeights)])
         last_tower_convs.append(last_tower_conv)
-        # if towerInd == 0:
-        #     chans = t_chans
 
     conv_3 = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
     conv_3 = fractional_max_pool(1.25)(conv_3)
@@ -367,12 +369,22 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     dense_1 = BatchNormalization()(dense_1)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(mult * 8, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+    if classCount > 100:
+        dense_1 = Dense(classCount * 2, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                     name='dense_1')(dense_1)
 
-    # dense_2 = BatchNormalization()(dense_1)
-    dense_2 = Dropout(0.5)(dense_1)
-    dense_2 = Dense(mult * 16, name='dense_2')(dense_2)
+        # dense_2 = BatchNormalization()(dense_1)
+        dense_2 = Dropout(0.5)(dense_1)
+        dense_2 = Dense(classCount * 4, name='dense_2')(dense_2)
+    else:
+        dense_1 = Dense(mult * 8, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+                    name='dense_1')(dense_1)
+
+        # dense_2 = BatchNormalization()(dense_1)
+        dense_2 = Dropout(0.5)(dense_1)
+        dense_2 = Dense(mult * 16, name='dense_2')(dense_2)
+
+
 
     # dense_3 = BatchNormalization()(dense_2)
     dense_3 = Dropout(0.3)(dense_2)
@@ -530,7 +542,7 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_23_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyInitializer)(t_conv_3, t_chans)
-            t_conv_3 = SpatialDropout2D(0.4)(t_conv_3)
+            # t_conv_3 = SpatialDropout2D(0.4)(t_conv_3)
             # conv_3s.append(t_conv_3)
             t_conv_3 = Add(name='add_223_%d' % towerInd)([t_conv_2, t_conv_3])
             # add_23s.append(t_conv_3)
@@ -583,7 +595,7 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
     conv_last = BatchNormalization()(conv_last)
     # conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
     # conv_last = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
-    conv_last = SpatialDropout2D(0.4)(conv_last)
+    conv_last = SpatialDropout2D(0.3)(conv_last)
     # conv_last = fractional_max_pool(1.25)(conv_last)
     (conv_last, chans) = ModelBlock4(mult * 16, 3, strides=(1, 1), activation='relu',
                            name='conv_5', doubleSizeLayerNames=doubleSizeLayerNames)(conv_last, chans)
@@ -600,14 +612,16 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
     dense_1 = BatchNormalization()(conv_last)
     # dense_1 = Dropout(0.3)(conv_3)
     dense_1 = Flatten(name="flatten")(dense_1)
-    dense_1 = Dense(mult * 16, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+    size = (mult * classCount // 4) if classCount > 100 else (mult * 16)
+    dense_1 = Dense(size, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                     name='dense_1')(dense_1)
 
     chans = keras.layers.Reshape((chans.shape[3], ))(chans)
     dense_2 = Concatenate(axis=1)([dense_1 , chans])
     # dense_2 = BatchNormalization()(dense_2)
-    dense_2 = Dropout(0.5)(dense_2)
-    dense_2 = Dense(mult * 8, name='dense_2')(dense_2)
+    dense_2 = Dropout(0.2)(dense_2)
+    size = (mult * classCount // 4) if classCount > 100 else (mult * 8)
+    dense_2 = Dense(size, name='dense_2')(dense_2)
 
     # dense_3 = BatchNormalization()(dense_2)
     dense_3 = Dropout(0.3)(dense_2)
@@ -646,6 +660,7 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
             name = 'add_%d34' % (blockInd + 1)
             model.debug_layers[name] = concatenateLayersByNameBegin(model, name)
+    model.debug_layers['conv_3'] = concatenateLayersByNameBegin(model, 'conv_3')
 
     return model
 
