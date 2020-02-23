@@ -1,0 +1,1 @@
+"C:\Program Files\Python35\python.exe" %~dp0/LogAnalysis.py %1
