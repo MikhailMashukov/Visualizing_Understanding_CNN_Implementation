@@ -1,4 +1,3 @@
-#To check why at 3 training is bad. AT 2 is good now
 """ Result notes:
 Reinitialization of neirons works bad or doesn't give serious effect.
 It's bad that the resting neirons setups theirs surroundings to theirs old weights.
@@ -34,11 +33,17 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
   according to strides on the first 2 layers. Seems to give additional 3% on validataion data
 16_3: tried simply stride 1 instead of shifting. The improvement seems the same as in 16_2
 
+1000-classes ImageNet experiments:
+18_5-18_11: high epsilon killed learning
+18_13: people use warming up for several epochs, but for me it worsened variance a lot after 160 mini-epochs,
+  further training only killed neirons finally
+
 Further ideas:
 * to implement division of neirons: each is divided onto two with close weights
   and theirs output connections get about 1/2 of initial strength;
 * to turn SE blocks initially off;
 * to investigate how weights of particular neirons changed during training;
+* to take for each neiron its source convolutions with theirs weights and to display
 * to average values for each channel, then multiply channels by them and to sum -
   there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
 * to look at activatity maps on incorrectly classified images
@@ -50,10 +55,10 @@ Further ideas:
 -+ * to try 3D max pooling for neighbour channels;
 * to add towers to teached net and to make much higher noise to the teached part;
 * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
-* to apply the same convolutions to neighbour layers - to recognize the same on different scales
-* to try ELU
+* to apply the same convolutions to neighbour layers - to recognize the same on different scales;
+* to try ELU;
+* to add blocks of noise to the source images;
 """
-
 
 # import copy
 import datetime
@@ -70,6 +75,7 @@ from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
 import pickle
 import math
 import numpy as np
+
 try:
     import PyQt4.Qt
     from PyQt4 import QtCore, QtGui
@@ -89,6 +95,10 @@ import os
 # import sys
 # import time
 import threading
+try:
+    from scipy.misc import imsave
+except:
+    from imageio import imsave  # For scipy >= 1.2, but imresize needs additional searching
 
 # sys.path.append(r"../Qt_TradeSim")
 import AlexNetVisWrapper
@@ -226,6 +236,7 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         self.setWindowTitle(self.getTitleForWindow())
 
         c_buttonWidth = 50
+        c_minButtonWidth = 40
         c_buttonHeight = 30
         c_margin = 10
 
@@ -255,10 +266,12 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         curHorizWidget.addWidget(self.epochComboBox)
 
         button = QtGui.QPushButton('Load state', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(lambda: self.onLoadStatePressed())
         curHorizWidget.addWidget(button)
 
-        button = QtGui.QPushButton('Save state', self)   # and/or caches
+        button = QtGui.QPushButton('Save state', self)  # and/or caches
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(lambda: self.saveState())
         curHorizWidget.addWidget(button)
 
@@ -287,12 +300,14 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         self.iterCountEdit = spinBox
 
         button = QtGui.QPushButton('I&terations', self)
+        button.setMinimumWidth(c_minButtonWidth)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
         button.clicked.connect(lambda: self.onDoItersPressed(int(self.iterCountEdit.text())))
         button.setToolTip('Run learning iterations')
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Spec. iter.', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(lambda: self.onSpecialDoItersPressed(int(self.iterCountEdit.text())))
         button.setToolTip('Run iterations on selected samples')
         curHorizWidget.addWidget(button)
@@ -315,9 +330,9 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         # self.infoLabel.setGeometry(x, y, self.width() - c_margin * 2, c_buttonHeight)
         # self.infoLabel.setGeometry(x, y, 550, c_buttonHeight * 3)
         self.infoLabel.setMinimumWidth(350)
-            # controlsRestrictorWidget = QtGui.QWidget();  # Example how to restrict width, but it doesn't work, parent already set
-            # controlsRestrictorWidget.setLayout(curHorizWidget);
-            # controlsRestrictorWidget.setMaximumWidth(800);
+        # controlsRestrictorWidget = QtGui.QWidget();  # Example how to restrict width, but it doesn't work, parent already set
+        # controlsRestrictorWidget.setLayout(curHorizWidget);
+        # controlsRestrictorWidget.setMaximumWidth(800);
         curHorizWidget.addWidget(self.infoLabel)
 
         # # x += 200 + c_margin
@@ -390,64 +405,82 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
 
         button = QtGui.QPushButton('Show &image', self)
         # button.setGeometry(x, y, c_buttonWidth, c_buttonHeight)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onShowImagePressed)
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Show &act.', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onShowActivationsPressed)
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Act. est. by images', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onShowActEstByImagesPressed)
         button.setToolTip('Show activations estimations, one column per image')
         curHorizWidget.addWidget(button)
 
+        button = QtGui.QPushButton('Show &weights', self)
+        button.setMinimumWidth(c_minButtonWidth)
+        button.clicked.connect(self.showWeightsImage2)
+        curHorizWidget.addWidget(button)
+
         button = QtGui.QPushButton('t-SNE', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onShowImagesWithTSnePressed)
         button.setToolTip('Show images, distributed in accordance with activations t-SNE')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('Show act. tops', self)     # Doesn't give interesting results
+        # button.setMinimumWidth(c_minButtonWidth)
         # button.clicked.connect(self.onShowActTopsPressed)
         # curHorizWidget.addWidget(button)
 
         self.multActTopsButtonText = 'My &mult. act. tops'
         button = QtGui.QPushButton(self.multActTopsButtonText, self)
+        button.setMinimumWidth(c_minButtonWidth)
         self.multActTopsButton = button
         button.clicked.connect(self.onShowMultActTopsPressed)
         button.setToolTip('Show my activations tops by multiple images')
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Multith. act. tops', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.calcMultActTops_MultiThreaded)
         button.setToolTip('Multithreaded preparation of activations tops for all epochs')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('Show all images tops', self)
+        # button.setMinimumWidth(c_minButtonWidth)
         # button.clicked.connect(self.onShowActTopsFromCsvPressed)
         # curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Average &grad.', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onShowGradientsPressed)
         button.setToolTip('Show average (by specified number of first images) gradients')
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Grad. by images', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onGradientsByImagesPressed)
         button.setToolTip('Show gradients by images, for one image at vertical line')
         curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('Worst images', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onShowWorstImagesPressed)
         button.setToolTip('Show images with maximal prediction errors')
         curHorizWidget.addWidget(button)
 
         # button = QtGui.QPushButton('Pred. history', self)
+        # button.setMinimumWidth(c_minButtonWidth)
         # button.clicked.connect(self.onShowPredictionHistoryPressed)
         # # button.setToolTip('')
         # curHorizWidget.addWidget(button)
 
         button = QtGui.QPushButton('&Cancel', self)
+        button.setMinimumWidth(c_minButtonWidth)
         button.clicked.connect(self.onCancelPressed)
         curHorizWidget.addWidget(button)
         layout.addLayout(curHorizWidget)
@@ -1373,6 +1406,36 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         ax.clear()
         ax.imshow(weightsImageData, cmap='plasma')
 
+    # Another approach to visualize weights. Doesn't work well, especially with max pool. Because we sum
+    # masks during theirs imposing to generate next layer's mask, but actually the same previous layer's
+    # values are used
+    def showWeightsImage2(self):
+        try:
+            self.startAction(self.showWeightsImage2)
+            epochNum = self.getSelectedEpochNum()
+            self.netWrapper.loadState(epochNum)
+            layerName = self.blockComboBox.currentText()
+
+            imageData = self.netWrapper.calcWeightsVisualization2(layerName)
+            chanCount, colCount = self.getChannelToAnalyzeCount(imageData)
+            imageData = layoutLayersToOneImage(imageData, colCount, 1, imageData.min())
+
+            dirName = 'Data/WeightsVis/%s_%dChan' % \
+                      (layerName, chanCount)
+            if not os.path.exists(dirName):
+                os.makedirs(dirName)
+            fileName = '%s/Weights_%s_Epoch%d.png' % \
+                       (dirName, layerName, epochNum)
+            imsave(fileName, imageData, format='png')
+            print("Image saved to '%s'" % fileName)
+
+            ax = self.getMainSubplot()
+            ax.clear()
+            ax.imshow(imageData)
+            self.canvas.draw()
+        except Exception as ex:
+            self.showProgress("Error: %s" % str(ex))
+
     def onShowGradientsPressed(self):
         self.startAction(self.onShowGradientsPressed)
         epochNum = self.getSelectedEpochNum()
@@ -1683,7 +1746,8 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
             self.onSpinBoxValueChanged()
         elif self.lastAction in [self.onShowMultActTopsPressed, self.onShowActEstByImagesPressed,
                                  self.onShowGradientsPressed, self.onGradientsByImagesPressed,
-                                 self.onCorrelationAnalyzisPressed, self.onCorrelationToOtherModelPressed] and \
+                                 self.onCorrelationAnalyzisPressed, self.onCorrelationToOtherModelPressed,
+                                 self.showWeightsImage2] and \
                 self.getSelectedEpochNum() and self.getSelectedEpochNum() > 0:
             self.lastAction()
 
@@ -2463,14 +2527,6 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         #     self.block = pickle.load(file)
         pass
 
-
-
-
-
-
-
-
-
     def initWindow(self):
         # self.window = window
         self.frameNumber = 0  # Only used in set_position workaround
@@ -2880,7 +2936,13 @@ if __name__ == "__main__":
         # mainWindow.loadCacheState()
 
         try:
-            mainWindow.loadState(mainWindow.getSelectedEpochNum())
+            # mainWindow.loadState(mainWindow.getSelectedEpochNum())
+            mainWindow.blockComboBox.setCurrentIndex(0)
+            # mainWindow.netWrapper.doubleLayerWeights(['conv_21'])
+            mainWindow.showWeightsImage2()
+            mainWindow.blockComboBox.setCurrentIndex(1)
+            mainWindow.showWeightsImage2()
+            mainWindow.saveState()
             # mainWindow.netWrapper.getGradients()
             # MnistNetVisWrapper.getGradients(mainWindow.netWrapper.net.model)
             # mainWindow.onDoItersPressed(1)
@@ -2889,7 +2951,7 @@ if __name__ == "__main__":
             # mainWindow.onShowImagePressed()
             # mainWindow.onDisplayIntermResultsPressed()
             # mainWindow.onDisplayPressed()
-            mainWindow.onShowActivationsPressed()
+            # mainWindow.onShowActivationsPressed()
             # mainWindow.onShowMultActTopsPressed()
             # mainWindow.onShowSortedChanActivationsPressed()
             # mainWindow.onSpinBoxValueChanged()
@@ -2898,12 +2960,19 @@ if __name__ == "__main__":
             # mainWindow.onShowWorstImagesPressed()
             # mainWindow.onShowImagesWithTSnePressed()
             # mainWindow.onCorrelationToOtherModelPressed()
-            mainWindow.netWrapper.setLearnRate(mainWindow.netWrapper.getRecommendedLearnRate())
-            mainWindow.netWrapper.doubleLayerWeights(['conv_21'])
+            # mainWindow.netWrapper.setLearnRate(mainWindow.netWrapper.getRecommendedLearnRate())
+
             pass
         except Exception as ex:
             print('Exception in main procedure: %s' % str(ex))
             raise
+
+        # for i in range(10):
+        #     try:
+        #         mainWindow.showWeightsImage2()
+        #     except Exception as ex:
+        #         print('Exception in main procedure: %s' % str(ex))
+        #         raise
     else:
         mainWindow.fastInit()
     # mainWindow.paintRect()

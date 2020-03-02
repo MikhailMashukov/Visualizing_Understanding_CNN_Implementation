@@ -3,13 +3,12 @@ import tensorflow as tf
 
 if 1:
     from keras.models import Model
-    from keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
+    from keras.layers import Flatten, Reshape, Dense, Dropout, SpatialDropout2D, \
             Activation, Input, merge, Add, Concatenate, Multiply
     from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
     from keras.layers.normalization import BatchNormalization
     from keras.layers.advanced_activations import ReLU
     from keras.layers.core import Lambda
-    import keras.layers
 
     from keras.optimizers import Adam, SGD
     from keras import backend as K
@@ -23,7 +22,7 @@ else:
     # on m = Model(input=inputs, output=prediction) in ImageModels.py on the VKI's server
     # from tensorflow.python import keras
     from tensorflow.keras.models import Model
-    from tensorflow.keras.layers import Flatten, Dense, Dropout, SpatialDropout2D, \
+    from tensorflow.keras.layers import Flatten, Reshape, Dense, Dropout, SpatialDropout2D, \
             Activation, Input, Add, Concatenate, Multiply
     from tensorflow.keras.layers import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
     from tensorflow.keras.layers import BatchNormalization
@@ -152,45 +151,6 @@ def ModelBlock(filters, kernel_size, **kwargs):
 
         return blockLayer
 
-g_usedNames = set()
-
-# Also takes previous compressed channels, adds them to SE block's input and
-# returns all compressed channels
-def ModelBlock4(filters, kernel_size, **kwargs):
-    if 0:
-        return Conv2D(filters, kernel_size, **kwargs)
-    else:
-        sizeMult = 1
-        if 'doubleSizeLayerNames' in kwargs:
-            if 'name' in kwargs and isMatchedLayer(kwargs['name'], kwargs['doubleSizeLayerNames'], True):
-                print("Layer '%s' has double size" % kwargs['name'])
-                sizeMult = 2
-            del kwargs['doubleSizeLayerNames']
-
-        convBlock = Conv2D(filters * sizeMult, kernel_size, **kwargs)
-
-        def blockLayer(x, prevChans):
-            # global g_usedNames
-
-            # if 'name' in kwargs:
-            #     name = kwargs['name']
-            #     if name in g_usedNames:
-            #         for suffix in range(2, 10000):
-            #             appendedName = '%s_%d' % (name, suffix)
-            #             if not appendedName in g_usedNames:
-            #                 break
-            #         kwargs['name'] = appendedName
-            #         g_usedNames.add(appendedName)
-            #     else:
-            #         g_usedNames.add(name)
-
-            conv = convBlock(x)
-            result = SeBlock4_PrevChannels(conv, prevChans, 4)
-                # TODO: to save blocks in e.g. list and support applying of them to multiple inputs
-            return result
-
-        return blockLayer
-
 def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     import tensorflow as tf
 
@@ -238,7 +198,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         else:
             t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_3)
+#             t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = ModelBlock(mult * 8, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
@@ -276,7 +236,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         last_tower_convs.append(last_tower_conv)
 
     conv_2 = Concatenate(axis=3, name='conv_1_adds')(last_tower_convs)
-    conv_2 = cross_channel_normalization(name="cross_chan_norm_1")(conv_2)
+#     conv_2 = cross_channel_normalization(name="cross_chan_norm_1")(conv_2)
     # conv_2 = MaxPooling2D((2, 2), strides=(2, 2))(conv_2)
     conv_2 = fractional_max_pool(1.26)(conv_2)
     conv_2 = BatchNormalization()(conv_2)
@@ -291,7 +251,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     for towerInd in range(towerCount):
         t_conv_2 = conv_2
         t_conv_2 = cross_channel_normalization(name='cross_chan_norm_22%d' % towerInd)(t_conv_2)
-        t_conv_2 = BatchNormalization()(t_conv_2)
+#         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         t_conv_2 = ModelBlock(mult * 16, 3, strides=(1, 1),
                           activation='relu' if towerInd == 0 else 'sigmoid',
@@ -303,15 +263,15 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
             last_tower_conv = t_conv_2
             # With smallerInputAreas == False actually there are no towers here
         else:
-            t_conv_3 = BatchNormalization()(t_conv_2)
+            # t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_3)
+            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_2)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             t_conv_3 = ModelBlock(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_23_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyInitializer)(t_conv_3)
-            t_conv_3 = SpatialDropout2D(0.4)(t_conv_3)
+#             t_conv_3 = SpatialDropout2D(0.4)(t_conv_3)
             # conv_3s.append(t_conv_3)
             t_conv_3 = Add(name='add_223_%d' % towerInd)([t_conv_2, t_conv_3])
             # add_23s.append(t_conv_3)
@@ -352,7 +312,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     # conv_last = BatchNormalization()(conv_last)
     # conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
     # conv_last = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
-    conv_last = SpatialDropout2D(0.4)(conv_last)
+#     conv_last = SpatialDropout2D(0.4)(conv_last)
     conv_last = fractional_max_pool(1.3)(conv_last)
     conv_last = ModelBlock(mult * 24, 3, strides=(1, 1), activation='relu',
                            name='conv_4', doubleSizeLayerNames=doubleSizeLayerNames)(conv_last)
@@ -384,8 +344,6 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
         dense_2 = Dropout(0.5)(dense_1)
         dense_2 = Dense(mult * 16, name='dense_2')(dense_2)
 
-
-
     # dense_3 = BatchNormalization()(dense_2)
     dense_3 = Dropout(0.3)(dense_2)
     dense_3 = Dense(classCount, name='dense_3')(dense_3)     # Class count
@@ -395,7 +353,7 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     prediction = Activation("softmax", name="softmax")(pow(1.2)(dense_3))
 
     model = Model(inputs=[inputs, towerWeights], outputs=prediction)
-    # print(model.summary())
+    print(model.summary())
 
     # if not weights_path is None:
     #     model.load_weights(weights_path)
@@ -426,6 +384,48 @@ def ImageModel(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
 
     return model
 
+g_usedNames = set()
+
+# Also takes previous compressed channels, adds them to SE block's input and
+# returns all compressed channels
+def ModelBlock4(filters, kernel_size, **kwargs):
+    if 0:
+        return Conv2D(filters, kernel_size, **kwargs)
+    else:
+        sizeMult = 1
+        if 'doubleSizeLayerNames' in kwargs:
+            if 'name' in kwargs and isMatchedLayer(kwargs['name'], kwargs['doubleSizeLayerNames'], True):
+                print("Layer '%s' has double size" % kwargs['name'])
+                sizeMult = 2
+            del kwargs['doubleSizeLayerNames']
+
+        if not 'kernel_initializer' in kwargs:
+            kwargs['kernel_initializer'] = 'he_normal'
+        convBlock = Conv2D(filters * sizeMult, kernel_size, **kwargs)
+        # print('he_normal')
+        def blockLayer(x, prevChans):
+            # global g_usedNames
+
+            # if 'name' in kwargs:
+            #     name = kwargs['name']
+            #     if name in g_usedNames:
+            #         for suffix in range(2, 10000):
+            #             appendedName = '%s_%d' % (name, suffix)
+            #             if not appendedName in g_usedNames:
+            #                 break
+            #         kwargs['name'] = appendedName
+            #         g_usedNames.add(appendedName)
+            #     else:
+            #         g_usedNames.add(name)
+
+            conv = convBlock(x)
+            result = SeBlock4_PrevChannels(conv, prevChans, 4)
+                # TODO: to save blocks in e.g. list and support applying of them to multiple inputs
+            return result
+
+        return blockLayer
+
+
 def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLayerNames=[]):
     import tensorflow as tf
 
@@ -441,7 +441,7 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
         # Looks like input, should be declared in model's input, but (if the tensor parameter is present)
         # should not be supplied to the net (in model.fit and so on)
 
-    (conv_1, chans) = ModelBlock4(mult * 12, 7, strides=(2, 2), activation='relu',
+    (conv_1, chans) = ModelBlock4(mult * 12, 7, strides=(2, 2), activation='elu',
                     name='conv_11', doubleSizeLayerNames=doubleSizeLayerNames)(inputs, None)
     conv_1 = fractional_max_pool(1.5)(conv_1)
 
@@ -454,7 +454,7 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         (t_conv_2, t_chans) = ModelBlock4(mult * 8, 5, strides=(2, 2),
-                          activation='relu',
+                          activation='elu',
                           name='conv_12_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                           kernel_initializer=MyVarianceScalingInitializer(1.0/16 * (towerInd + 1)))(t_conv_2, chans)
         # t_conv_2 = SpatialDropout2D(0.5)(t_conv_2)
@@ -468,7 +468,7 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
             # t_conv_3 = cross_channel_normalization(name='cross_chan_norm_13%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             (t_conv_3, t_chans) = ModelBlock4(mult * 8, 3, padding='same', strides=(1, 1),
-                              activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
+                              activation='relu' if towerInd == 0 else 'elu', # activity_regularizer=keras.regularizers.l1(1e-6),
                               name='conv_13_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                               kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.35))(
                           t_conv_3, t_chans)
@@ -511,20 +511,23 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
     conv_2 = fractional_max_pool(1.26)(conv_2)
     conv_2 = BatchNormalization()(conv_2)
     (conv_2, chans) = ModelBlock4(mult * 16, 3, strides=(1, 1),
-                   activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+                  # activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                    name='conv_21', doubleSizeLayerNames=doubleSizeLayerNames)(conv_2, chans)
         # Input - 17 * 17
+    conv_2 = BatchNormalization()(conv_2)
+    conv_2 = Activation('relu')(conv_2)
     # conv_2 = SpatialDropout2D(0.1)(conv_2)
+    shortcut = AveragePooling2D(pool_size=9, strides=7)(conv_2)
     conv_2 = fractional_max_pool(1.3)(conv_2)
 
     last_tower_convs = []
     for towerInd in range(towerCount):
         t_conv_2 = conv_2
-        t_conv_2 = cross_channel_normalization(name='cross_chan_norm_22%d' % towerInd)(t_conv_2)
-        t_conv_2 = BatchNormalization()(t_conv_2)
+#         t_conv_2 = cross_channel_normalization(name='cross_chan_norm_22%d' % towerInd)(t_conv_2)
+#         t_conv_2 = BatchNormalization()(t_conv_2)
         t_conv_2 = split_tensor(axis=3, ratio_split=towerCount, id_split=towerInd)(t_conv_2)
         (t_conv_2, t_chans) = ModelBlock4(mult * 16, 3, strides=(1, 1),
-                          activation='relu' if towerInd == 0 else 'sigmoid',
+                          activation='elu' if towerInd == 0 else 'sigmoid',
                           name='conv_22_%d' % towerInd, doubleSizeLayerNames=doubleSizeLayerNames,
                           kernel_initializer=MyVarianceScalingInitializer(1.0 / 32 if towerInd == 0 else 0.3))(
                       t_conv_2, chans)
@@ -536,7 +539,7 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
         else:
             t_conv_3 = BatchNormalization()(t_conv_2)
             # t_conv_3 = Dropout(0.3)(t_conv_2)
-            t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_3)
+#             t_conv_3 = cross_channel_normalization(name='cross_chan_norm_23%d' % towerInd)(t_conv_3)
             # t_conv_3 = ZeroPadding2D((1, 1))(t_conv_3)
             (t_conv_3, t_chans) = ModelBlock4(mult * 16, 3, padding='same', strides=(1, 1),
                               activation='relu' if towerInd == 0 else 'sigmoid', # activity_regularizer=keras.regularizers.l1(1e-6),
@@ -588,14 +591,16 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
     conv = Concatenate(axis=3, name='conv_2_adds')(last_tower_convs)
     conv = fractional_max_pool(1.3)(conv)
     conv = BatchNormalization()(conv)
-    (conv, chans) = ModelBlock4(mult * 12, 2, strides=(1, 1), activation='sigmoid',
+    (conv, chans) = ModelBlock4(mult * 12, 2, strides=(1, 1), # activation='sigmoid',
                         name='conv_4', doubleSizeLayerNames=doubleSizeLayerNames)(conv, chans)
+    conv = BatchNormalization()(conv)
+    conv = Activation('relu')(conv)
 
     conv_last = conv
-    conv_last = BatchNormalization()(conv_last)
-    # conv_last = cross_channel_normalization(name='cross_chan_norm_2u')(conv_last)
+#     conv_last = BatchNormalization()(conv_last)
+    conv_last = cross_channel_normalization(name='cross_chan_norm_5')(conv_last)
     # conv_last = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
-    conv_last = SpatialDropout2D(0.3)(conv_last)
+    # conv_last = SpatialDropout2D(0.3)(conv_last)
     # conv_last = fractional_max_pool(1.25)(conv_last)
     (conv_last, chans) = ModelBlock4(mult * 16, 3, strides=(1, 1), activation='relu',
                            name='conv_5', doubleSizeLayerNames=doubleSizeLayerNames)(conv_last, chans)
@@ -609,23 +614,28 @@ def ImageModel4_PrevChannelsSE(classCount=DeepOptions.classCount, doubleSizeLaye
 
     # dense_1 = MaxPooling2D((2, 2), strides=(2, 2))(conv_last)
     # dense_1 = fractional_max_pool(1.3)(conv_last)
-    dense_1 = BatchNormalization()(conv_last)
-    # dense_1 = Dropout(0.3)(conv_3)
-    dense_1 = Flatten(name="flatten")(dense_1)
-    size = (mult * classCount // 4) if classCount > 100 else (mult * 16)
+    # dense_1 = BatchNormalization()(conv_last)
+    # dense_1 = Dropout(0.3)(dense_1)
+    dense_1 = Flatten(name="flatten")(conv_last)
+    shortcut = Flatten(name="shortcut_flatten")(shortcut)
+    dense_1 = Concatenate(axis=1)([dense_1, shortcut])
+    size = (mult * classCount // 2) if classCount > 100 else (mult * 16)
     dense_1 = Dense(size, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
+                    kernel_initializer='he_normal',
                     name='dense_1')(dense_1)
 
-    chans = keras.layers.Reshape((chans.shape[3], ))(chans)
+    chans = Reshape((chans.shape[3], ))(chans)
     dense_2 = Concatenate(axis=1)([dense_1 , chans])
-    # dense_2 = BatchNormalization()(dense_2)
-    dense_2 = Dropout(0.2)(dense_2)
-    size = (mult * classCount // 4) if classCount > 100 else (mult * 8)
-    dense_2 = Dense(size, name='dense_2')(dense_2)
+    dense_2 = BatchNormalization()(dense_2)
+    dense_2 = Dropout(0.4)(dense_2)
+    size = (mult * classCount // 2) if classCount > 100 else (mult * 8)
+    dense_2 = Dense(size, kernel_initializer='he_normal',
+                    name='dense_2')(dense_2)
 
-    # dense_3 = BatchNormalization()(dense_2)
-    dense_3 = Dropout(0.3)(dense_2)
-    dense_3 = Dense(classCount, name='dense_3')(dense_3)     # Class count
+    dense_3 = BatchNormalization()(dense_2)
+    # dense_3 = Dropout(0.3)(dense_2)
+    dense_3 = Dense(classCount, kernel_initializer='he_normal',
+                    name='dense_3')(dense_3)
     # y = K.variable(value=2.0)
     # meaner=Lambda(lambda x: K.mean(x, axis=1) )
     # p = Lambda(f, output_shape=lambda input_shape: g(input_shape), **kwargs)
@@ -862,7 +872,7 @@ def ImageModel5_ShiftedCopy(classCount=DeepOptions.classCount, doubleSizeLayerNa
     dense_1 = Dense(mult * 16, activation='relu', # activity_regularizer=keras.regularizers.l1(1e-6),
                     name='dense_1')(dense_1)
 
-    chans = keras.layers.Reshape((chans.shape[3], ))(chans)
+    chans = Reshape((chans.shape[3], ))(chans)
     dense_2 = Concatenate(axis=1)([dense_1 , chans])
     # dense_2 = BatchNormalization()(dense_2)
     dense_2 = Dropout(0.5)(dense_2)

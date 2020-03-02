@@ -1,17 +1,20 @@
 # Should be run with C:\Program Files\Python35
 
 import matplotlib.pyplot as plt
-from matplotlib.backends.backend_qt4agg import FigureCanvas
-from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
-from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
 from matplotlib.figure import Figure
 import numpy as np
 import os
 import pandas as pd
-from PyQt4.QtGui import (QApplication, QColumnView, QFileSystemModel,
-                 QSplitter, QTreeView, QItemSelection)
-from PyQt4.QtCore import QDir, Qt
-from PyQt4 import QtCore, QtGui
+try:
+    from matplotlib.backends.backend_qt4agg import FigureCanvas
+    from matplotlib.backends.backend_qt4agg import NavigationToolbar2QT as NavigationToolbar
+    from matplotlib.backends.qt_compat import QtCore, QtWidgets, is_pyqt5
+    from PyQt4.QtGui import (QApplication, QColumnView, QFileSystemModel,
+                     QSplitter, QTreeView, QItemSelection)
+    from PyQt4.QtCore import QDir, Qt
+    from PyQt4 import QtCore, QtGui
+except Exception as ex:
+    print("Error on importing Qt")
 import re
 import signal
 import sys
@@ -19,7 +22,8 @@ import sys
 app = None
 mainWindow = None
 
-class LogAnalysisQtMainWindow(QtGui.QMainWindow):
+if 'QtGui' in sys.modules:
+  class LogAnalysisQtMainWindow(QtGui.QMainWindow):
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)
         # app = QApplication(sys.argv)
@@ -148,6 +152,18 @@ def getLogAsTable(srcFilePath):
                 # row = [float(trainLossStr), float(trainAccStr)]
                 epochNum += 1
                 row = [epochNum] + [float(valStr) for valStr in match.groups()]
+                if len(row) != len(fieldNames):
+                    raise Exception('Value count mismatch (%s)' % line)
+                table.append(row)
+                preciseCorrection = False
+                continue
+
+            # Parsing "Epoch 1: loss 0.001033556, acc 0.00056, val. loss 0.0010439, val. acc 0.0000000, last 1 epochs: 59.2020 s"
+            match = re.match(r'.*Epoch (\d.*?)\: loss (\d.*?), acc.*? (\d.*?)'
+                             ', val. loss (\d.*?), val. acc (\d.*?),.*', line)
+            if match:
+                epochNum = int(match.groups()[0])
+                row = [epochNum] + [float(valStr) for valStr in match.groups()[1:]]
                 if len(row) != len(fieldNames):
                     raise Exception('Value count mismatch (%s)' % line)
                 table.append(row)

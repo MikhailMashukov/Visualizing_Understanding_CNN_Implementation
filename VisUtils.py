@@ -3,6 +3,7 @@ import datetime
 # import pickle
 import math
 import numpy as np
+from numpy.lib.stride_tricks import as_strided
 # import os
 # import random
 # import sys
@@ -144,3 +145,66 @@ def conv2D_BeforeSumming(activations, weights):
     return np.stack(resultList, axis=0)
 
 
+def pool2d(A, kernel_size, stride, padding, pool_mode='max'):
+    ''' 2D Pooling on last 2 dimensions
+    https://stackoverflow.com/questions/54962004/implement-max-mean-poolingwith-stride-with-numpy
+
+    Parameters:
+        A: input 2D array
+        kernel_size: int, the size of the window
+        stride: int, the stride of the window
+        padding: int, implicit zero paddings on both sides of the input
+        pool_mode: string, 'max' or 'avg'
+    '''
+    # Padding
+    A = np.pad(A, padding, mode='constant')
+
+    if 0:
+        # Window view of A
+        output_shape = A.shape[:-2] + ((A.shape[-2] - kernel_size)//stride + 1,
+                (A.shape[-1] - kernel_size)//stride + 1)
+        kernel_size = (kernel_size, kernel_size)
+        A_w = as_strided(A, shape=output_shape + kernel_size,
+                         strides=(stride*A.strides[-2],          # Something else should be here
+                                  stride*A.strides[-1]) + A.strides,
+                         writeable=False)
+        A_w = A_w.reshape(-1, *kernel_size)
+
+        # Return the result of pooling
+        # aixs = (len(A.shape) - )
+        if pool_mode == 'max':
+            return A_w.max(axis=(1,2)).reshape(output_shape)
+        elif pool_mode == 'avg':
+            return A_w.mean(axis=(1,2)).reshape(output_shape)
+    elif len(A.shape) > 2:
+        output_shape = A.shape[:-2] + ((A.shape[-2] - kernel_size)//stride + 1,
+                (A.shape[-1] - kernel_size)//stride + 1)
+        kernel_size = (kernel_size, kernel_size)
+        A2 = A.reshape((-1, A.shape[-2], A.shape[-1]))
+        A_ws = []
+        for i in range(A2.shape[0]):
+            A_w = as_strided(A2[i], shape=output_shape[-2:] + kernel_size,
+                             strides=(stride*A2.strides[-2],
+                                      stride*A2.strides[-1]) + A2.strides[-2:],
+                             writeable=False)
+            A_ws.append(A_w.reshape(-1, *kernel_size))
+        A_w = np.stack(A_ws, axis=0)
+        if pool_mode == 'max':
+            return A_w.max(axis=(2,3)).reshape(output_shape)
+        elif pool_mode == 'avg':
+            return A_w.mean(axis=(2,3)).reshape(output_shape)
+    else:      # Source variant supporting only 2D-arrays
+        # Window view of A
+        output_shape = ((A.shape[0] - kernel_size)//stride + 1,
+                        (A.shape[1] - kernel_size)//stride + 1)
+        kernel_size = (kernel_size, kernel_size)
+        A_w = as_strided(A, shape=output_shape + kernel_size,
+                         strides=(stride*A.strides[0],
+                                  stride*A.strides[1]) + A.strides)
+        A_w = A_w.reshape(-1, *kernel_size)
+
+        # Return the result of pooling
+        if pool_mode == 'max':
+            return A_w.max(axis=(1,2)).reshape(output_shape)
+        elif pool_mode == 'avg':
+            return A_w.mean(axis=(1,2)).reshape(output_shape)

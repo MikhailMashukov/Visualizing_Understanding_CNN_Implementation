@@ -19,6 +19,10 @@ if gpus:
     for gpu in gpus:
         tf.config.experimental.set_memory_growth(gpu, True)      # Limiting usage to only necessary memory
 
+# policy = keras.mixed_precision.experimental.Policy('mixed_float16')
+# keras.mixed_precision.experimental.set_policy(policy)
+
+
 # Net based on model, closer by style to alexnet
 class CImageRecognitionNet:
     def __init__(self, highest_layer=None, base_model=None, doubleSizeLayerNames=None):
@@ -277,8 +281,8 @@ class CImageRecognitionNet:
                         image = image[rands[randI] : rands[randI] + crop_size[0],
                                       rands[randI + 1] : rands[randI + 1] + crop_size[1], :]
                         images.append(image)
-                        if imageNum % 8000 == 0:
-                            print('Batch image ', imageNum, ' l ', labels.numpy()[randI // 2])
+#                         if imageNum % 8000 == 0:
+#                             print('Batch image ', imageNum, ' l ', labels.numpy()[randI // 2])
                         randI += 2
 #                     images[:, :, :, 0] -= 123.68
 #                     images[:, :, :, 1] -= 116.779
@@ -291,6 +295,7 @@ class CImageRecognitionNet:
 
                 def tfPrepareBatch(imageNums, labels):
                     images, labels = tf.py_function(prepareBatch, [imageNums, labels], [tf.int32, tf.int32])
+                   # images.set_shape((self.batchSize, ) + crop_size + (3, ))
                     return images, labels
 
                 tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
@@ -298,45 +303,8 @@ class CImageRecognitionNet:
                 tfTrainDataset = tfTrainDataset.batch(self.batchSize)
                 threadCount = 3 + getCpuCoreCount() // 4
                 tfTrainDataset = tfTrainDataset.map(tfPrepareBatch, num_parallel_calls=threadCount)
-                tfTrainDataset = tfTrainDataset.prefetch(threadCount)
-            else:
-                # TODO: GPU augmentation
-                # import alexnet_utils
-                # import random
-
-                # img_size=(256, 256)
-                # crop_size=(227, 227)
-
-                def prepareBatch(imageNums, labels):
-                    images = []
-                    # rands = np.random.randint(1, high=img_size[0] - crop_size[0], size=(self.batchSize * 2))
-                    # randI = 0
-                    for imageNum in imageNums:
-                        image = self.imageDataset.getImage(imageNum, 'resized256', 'train').astype(np.float32)
-                        # image[:, :, 0] -= 123
-                        # image[:, :, 1] -= 116
-                        # image[:, :, 2] -= 103
-                        #
-                        # image = next(datagen.flow(np.expand_dims(image, axis=0), batch_size=1))[0]
-                        # image = image[rands[randI] : rands[randI] + crop_size[0],
-                        #               rands[randI + 1] : rands[randI + 1] + crop_size[1], :]
-                        images.append(image)
-                        # randI += 2
-#                     print(len(images), images[0].shape, images[0].dtype)
-
-                    images = np.stack(images)
-                    return images, tf.keras.utils.to_categorical(
-                                labels, num_classes=classCount)
-
-                def tfPrepareBatch(imageNums, labels):
-                    images, labels = tf.py_function(prepareBatch, [imageNums, labels], [tf.int32, tf.int32])
-                    return images, labels
-
-                tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
-                tfTrainDataset = tfTrainDataset.shuffle(buffer_size=max(epochImageCount, 12000))
-                tfTrainDataset = tfTrainDataset.batch(self.batchSize)
-                tfTrainDataset = tfTrainDataset.map(tfPrepareBatch, num_parallel_calls=4)
-                tfTrainDataset = tfTrainDataset.prefetch(3)
+                tfTrainDataset = tfTrainDataset.prefetch(threadCount * 2)
+                # tfTrainDataset.set_shape((self.batchSize, ) + crop_size + (3, ))
 
             # curTestDatasetSize = epochImageCount // 6
             # if curTestDatasetSize >= len(testImageNums):
@@ -348,9 +316,11 @@ class CImageRecognitionNet:
                             label, num_classes=classCount))
 
             def _tfLoadTestImage(imageNum, label):
-                x = tf.py_function(_loadTestImage, [imageNum, label], [tf.float32, tf.int32])
+                image, label = tf.py_function(_loadTestImage, [imageNum, label], [tf.float32, tf.int32])
+                # image.set_shape(crop_size + (3, ))
                 # [image, label] = x
-                return x
+                # image = tf.reshape(image, shape=crop_size + (3, ))
+                return image, label
 
             tfTestDataset = self.imageDataset.getTfDataset('test')   # .take(100).repeat()
             tfTestDataset = tfTestDataset.shuffle(buffer_size=max(epochImageCount, 2000))
@@ -358,7 +328,7 @@ class CImageRecognitionNet:
             threadCount = 2 + getCpuCoreCount() // 4
             tfTestDataset = tfTestDataset.map(_tfLoadTestImage, num_parallel_calls=threadCount)
             tfTestDataset = tfTestDataset.batch(self.batchSize)
-            tfTestDataset = tfTestDataset.prefetch(threadCount)
+            tfTestDataset = tfTestDataset.prefetch(threadCount * 2)
 
 
         if 0:
@@ -448,7 +418,7 @@ class CImageRecognitionNet:
         #         learningCallback)
         # tensorBoardCallback.set_model(self.model)
 
-        print('epochImageCount2', otherParams.epochImageCount, ', testImageCount2', testImageCount)
+#         print('epochImageCount2', otherParams.epochImageCount, ', testImageCount2', testImageCount)
 
         history = self.model.fit_generator(otherParams.tfTrainDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
@@ -464,6 +434,8 @@ class CImageRecognitionNet:
                 raise Exception('empty history object')
             infoStr = "loss %.7g" % history.history['loss'][-1]
             infoStr += ", acc %.5f" % history.history['accuracy'][-1]
+            infoStr += ", val. loss %.7f" % history.history['val_loss'][-1]
+            infoStr += ", val. acc %.7f" % history.history['val_accuracy'][-1]
         except Exception as ex:
             print("Error in doLearning: %s" % str(ex))
             infoStr = ''

@@ -146,10 +146,11 @@ class CImageNetVisWrapper:
                         allWeights.append(allLayerWeights[0])
                 if not allWeights:
                     raise Exception('No weights found for combined layer %s' % layerName)
-                allWeights = np.concatenate(allWeights, axis=3)
+                weights = np.concatenate(allWeights, axis=3)
             else:
                 raise Exception('No weights found for layer %s' % layerName)
 
+        # Converting to channels_last
         if len(weights.shape) == 5:
             weights = weights.transpose((2, 3, 4, 0, 1)) # Not sure too
         elif len(weights.shape) == 4:
@@ -260,6 +261,30 @@ class CImageNetVisWrapper:
         #     gradientDict[gradientTensors[i].name] = gradients[i]
         # return gradientDict
 
+    # Similar to CAlexNetVisWrapper.calcWeightsVisualization2. This approach has proven to be quite useless,
+    # so here there is a cut version, working only for the first convolution layer
+    def calcWeightsVisualization2(self, layerName):
+        curImageData = self.getMultWeights(layerName, True)  # E.g. [3, 96, 9, 9]
+        assert(len(curImageData.shape) == 4)
+        curImageData = curImageData.transpose([1, 2, 3, 0])  # Channels, x, y (or y, x, not sure), colors
+
+        if 1:
+            print('Weights visualization min %.5f, max %.5f, std. dev. %.7f' % \
+                  (curImageData.min(), curImageData.max(), np.std(curImageData)))
+            div = np.std(curImageData) * 6
+            if (curImageData.max() - curImageData.min()) / div < 1.2:
+                curImageData -= curImageData.mean()
+                curImageData = curImageData / div + 0.5
+            else:
+                curImageData -= curImageData.min()
+                curImageData = curImageData / curImageData.max() * 1.2 - 0.1
+            print('New min %.5f, max %.5f, std. dev. %.7f' % \
+                  (curImageData.min(), curImageData.max(), np.std(curImageData)))
+            curImageData[curImageData < 0] = 0
+            curImageData[curImageData > 1] = 1
+            curImageData = np.array(curImageData * 255.0, dtype=np.uint8)
+        return curImageData
+
 
     # Some epochs that will be run can be cut, not on entire dataset
     def doLearning(self, iterCount, options, callback=CBaseLearningCallback()):
@@ -301,6 +326,8 @@ class CImageNetVisWrapper:
             #         trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
 
             for _ in range(int(math.ceil(iterCount / 100))):
+                self.printProgress('Learn. rate %.3g, batch %d' % \
+                        (options.learnRate, self.net.batchSize))
                 if 1:
                     if iterCount > 500:
                         if epochNum < 4:
@@ -334,6 +361,8 @@ class CImageNetVisWrapper:
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
                 if epochNum < 10 or epochNum % 10 == 0:
                     print(self.getCacheStatusInfo(True))
+                self.printProgress(infoStr)
+
                 self.saveState(self.curEpochNum % 8 == 0)
                 # self.saveCurGradients()
 
@@ -353,10 +382,9 @@ class CImageNetVisWrapper:
         return getSavedNetEpochs(self.weightsFileNameTempl.replace('%d', '*'))
 
     def saveState(self, saveCache=True):
+        if saveCache:
+            self.saveCacheState()
         try:
-            if saveCache:
-                with open('Data/ImageNetVisActCache.dat', 'wb') as file:
-                    self.activationCache.saveState_OpenedFile(file)
             if not self.net is None:
                 self.net.model.save_weights(self.weightsFileNameTempl % self.curEpochNum)
         except Exception as ex:
@@ -370,6 +398,13 @@ class CImageNetVisWrapper:
     #         for name, value in gradientDict.items():
     #             pickle.dump(name, file)
     #             pickle.dump(value, file)
+
+    def saveCacheState(self):
+        try:
+            with open('Data/ImageNetVisActCache.dat', 'wb') as file:
+                self.activationCache.saveState_OpenedFile(file)
+        except Exception as ex:
+            print("Error in saveState: %s" % str(ex))
 
     # When it is desirable to initialize quickly (without tensorflow)
     def loadCacheState(self):
@@ -462,6 +497,10 @@ class CImageNetVisWrapper:
         return 0.001    # Adam
 
 
+    def printProgress(self, str):
+        with open('QtLogs/progress.log', 'a') as file:
+            file.write(str + '\n')
+
     # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
     def _transposeToOutBatchDims(self, activations):
         if len(activations.shape) == 5:    # Something like (batch, y, x, 4, channels / 4)
@@ -549,6 +588,7 @@ class CImageNetVisWrapper:
         self.activationCache.clear()
         assert self.curModelLearnRate
         self._compileModel(self.curModelLearnRate)
+        self.printProgress('Doubled layers: %s' % (', '.join(self.doubleSizeLayerNames)))
 
 
     def _getNet(self, highestLayer = None):
@@ -570,9 +610,11 @@ class CImageNetVisWrapper:
 
     def _compileModel(self, learnRate):
         from keras.optimizers import Adam, SGD
+        from tensorflow_addons.optimizers import AdamW
 
-        # self.optimizer = SGD(lr=learnRate, decay=5e-6, momentum=0.9, nesterov=True)
-        self.optimizer = Adam(learning_rate=learnRate, decay=5e-5, epsilon=0.01)
+        # self.optimizer = SGD(lr=learnRate, decay=5e-4, momentum=0.9, nesterov=True)
+        # self.optimizer = Adam(learning_rate=learnRate, decay=2.5e-4, epsilon=1e-6)
+        self.optimizer = AdamW(learning_rate=learnRate, weight_decay=2.5e-4, epsilon=1e-6)
         # It's possible to turn off layers' weights updating with layer.trainable = False/
         # It requires model.compile for changes to take effect
         self.net.model.compile(optimizer=self.optimizer, loss='mse', metrics=['accuracy'])
@@ -754,8 +796,8 @@ class CImageNetSubset:
         self.subsetName = subsetName
         self.mainFolder = '%s/%s' % (DeepOptions.imagesMainFolder, self.subsetName)
         # print('Subset folder: ', self.mainFolder)
-        self.foldersInfoCacheFileName = 'Data/%s%sCache.dat' % \
-                (os.path.basename(DeepOptions.imagesMainFolder), self.subsetName)
+        self.foldersInfoCacheFileName = 'Data/%s%s_%dCache.dat' % \
+                (os.path.basename(DeepOptions.imagesMainFolder), self.subsetName, DeepOptions.classCount)
         self.cache = cache
         self.cachePackedImages = True       # Cache images in int8
         self.parent = parent
@@ -963,7 +1005,7 @@ class CImageNetSubset:
         sortedFolders = [folderName for folderName in os.listdir(self.mainFolder)]
         # print('sortedFolders ', sortedFolders)
         sortedFolders.sort()
-        for folderName in sortedFolders:
+        for folderName in sortedFolders[:DeepOptions.classCount]:
             folderPath = os.path.join(self.mainFolder, folderName)
             if os.path.isdir(folderPath):
                 print('Scanning images folder %s' % folderName)

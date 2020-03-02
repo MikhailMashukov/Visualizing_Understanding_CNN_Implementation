@@ -10,6 +10,7 @@ import time
 
 import DataCache
 from MyUtils import *
+from VisUtils import *
 
 class CAlexNetVisWrapper:
     def __init__(self):
@@ -37,7 +38,7 @@ class CAlexNetVisWrapper:
         return 4       # Actually 2, 2 * 2 - in order to have what to compare
 
 
-    def getImageActivations(self, layer, imageNum, epochNum=None):
+    def getImageActivations(self, layer, imageNum, _): # epochNum=None):
         # epochNum is not used here
         if isinstance(layer, int):
             layerName = 'conv_%d' % layer
@@ -72,18 +73,41 @@ class CAlexNetVisWrapper:
         activations = model.model.predict(batchInput)
         return activations
 
-    def getMultWeights(self, layerName):
+    def getMultWeights(self, layerName, allowCombinedLayers=False):
         itemCacheName = 'w_%s' % (layerName)
         cacheItem = self.activationCache.getObject(itemCacheName)
         if not cacheItem is None:
             return cacheItem
 
         model = self._getAlexNet().model
-        if layerName == 'conv_3':
-            allWeights = model.layers[13]._trainable_weights
+        try:
+            layer = model.get_layer(layerName)
+            allWeights = layer.get_weights()
+        except:
+            allWeights = None
+
+        if allWeights:
+            assert len(allWeights) == 1 or len(allWeights[0].shape) > len(allWeights[1].shape)
+            weights = allWeights[0]
         else:
-            raise Exception('Unknown weights position in net')
-        weights = allWeights[0].numpy()
+            if allowCombinedLayers:
+                allWeights = []
+                for layer in model.layers:
+                    if layer.name.find(layerName + '_') == 0:
+                        allLayerWeights = layer.get_weights()
+                        assert len(allLayerWeights) == 1 or len(allLayerWeights[0].shape) > len(allLayerWeights[1].shape)
+                        allWeights.append(allLayerWeights[0])
+                if not allWeights:
+                    raise Exception('No weights found for combined layer %s' % layerName)
+                weights = np.concatenate(allWeights, axis=3)
+            else:
+                raise Exception('No weights found for layer %s' % layerName)
+
+        # Converting to channels_last
+        if len(weights.shape) == 4:
+            weights = weights.transpose((2, 3, 0, 1))
+        elif len(weights.shape) == 3:
+            weights = weights.transpose((2, 0, 1))
         self.activationCache.saveObject(itemCacheName, weights)
         return weights
 
@@ -110,12 +134,93 @@ class CAlexNetVisWrapper:
         # self.saveState()
         return activations
 
+    def calcWeightsVisualization2(self, layerName):
+        allLayerNames = self.getNetLayersToVisualize()
+        layersWeights = []
+        for layerName2 in allLayerNames:
+            layersWeights.append(self.getMultWeights(layerName2, True))  # E.g. [3, 96, 9, 9]
+            if layerName2 == layerName:
+                break
+
+        curImageData = layersWeights[0]
+        assert(len(curImageData.shape) == 4)
+        curImageData = curImageData.transpose([1, 2, 3, 0])  # Channels, x, y (or y, x, not sure), colors
+        layersStrides = [2, 1]
+        for layerInd1, weights2 in enumerate(layersWeights[1:]):
+            if 1:
+                prev = curImageData
+                curImageData = curImageData.transpose([0, 3, 1, 2])
+                curImageData = pool2d(curImageData, kernel_size=3, stride=2, padding=0, pool_mode='max')
+                # curImageData = np.array([pool2d(chan, kernel_size=3, stride=2, padding=2, pool_mode='max') \
+                #                          for chan in curImageData])
+                curImageData = curImageData.transpose([0, 2, 3, 1])
+
+            strides = layersStrides[layerInd1]
+            assert(len(weights2.shape) == 4)      # E.g. [96, 256, 3, 3]
+            newImageData = []
+            if curImageData.shape[0] != weights2.shape[0]:
+                assert curImageData.shape[0] > weights2.shape[0] and \
+                       curImageData.shape[0] % weights2.shape[0] == 0
+                towerCount = curImageData.shape[0] // weights2.shape[0]
+            else:
+                towerCount = 1
+
+            for outChanInd in range(weights2.shape[1]):
+            # for outChanInd in range(5):  #d_
+                curSum = np.zeros((curImageData.shape[1] + strides * (weights2.shape[2] - 1),
+                                   curImageData.shape[2] + strides * (weights2.shape[3] - 1),
+                                   curImageData.shape[3]))
+                if towerCount == 1:
+                    startInChanInd = 0
+                else:
+                    startInChanInd = outChanInd // (weights2.shape[1] // towerCount) * weights2.shape[0]
+                for chanInd in range(weights2.shape[0]):
+                            # i = 0
+                            # j = 0
+                    for i in range(weights2.shape[2]):
+                        for j in range(weights2.shape[2]):
+                            curSum[strides * i : strides * i + curImageData.shape[1],
+                                   strides * j : strides * j + curImageData.shape[2], :] += \
+                                    curImageData[startInChanInd + chanInd] * \
+                                        (weights2[chanInd, outChanInd, i, j]) # - weights2[chanInd].min())
+                newImageData.append(curSum)
+            curImageData = np.stack(newImageData, axis=0)
+
+        # if len(weights.shape) == 4:
+        #     weights = weights.transpose([1, 2, 3, 0])  # Channels, x, y (or y, x, not sure), colors
+        # else:
+        #     raise Exception('Not supported weights\' shape')
+
+        if 0:
+            curImageData -= curImageData.min()
+            curImageData = np.array(curImageData /
+                    max([abs(curImageData.min()), abs(curImageData.max())]) * 255.0, dtype=np.uint8)
+        else:
+            print('Weights visualization min %.5f, max %.5f, std. dev. %.7f' % \
+                  (curImageData.min(), curImageData.max(), np.std(curImageData)))
+            div = np.std(curImageData) * 6
+            if (curImageData.max() - curImageData.min()) / div < 1.2:
+                curImageData -= curImageData.mean()
+                curImageData = curImageData / div + 0.5
+            else:
+                curImageData -= curImageData.min()
+                curImageData = curImageData / curImageData.max() * 1.2 - 0.1
+            print('New min %.5f, max %.5f, std. dev. %.7f' % \
+                  (curImageData.min(), curImageData.max(), np.std(curImageData)))
+            curImageData[curImageData < 0] = 0
+            curImageData[curImageData > 1] = 1
+            curImageData = np.array(curImageData * 255.0, dtype=np.uint8)
+        return curImageData
+
     def doLearning(self, iterCount, options, callback=None):
         self.cancelling = False
         if self.net is None:
             self._getAlexNet()
         raise Exception('Not implemented')
 
+
+    def showProgress(self, str, processEvents=True):
+        print(str)
 
     def getCacheStatusInfo(self):
         return '%.2f + %.2f MBs' % \
@@ -216,7 +321,7 @@ class CAlexNetVisWrapper:
         except Exception as ex:
             self.showProgress("Error in saveState: %s" % str(ex))
 
-    def loadState(self):
+    def loadState(self, epocNum=None):
         try:
             with open('Data/VisImagesCache.dat', 'rb') as file:
                 self.cache.loadState_OpenedFile(file)
@@ -238,6 +343,9 @@ class CImageDataset:
         except Exception as ex:
             print("Error on loading 'ILSVRC2012_classes.txt': %s" % str(ex))
             self.testLabels = np.ones([50000])
+
+    def getImageFilePath(self, imageNum):
+        return 'Images/ILSVRC2012_img_val/ILSVRC2012_val_%08d.JPEG' % imageNum
 
     def getImage(self, imageNum, preprocessStage='net'):
         itemCacheName = self._getImageCacheName(imageNum, preprocessStage)

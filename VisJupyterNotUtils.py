@@ -31,7 +31,11 @@ import os
 # # import sys
 # # import time
 # import _thread
-#
+try:
+    from scipy.misc import imsave
+except:
+    from imageio import imsave  # For scipy >= 1.2, but imresize needs additional searching
+
 
 # from VisQtMain import *
 import AlexNetVisWrapper
@@ -219,7 +223,7 @@ class NetControlObject():
 
     def drawFigure(self):
         # self.canvas.draw()
-        print('show')
+        # print('show')
         plt.show()
         # self.figure = figure(figsize=(5, 5))
 
@@ -293,8 +297,8 @@ class NetControlObject():
                 activations = np.mean(activations, axis=axisToStick)
         else:
             activations = self.netWrapper.getImageActivations(layerName, imageNum, epochNum)
-            self.showProgress('Activations: %s, max %.4f (%s)' % \
-                    (str(activations.shape), activations.max(),
+            self.showProgress('Activations: %s, min %.4f, max %.4f (%s)' % \
+                    (str(activations.shape), activations.min(), activations.max(),
                      str([int(v[0]) for v in np.where(activations == activations.max())])))
 
             drawMode = 'map'
@@ -948,6 +952,37 @@ class NetControlObject():
 
         ax.clear()
         ax.imshow(weightsImageData, cmap='plasma')
+
+    # Another approach to visualize weights. Doesn't work well, especially with max pool. Because we sum
+    # masks during theirs imposing to generate next layer's mask, but actually the same previous layer's
+    # values are used
+    def showWeightsImage2(self):
+        try:
+            self.startAction(self.showWeightsImage2)
+            epochNum = self.getSelectedEpochNum()
+            self.netWrapper.loadState(epochNum)
+            layerName = self.getSelectedLayerName()
+
+            imageData = self.netWrapper.calcWeightsVisualization2(layerName)
+            chanCount, colCount = self.getChannelToAnalyzeCount(imageData)
+            imageData = layoutLayersToOneImage(imageData, colCount, 1, imageData.min())
+
+            # dirName = 'Data/WeightsVis/%s_%dChan' % (layerName, chanCount)
+            dirName = 'Data/WeightsVis'
+            if not os.path.exists(dirName):
+                os.makedirs(dirName)
+            fileName = '%s/Weights_%s_Epoch%d.png' % \
+                       (dirName, layerName, epochNum)
+            imsave(fileName, imageData, format='png')
+            print("Image saved to '%s'" % fileName)
+
+            ax = self.getMainSubplot()
+            ax.clear()
+            ax.imshow(imageData)
+            self.drawFigure()
+            return imageData
+        except Exception as ex:
+            self.showProgress("Error: %s" % str(ex))
 
     def onShowGradientsPressed(self):
         self.startAction(self.onShowGradientsPressed)

@@ -235,7 +235,7 @@ def print_timeMeasure(*args):
         sys.stdout.flush()
         print_timeMeasure.prevTime = t
     except:
-        builtinPrint("seconds from start (passed microseconds)")
+        builtinPrint("seconds from start (spent CPU core microseconds)")
         builtinPrint(*args)
         print_timeMeasure.prevTime = time.clock()
 
