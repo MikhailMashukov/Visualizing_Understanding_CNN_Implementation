@@ -14,7 +14,7 @@ try:
     from PyQt4.QtCore import QDir, Qt
     from PyQt4 import QtCore, QtGui
 except Exception as ex:
-    print("Error on importing Qt")
+    print("Warning: no Qt")
 import re
 import signal
 import sys

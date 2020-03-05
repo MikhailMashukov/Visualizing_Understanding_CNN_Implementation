@@ -42,6 +42,7 @@ import AlexNetVisWrapper
 import ImageNetsVisWrappers
 import MnistNetVisWrapper
 import MultActTops
+import DataCache
 from MyUtils import *
 from VisUtils import *
 
@@ -2208,6 +2209,27 @@ def prepareBatch(imageNums, labels):
         randI += 2
     print(images2[0].dtype)
     return np.stack(images2), labels
+
+g_infoCache = DataCache.CDataCache(128)
+
+def getMultWeightsInfo(controlObj, layerName, epochNum):
+    global g_infoCache
+
+    itemCacheName = 'winfo_%s_%d' % (layerName, epochNum)
+    cacheItem = g_infoCache.getObject(itemCacheName)
+    if not cacheItem is None:
+        return cacheItem
+
+    # img = controlObj.imageDataset.getImage(controlObj.curImageNum, 'cropped', 'train')
+    # plt.imshow(img / 255.0)
+    controlObj.netWrapper.loadState(epochNum)
+    weights = controlObj.netWrapper.getMultWeights(layerName, True)
+#     print('%s weights: %s, min %.4f, max %.4f (%s)' % \
+#                 (layerName, str(activations.shape), activations.min(), activations.max(),
+#                  str([int(v[0]) for v in np.where(activations == activations.max())])))
+    info = {'min': weights.min(), 'max': weights.max(), 'stdDev': np.std(weights)}
+    g_infoCache.saveObject(itemCacheName, info)
+    return info
 
 
 if __name__ == "__main__":

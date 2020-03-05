@@ -106,6 +106,9 @@ def SeBlock(input_feature, ratio=8):
     se_feature = keras.layers.multiply([input_feature, se_feature])
     return se_feature
 
+def near1Regularizer(activationVector):
+    return 0.01 * K.mean((1 - activationVector) ** 2)
+
 def SeBlock4_PrevChannels(input_feature, prevChans, ratio=8):
     global g_excLayerCount
 
@@ -128,11 +131,12 @@ def SeBlock4_PrevChannels(input_feature, prevChans, ratio=8):
 					   bias_initializer='zeros')(se_feature)
     assert se_feature._keras_shape[1:] == (1,1,channel//ratio)
     se_feature = Dense(channel,
-					   activation='sigmoid',
+                       activation='sigmoid',
                        name='dense_exc_%d' % (g_excLayerCount * 2),
-					   kernel_initializer='he_normal',
-					   use_bias=True,
-					   bias_initializer='zeros')(se_feature)
+                       kernel_initializer='he_normal',
+                       use_bias=True,
+                       bias_initializer='zeros',
+                       activity_regularizer=near1Regularizer)(se_feature)
     assert se_feature._keras_shape[1:] == (1,1,channel)
     if K.image_data_format() == 'channels_first':
         se_feature = keras.layers.Permute((3, 1, 2))(se_feature)

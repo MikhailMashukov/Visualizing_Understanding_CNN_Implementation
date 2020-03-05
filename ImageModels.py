@@ -17,9 +17,8 @@ if 1:
     import keras.regularizers
     from keras.utils import convert_all_kernels_in_model
 else:
-    # With tensorflow.keras I got
-    # TypeError: ('Keyword argument not understood:', 'input')
-    # on m = Model(input=inputs, output=prediction) in ImageModels.py on the VKI's server
+    # With tensorflow.keras I got error
+    # "Cannot take the length of shape with unknown rank"
     # from tensorflow.python import keras
     from tensorflow.keras.models import Model
     from tensorflow.keras.layers import Flatten, Reshape, Dense, Dropout, SpatialDropout2D, \
@@ -399,8 +398,8 @@ def ModelBlock4(filters, kernel_size, **kwargs):
                 sizeMult = 2
             del kwargs['doubleSizeLayerNames']
 
-        if not 'kernel_initializer' in kwargs:
-            kwargs['kernel_initializer'] = 'he_normal'
+#         if not 'kernel_initializer' in kwargs:
+#             kwargs['kernel_initializer'] = 'he_normal'
         convBlock = Conv2D(filters * sizeMult, kernel_size, **kwargs)
         # print('he_normal')
         def blockLayer(x, prevChans):
