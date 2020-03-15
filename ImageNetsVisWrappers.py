@@ -611,13 +611,16 @@ class CImageNetVisWrapper:
     def _compileModel(self, learnRate):
         from keras.optimizers import Adam, SGD
         from tensorflow_addons.optimizers import AdamW
+        from keras.losses import categorical_crossentropy
 
         # self.optimizer = SGD(lr=learnRate, decay=5e-4, momentum=0.9, nesterov=True)
         # self.optimizer = Adam(learning_rate=learnRate, decay=2.5e-4, epsilon=1e-6)
         self.optimizer = AdamW(learning_rate=learnRate, weight_decay=2.5e-4, epsilon=1e-6)
         # It's possible to turn off layers' weights updating with layer.trainable = False/
         # It requires model.compile for changes to take effect
-        self.net.model.compile(optimizer=self.optimizer, loss='mse', metrics=['accuracy'])
+        self.net.model.compile(optimizer=self.optimizer,
+                               loss=categorical_crossentropy,  # loss='mse',
+                               metrics=['accuracy'])
 
 # class CImageNetVisWrapper_6_VKI(CImageNetVisWrapper):
 #     def _initMainNet(self):
@@ -922,6 +925,7 @@ class CImageNetSubset:
     def getImageCount(self):
         if not self.isLoaded():
             self._loadData()
+       # return 2000 #d_
         return len(self.imageNumLabels) - 1
 
     # Labels here are class indices (0-based), imageNum is 1-based

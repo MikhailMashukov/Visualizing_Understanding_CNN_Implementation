@@ -9,6 +9,7 @@ import numpy as np
 
 import DeepOptions
 import ImageModels
+import ImageModels4
 import ChanConvModel
 import ChanMatrixModel
 from MnistModel2 import get_tensor_array_element
@@ -74,8 +75,11 @@ class CImageRecognitionNet:
             if DeepOptions.modelClass == 'ImageModel':
                 self.base_model = ImageModels.ImageModel(
                         doubleSizeLayerNames=self.doubleSizeLayerNames)
+            elif DeepOptions.modelClass == 'DebugImageModel4':
+                self.base_model = ImageModels4.DebugImageModel4(
+                        doubleSizeLayerNames=self.doubleSizeLayerNames)
             elif DeepOptions.modelClass == 'ImageModel4':
-                self.base_model = ImageModels.ImageModel4_PrevChannelsSE(
+                self.base_model = ImageModels4.ImageModel4_PrevChannelsSE(
                         doubleSizeLayerNames=self.doubleSizeLayerNames)
             elif DeepOptions.modelClass == 'ImageModel5':
                 self.base_model = ImageModels.ImageModel5_ShiftedCopy(
@@ -420,14 +424,20 @@ class CImageRecognitionNet:
 
 #         print('epochImageCount2', otherParams.epochImageCount, ', testImageCount2', testImageCount)
 
+        # if DeepOptions.netSizeMult > 2:
+        #     deviceName = '/gpu:0'
+        # else:
+        #     deviceName = '/cpu:0'
+        #
+        # with tf.device(deviceName):
         history = self.model.fit_generator(otherParams.tfTrainDataset,
                                  epochs=initialEpochNum + epochCount, initial_epoch=initialEpochNum,
                                  steps_per_epoch=otherParams.epochImageCount // self.batchSize,
                                  validation_data=otherParams.tfTestDataset,
                                  validation_steps=testImageCount // self.batchSize,
                                  verbose=2) #, callbacks=[tensorBoardCallback])
-            #, summaryCallback])
-            # Without make_one_shot_iterator - error fused convolution not supported
+                #, summaryCallback])
+                # Without make_one_shot_iterator - error fused convolution not supported
 
         try:
             if not history.history:

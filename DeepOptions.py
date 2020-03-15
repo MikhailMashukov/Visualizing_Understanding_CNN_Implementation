@@ -1,13 +1,17 @@
 import math
 
-# fastDebugMode = 1      # True means that net is very small and heavy statistics is not gathered
+fastDebugMode = 1      # True means that net is very small and heavy statistics is not gathered
 towerCount = 2
-netSizeMult = 8
-# modelClass = 'AlexnetModel'
-modelClass = 'ImageModel4'
-# modelClass = 'ChanConvModel'
-# modelClass = 'ChanUnitingModel'
-# modelClass = 'ChanMatrixModel'
+if fastDebugMode:
+    modelClass = 'DebugImageModel4'
+    netSizeMult = 1
+else:
+    netSizeMult = 8
+    # modelClass = 'AlexnetModel'
+    modelClass = 'ImageModel4'
+    # modelClass = 'ChanConvModel'
+    # modelClass = 'ChanUnitingModel'
+    # modelClass = 'ChanMatrixModel'
 additLayerCounts = (1, 1)  # (2, 2)
 # deeperNet = 0          # True means that exended network is created but smaller subnet can be loaded from checkpoint
 # hlAndIndicsDivision = False   # To divide input data onto 3 blocks. Currently implemented only for GRU network
@@ -30,7 +34,10 @@ if 0:
     classCount = 24
 else:
     imagesMainFolder = 'ImageNet'
-    classCount = 1000
+    if fastDebugMode:
+        classCount = 110
+    else:
+        classCount = 1000
 
 # startSeed = None
 #

@@ -42,6 +42,8 @@ Further ideas:
 * to implement division of neirons: each is divided onto two with close weights
   and theirs output connections get about 1/2 of initial strength;
 * to turn SE blocks initially off;
+* to add 1 + for passing source channels coefficients through SE bottleneck
+  (maybe wouldn't make sense since bias can make the same);
 * to investigate how weights of particular neirons changed during training;
 * to take for each neiron its source convolutions with theirs weights and to display
 * to average values for each channel, then multiply channels by them and to sum -
@@ -56,8 +58,11 @@ Further ideas:
 * to add towers to teached net and to make much higher noise to the teached part;
 * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
 * to apply the same convolutions to neighbour layers - to recognize the same on different scales;
-* to try ELU;
+* to combine convolutions' weights with multiplication in matrix net;
 * to add blocks of noise to the source images;
+- to add batch normalization at the end of SE blocks;
+* to multiply weights when activations dimish;
+* to run training steps several times and to select best result;
 """
 
 # import copy
@@ -186,8 +191,8 @@ class QtMainWindow(QMainWindow): # , DeepMain.MainWrapper):
         self.cancelling = False
         self.lastAction = None
         self.lastActionStartTime = None
-        # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
-        self.netWrapper = ImageNetsVisWrappers.CImageNetVisWrapper()
+        self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
+        # self.netWrapper = ImageNetsVisWrappers.CImageNetVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
