@@ -12,7 +12,8 @@ import torch.nn.functional as F
 from torch.utils import data
 import torchvision.datasets as datasets
 import torchvision.transforms as transforms
-from tensorboardX import SummaryWriter
+# from tensorboardX import SummaryWriter
+from torch.utils.tensorboard import SummaryWriter
 
 # define pytorch device - useful for device-agnostic execution
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
@@ -22,16 +23,16 @@ NUM_EPOCHS = 90  # original paper
 BATCH_SIZE = 128
 MOMENTUM = 0.9
 LR_DECAY = 0.0005
-LR_INIT = 0.01
+LR_INIT = 1e-4   # SGD with 0.01 doesn't work for them
 IMAGE_DIM = 227  # pixels
 NUM_CLASSES = 1000  # 1000 classes for imagenet 2012 dataset
-DEVICE_IDS = [0, 1, 2, 3]  # GPUs to use
+DEVICE_IDS = [0]  # GPUs to use
 # modify this to point to your data directory
-INPUT_ROOT_DIR = 'alexnet_data_in'
-TRAIN_IMG_DIR = 'alexnet_data_in/imagenet'
-OUTPUT_DIR = 'alexnet_data_out'
-LOG_DIR = OUTPUT_DIR + '/tblogs'  # tensorboard logs
-CHECKPOINT_DIR = OUTPUT_DIR + '/models'  # model checkpoints
+# INPUT_ROOT_DIR = '/root/Visualiz_Zeiler/ImageNet'         # 'alexnet_data_in'
+TRAIN_IMG_DIR =  '/root/Visualiz_Zeiler/ImageNet/train'   # 'alexnet_data_in/imagenet'
+OUTPUT_DIR = 'PyTLogs'
+LOG_DIR = OUTPUT_DIR + '/TbLogs'  # tensorboard logs
+CHECKPOINT_DIR = OUTPUT_DIR + '/checkpoints'  # model checkpoints
 
 # make checkpoint path directory
 os.makedirs(CHECKPOINT_DIR, exist_ok=True)
@@ -105,8 +106,14 @@ class AlexNet(nn.Module):
         x = x.view(-1, 256 * 6 * 6)  # reduce the dimensions for linear layer input
         return self.classifier(x)
 
+def printProgress(str):
+    with open(OUTPUT_DIR + '/progress.log', 'a') as file:
+        file.write(str + '\n')
 
 if __name__ == '__main__':
+    trainAlexNet()
+
+def trainAlexNet(learnRate=LR_INIT):
     # print the seed value
     seed = torch.initial_seed()
     print('Used seed : {}'.format(seed))
@@ -134,14 +141,14 @@ if __name__ == '__main__':
         dataset,
         shuffle=True,
         pin_memory=True,
-        num_workers=8,
+        num_workers=16,
         drop_last=True,
         batch_size=BATCH_SIZE)
     print('Dataloader created')
 
     # create optimizer
     # the one that WORKS
-    optimizer = optim.Adam(params=alexnet.parameters(), lr=0.0001)
+    optimizer = optim.Adam(params=alexnet.parameters(), lr=learnRate)
     ### BELOW is the setting proposed by the original paper - which doesn't train....
     # optimizer = optim.SGD(
     #     params=alexnet.parameters(),
@@ -157,6 +164,8 @@ if __name__ == '__main__':
     # start training!!
     print('Starting training...')
     total_steps = 1
+    blockNum = 0
+    valLossInfo = 'val. loss 0, val. acc 0'
     for epoch in range(NUM_EPOCHS):
         lr_scheduler.step()
         for imgs, classes in dataloader:
@@ -172,18 +181,23 @@ if __name__ == '__main__':
             optimizer.step()
 
             # log the information and add to tensorboard
-            if total_steps % 10 == 0:
+            if total_steps % 50 == 0:
                 with torch.no_grad():
                     _, preds = torch.max(output, 1)
                     accuracy = torch.sum(preds == classes)
 
-                    print('Epoch: {} \tStep: {} \tLoss: {:.4f} \tAcc: {}'
+                    print('Epoch: {} \tStep: {} \tLoss: {:.6f} \tAcc: {}'
                         .format(epoch + 1, total_steps, loss.item(), accuracy.item()))
+                    blockNum += 1
+                    printProgress('Epoch %d: loss %.7g, acc %.6f, %s ' \
+                                  '(actual epoch: %d)' %
+                                  (blockNum, loss.item(), accuracy.item(), valLossInfo,
+                                   epoch + 1))
                     tbwriter.add_scalar('loss', loss.item(), total_steps)
                     tbwriter.add_scalar('accuracy', accuracy.item(), total_steps)
 
             # print out gradient values and parameter average values
-            if total_steps % 100 == 0:
+            if total_steps % 1000 == 0:
                 with torch.no_grad():
                     # print and save the grad of the parameters
                     # also print and save parameter values
