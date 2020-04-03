@@ -132,31 +132,34 @@ class CPyTorchImageNetVisWrapper:
             allWeights = layer.state_dict()
         except:
             allWeights = None
+#         print('len ', len(allWeights))
 
         if allWeights:
-            assert len(allWeights) == 1 or len(allWeights[0].shape) > len(allWeights[1].shape)
+#             assert len(allWeights) == 1 or 'weight' in allWeights
             weights = allWeights['weight']
         else:
             if allowCombinedLayers:
                 allWeights = []
-                for layer in model.base_model.layers:
-                    if layer.name.find(layerName + '_') == 0:
+                for curLayerName, layer in model.getAllLayers():
+                    if curLayerName.find(layerName + '_') == 0:
                         allLayerWeights = layer.get_weights()
-                        assert len(allLayerWeights) == 1 or len(allLayerWeights[0].shape) > len(allLayerWeights[1].shape)
-                        allWeights.append(allLayerWeights[0])
+#                         assert len(allLayerWeights) == 1 or len(allLayerWeights[0].shape) > len(allLayerWeights[1].shape)
+                        allWeights.append(allLayerWeights['weight'])
                 if not allWeights:
                     raise Exception('No weights found for combined layer %s' % layerName)
                 weights = np.concatenate(allWeights, axis=3)
             else:
                 raise Exception('No weights found for layer %s' % layerName)
 
+        weights = weights.numpy()      # E.g. [96, 3, 11, 11]
         # Converting to channels_last
+#         print(weights.shape)
         if len(weights.shape) == 5:
-            weights = weights.transpose((2, 3, 4, 0, 1)) # Not sure too
+            weights = weights.transpose((2, 3, 4, 0, 1))    # Not tested
         elif len(weights.shape) == 4:
-            weights = weights.transpose((2, 3, 0, 1))
+            weights = weights.transpose((1, 0, 2, 3))
         elif len(weights.shape) == 3:
-            weights = weights.transpose((2, 0, 1))       # I suppose channels_first mean this
+            weights = weights.transpose((2, 0, 1))          # Not tested
         return weights
 
         # for trainWeights in layer._trainable_weights:
@@ -269,8 +272,8 @@ class CPyTorchImageNetVisWrapper:
         curImageData = curImageData.transpose([1, 2, 3, 0])  # Channels, x, y (or y, x, not sure), colors
 
         if 1:
-            print('Weights visualization min %.5f, max %.5f, std. dev. %.7f' % \
-                  (curImageData.min(), curImageData.max(), np.std(curImageData)))
+            print('Weights visualization %s min %.5f, max %.5f, std. dev. %.7f' % \
+                  (str(curImageData.shape), curImageData.min(), curImageData.max(), np.std(curImageData)))
             div = np.std(curImageData) * 6
             if (curImageData.max() - curImageData.min()) / div < 1.2:
                 curImageData -= curImageData.mean()

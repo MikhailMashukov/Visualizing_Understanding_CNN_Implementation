@@ -982,6 +982,7 @@ class NetControlObject():
             ax = self.getMainSubplot()
             ax.clear()
             ax.imshow(imageData)
+            plt.text(1.1, 0.5, str(epochNum), transform = ax.transAxes)
             self.drawFigure()
             return imageData
         # except Exception as ex:

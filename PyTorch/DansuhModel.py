@@ -54,14 +54,33 @@ class AlexNet(nn.Module):
         # input size should be : (b x 3 x 227 x 227)
         # The image in the original paper states that width and height are 224 pixels, but
         # the dimensions after first convolution layer do not lead to 55 x 55.
-        self.namedLayers = {
+        if 0:         # For loading old models with not named layers
+          self.net = nn.Sequential(
+            nn.Conv2d(in_channels=3, out_channels=96, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
+            nn.ReLU(),
+            nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2),  # section 3.3
+            nn.MaxPool2d(kernel_size=3, stride=2),  # (b x 96 x 27 x 27)
+            nn.Conv2d(96, 256, 5, padding=2),  # (b x 256 x 27 x 27)
+            nn.ReLU(),
+            nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2),
+            nn.MaxPool2d(kernel_size=3, stride=2),  # (b x 256 x 13 x 13)
+            nn.Conv2d(256, 384, 3, padding=1),  # (b x 384 x 13 x 13)
+            nn.ReLU(),
+            nn.Conv2d(384, 384, 3, padding=1),  # (b x 384 x 13 x 13)
+            nn.ReLU(),
+            nn.Conv2d(384, 256, 3, padding=1),  # (b x 256 x 13 x 13)
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=3, stride=2))  # (b x 256 x 6 x 6)
+          self.namedLayers = {'conv_1': list(self.net.children())[0]}
+        else:
+          self.namedLayers = {
             'conv_1': nn.Conv2d(in_channels=3, out_channels=96, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
             'conv_2': nn.Conv2d(96, 256, 5, padding=2),  # (b x 256 x 27 x 27)
             'conv_3': nn.Conv2d(256, 384, 3, padding=1),  # (b x 384 x 13 x 13)
             'conv_4': nn.Conv2d(384, 384, 3, padding=1),  # (b x 384 x 13 x 13)
             'conv_5': nn.Conv2d(384, 256, 3, padding=1),  # (b x 256 x 13 x 13)
-        }
-        self.net = nn.Sequential(OrderedDict([       # OrderedDict doesn't help, need custom naming
+          }
+          self.net = nn.Sequential(OrderedDict([       # OrderedDict doesn't help, need custom naming
             ('conv_1', self.namedLayers['conv_1']),
             ('relu_1', nn.ReLU()),
             ('norm_1', nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2)),  # section 3.3
@@ -77,7 +96,7 @@ class AlexNet(nn.Module):
             ('conv_5', self.namedLayers['conv_5']),
             ('relu_5', nn.ReLU()),
             ('max_pool_5', nn.MaxPool2d(kernel_size=3, stride=2)),  # (b x 256 x 6 x 6)
-        ]))
+          ]))
         # classifier is just a name for linear layers
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5, inplace=True),
@@ -118,6 +137,9 @@ class AlexNet(nn.Module):
     def getLayer(self, layerName):
         return self.namedLayers[layerName]
 
+    def getAllLayers(self):
+        return self.namedLayers
+
     def saveState(self, fileName, additInfo):
         if 1:
             state = additInfo + {'model': self.state_dict()}
@@ -131,7 +153,11 @@ class AlexNet(nn.Module):
         # print('state ', state)
         savedStateDict = state['model']
         try:
-            self.load_state_dict(savedStateDict)
+            stateDict = {}
+            for name, data in savedStateDict.items():
+                stateDict[name.replace('module.', '')] = data
+            result = self.load_state_dict(stateDict, strict=1)
+            print('State loaded from %s (%s)' % (fileName, result))
             return
         except Exception as ex:
             print("Error in loadState: %s" % str(ex))
