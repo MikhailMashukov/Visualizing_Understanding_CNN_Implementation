@@ -1,14 +1,14 @@
 import math
 
-fastDebugMode = 1      # True means that net is very small and heavy statistics is not gathered
+fastDebugMode = 0      # True means that net is very small and heavy statistics is not gathered
 towerCount = 2
 if fastDebugMode:
     modelClass = 'DebugImageModel4'
     netSizeMult = 1
 else:
     netSizeMult = 8
-    # modelClass = 'AlexnetModel'
-    modelClass = 'ImageModel4'
+    modelClass = 'AlexnetModel'
+    # modelClass = 'ImageModel4'
     # modelClass = 'ChanConvModel'
     # modelClass = 'ChanUnitingModel'
     # modelClass = 'ChanMatrixModel'

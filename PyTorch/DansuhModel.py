@@ -4,6 +4,7 @@ Implementation of AlexNet, from paper
 
 See: https://papers.nips.cc/paper/4824-imagenet-classification-with-deep-convolutional-neural-networks.pdf
 """
+from collections import OrderedDict
 import os
 import torch
 import torch.nn as nn
@@ -53,23 +54,30 @@ class AlexNet(nn.Module):
         # input size should be : (b x 3 x 227 x 227)
         # The image in the original paper states that width and height are 224 pixels, but
         # the dimensions after first convolution layer do not lead to 55 x 55.
-        self.net = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=96, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
-            nn.ReLU(),
-            nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2),  # section 3.3
-            nn.MaxPool2d(kernel_size=3, stride=2),  # (b x 96 x 27 x 27)
-            nn.Conv2d(96, 256, 5, padding=2),  # (b x 256 x 27 x 27)
-            nn.ReLU(),
-            nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2),
-            nn.MaxPool2d(kernel_size=3, stride=2),  # (b x 256 x 13 x 13)
-            nn.Conv2d(256, 384, 3, padding=1),  # (b x 384 x 13 x 13)
-            nn.ReLU(),
-            nn.Conv2d(384, 384, 3, padding=1),  # (b x 384 x 13 x 13)
-            nn.ReLU(),
-            nn.Conv2d(384, 256, 3, padding=1),  # (b x 256 x 13 x 13)
-            nn.ReLU(),
-            nn.MaxPool2d(kernel_size=3, stride=2),  # (b x 256 x 6 x 6)
-        )
+        self.namedLayers = {
+            'conv_1': nn.Conv2d(in_channels=3, out_channels=96, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
+            'conv_2': nn.Conv2d(96, 256, 5, padding=2),  # (b x 256 x 27 x 27)
+            'conv_3': nn.Conv2d(256, 384, 3, padding=1),  # (b x 384 x 13 x 13)
+            'conv_4': nn.Conv2d(384, 384, 3, padding=1),  # (b x 384 x 13 x 13)
+            'conv_5': nn.Conv2d(384, 256, 3, padding=1),  # (b x 256 x 13 x 13)
+        }
+        self.net = nn.Sequential(OrderedDict([       # OrderedDict doesn't help, need custom naming
+            ('conv_1', self.namedLayers['conv_1']),
+            ('relu_1', nn.ReLU()),
+            ('norm_1', nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2)),  # section 3.3
+            ('max_pool_1', nn.MaxPool2d(kernel_size=3, stride=2)),  # (b x 96 x 27 x 27)
+            ('conv_2', self.namedLayers['conv_2']),
+            ('relu_2', nn.ReLU()),
+            ('norm_2', nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2)),
+            ('max_pool_2', nn.MaxPool2d(kernel_size=3, stride=2)),  # (b x 256 x 13 x 13)
+            ('conv_3', self.namedLayers['conv_3']),
+            ('relu_3', nn.ReLU()),
+            ('conv_4', self.namedLayers['conv_4']),
+            ('relu_4', nn.ReLU()),
+            ('conv_5', self.namedLayers['conv_5']),
+            ('relu_5', nn.ReLU()),
+            ('max_pool_5', nn.MaxPool2d(kernel_size=3, stride=2)),  # (b x 256 x 6 x 6)
+        ]))
         # classifier is just a name for linear layers
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5, inplace=True),
@@ -106,6 +114,33 @@ class AlexNet(nn.Module):
         x = x.view(-1, 256 * 6 * 6)  # reduce the dimensions for linear layer input
         return self.classifier(x)
 
+
+    def getLayer(self, layerName):
+        return self.namedLayers[layerName]
+
+    def saveState(self, fileName, additInfo):
+        if 1:
+            state = additInfo + {'model': self.state_dict()}
+            torch.save(state, fileName)
+                # os.path.join(CHECKPOINT_DIR, 'alexnet_states_e{}.pkl'.format(epochNum + 1))
+        else:
+            torch.save(self.state_dict(), fileName)
+
+    def loadState(self, fileName):
+        state = torch.load(fileName)
+        # print('state ', state)
+        savedStateDict = state['model']
+        try:
+            self.load_state_dict(savedStateDict)
+            return
+        except Exception as ex:
+            print("Error in loadState: %s" % str(ex))
+
+        if len(savedStateDict) != len(self.state_dict()):
+            raise Exception('You are trying to load parameters for %d layers, but the model has %d' %
+                            (len(savedStateDict) != len(self.state_dict())))
+
+
 def printProgress(str):
     with open(OUTPUT_DIR + '/progress.log', 'a') as file:
         file.write(str + '\n')
@@ -113,7 +148,7 @@ def printProgress(str):
 if __name__ == '__main__':
     trainAlexNet()
 
-def trainAlexNet(learnRate=LR_INIT):
+def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
     # print the seed value
     seed = torch.initial_seed()
     print('Used seed : {}'.format(seed))
@@ -166,7 +201,7 @@ def trainAlexNet(learnRate=LR_INIT):
     total_steps = 1
     blockNum = 0
     valLossInfo = 'val. loss 0, val. acc 0'
-    for epoch in range(NUM_EPOCHS):
+    for epochNum in range(NUM_EPOCHS):
         lr_scheduler.step()
         for imgs, classes in dataloader:
             imgs, classes = imgs.to(device), classes.to(device)
@@ -187,12 +222,12 @@ def trainAlexNet(learnRate=LR_INIT):
                     accuracy = torch.sum(preds == classes)
 
                     print('Epoch: {} \tStep: {} \tLoss: {:.6f} \tAcc: {}'
-                        .format(epoch + 1, total_steps, loss.item(), accuracy.item()))
+                        .format(epochNum + 1, total_steps, loss.item(), accuracy.item()))
                     blockNum += 1
                     printProgress('Epoch %d: loss %.7g, acc %.6f, %s ' \
                                   '(actual epoch: %d)' %
                                   (blockNum, loss.item(), accuracy.item(), valLossInfo,
-                                   epoch + 1))
+                                   epochNum + 1))
                     tbwriter.add_scalar('loss', loss.item(), total_steps)
                     tbwriter.add_scalar('accuracy', accuracy.item(), total_steps)
 
@@ -201,30 +236,30 @@ def trainAlexNet(learnRate=LR_INIT):
                 with torch.no_grad():
                     # print and save the grad of the parameters
                     # also print and save parameter values
-                    print('*' * 10)
+                    if printWeightStats:
+                        print('*' * 10)
                     for name, parameter in alexnet.named_parameters():
                         if parameter.grad is not None:
                             avg_grad = torch.mean(parameter.grad)
-                            print('\t{} - grad_avg: {}'.format(name, avg_grad))
+                            if printWeightStats:
+                                print('\t{} - grad_avg: {}'.format(name, avg_grad))
                             tbwriter.add_scalar('grad_avg/{}'.format(name), avg_grad.item(), total_steps)
                             tbwriter.add_histogram('grad/{}'.format(name),
                                     parameter.grad.cpu().numpy(), total_steps)
                         if parameter.data is not None:
                             avg_weight = torch.mean(parameter.data)
-                            print('\t{} - param_avg: {}'.format(name, avg_weight))
+                            if printWeightStats:
+                                print('\t{} - param_avg: {}'.format(name, avg_weight))
                             tbwriter.add_histogram('weight/{}'.format(name),
                                     parameter.data.cpu().numpy(), total_steps)
                             tbwriter.add_scalar('weight_avg/{}'.format(name), avg_weight.item(), total_steps)
 
-            total_steps += 1
+            if total_steps % ((64000 if epochNum == 0 else 256000) // BATCH_SIZE) == 0:
+                additInfo = {'epoch': epochNum,
+                             'total_steps': total_steps,
+                             'seed': seed}
+                alexnet.saveState(os.path.join(CHECKPOINT_DIR, 'PyTImWeights_Epoch{}.h5'.format(blockNum)),
+                                  additInfo)
+                        # os.path.join(CHECKPOINT_DIR, 'alexnet_states_e{}.pkl'.format(epochNum + 1))
 
-        # save checkpoints
-        checkpoint_path = os.path.join(CHECKPOINT_DIR, 'alexnet_states_e{}.pkl'.format(epoch + 1))
-        state = {
-            'epoch': epoch,
-            'total_steps': total_steps,
-            'optimizer': optimizer.state_dict(),
-            'model': alexnet.state_dict(),
-            'seed': seed,
-        }
-        torch.save(state, checkpoint_path)
+            total_steps += 1

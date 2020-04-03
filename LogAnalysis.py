@@ -22,7 +22,10 @@ import sys
 app = None
 mainWindow = None
 
-if 'QtGui' in sys.modules:
+# for m in sys.modules:
+#     print(m)
+
+if 'PyQt4.QtGui' in sys.modules:
   class LogAnalysisQtMainWindow(QtGui.QMainWindow):
     def __init__(self, parent=None):
         QtGui.QMainWindow.__init__(self, parent)

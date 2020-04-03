@@ -50,6 +50,8 @@ Further ideas:
   there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
 * to look at activatity maps on incorrectly classified images
   https://raghakot.github.io/keras-vis/visualizations/class_activation_maps/;
+* to take activations for two objects, to build path between them and to generate
+  what corresponds to them
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
   in a matrix network;
@@ -60,6 +62,7 @@ Further ideas:
 * to apply the same convolutions to neighbour layers - to recognize the same on different scales;
 * to combine convolutions' weights with multiplication in matrix net;
 * to add blocks of noise to the source images;
+* to add "augmentation" into the middle of the network - shifting and so on on channels
 - to add batch normalization at the end of SE blocks;
 * to multiply weights when activations dimish;
 * to run training steps several times and to select best result;

@@ -40,6 +40,7 @@ except:
 # from VisQtMain import *
 import AlexNetVisWrapper
 import ImageNetsVisWrappers
+import ImagesPyTorchVisWrapper
 import MnistNetVisWrapper
 import MultActTops
 import DataCache
@@ -59,7 +60,8 @@ class NetControlObject():
         self.lastAction = None
         self.lastActionStartTime = None
         # self.netWrapper = AlexNetVisWrapper.CAlexNetVisWrapper()
-        self.netWrapper = ImageNetsVisWrappers.CImageNetVisWrapper()
+        # self.netWrapper = ImageNetsVisWrappers.CImageNetVisWrapper()
+        self.netWrapper = ImagesPyTorchVisWrapper.CPyTorchImageNetVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper3_Towers()
         # self.netWrapper = MnistNetVisWrapper.CMnistVisWrapper4_Matrix()
@@ -958,7 +960,7 @@ class NetControlObject():
     # masks during theirs imposing to generate next layer's mask, but actually the same previous layer's
     # values are used
     def showWeightsImage2(self):
-        try:
+        # try:
             self.startAction(self.showWeightsImage2)
             epochNum = self.getSelectedEpochNum()
             self.netWrapper.loadState(epochNum)
@@ -982,8 +984,8 @@ class NetControlObject():
             ax.imshow(imageData)
             self.drawFigure()
             return imageData
-        except Exception as ex:
-            self.showProgress("Error: %s" % str(ex))
+        # except Exception as ex:
+        #     self.showProgress("Error: %s" % str(ex))
 
     def onShowGradientsPressed(self):
         self.startAction(self.onShowGradientsPressed)
