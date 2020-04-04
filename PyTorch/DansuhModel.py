@@ -140,9 +140,10 @@ class AlexNet(nn.Module):
     def getAllLayers(self):
         return self.namedLayers
 
-    def saveState(self, fileName, additInfo):
+    def saveState(self, fileName, additInfo={}):
         if 1:
-            state = additInfo + {'model': self.state_dict()}
+            state = {'model': self.state_dict()}
+            state.update(additInfo)
             torch.save(state, fileName)
                 # os.path.join(CHECKPOINT_DIR, 'alexnet_states_e{}.pkl'.format(epochNum + 1))
         else:
@@ -153,18 +154,28 @@ class AlexNet(nn.Module):
         # print('state ', state)
         savedStateDict = state['model']
         try:
+            c_replacements = [['module.', ''],
+                              ['net.0.', 'net.conv_1.'], ['net.4.', 'net.conv_2.'],
+                              ['net.8.', 'net.conv_3.'], ['net.10.', 'net.conv_4.'],
+                              ['net.12.', 'net.conv_5.']]
             stateDict = {}
             for name, data in savedStateDict.items():
-                stateDict[name.replace('module.', '')] = data
+                for replRule in c_replacements:
+                    name = name.replace(replRule[0], replRule[1])
+                stateDict[name] = data
             result = self.load_state_dict(stateDict, strict=1)
             print('State loaded from %s (%s)' % (fileName, result))
-            return
+            del state['model']
+            return state
         except Exception as ex:
             print("Error in loadState: %s" % str(ex))
 
         if len(savedStateDict) != len(self.state_dict()):
             raise Exception('You are trying to load parameters for %d layers, but the model has %d' %
                             (len(savedStateDict) != len(self.state_dict())))
+
+        del state['model']
+        return state
 
 
 def printProgress(str):
@@ -187,7 +198,7 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
     # train on multiple GPUs
     alexnet = torch.nn.parallel.DataParallel(alexnet, device_ids=DEVICE_IDS)
     print(alexnet)
-    print('AlexNet created')
+    # print('AlexNet created')
 
     # create dataset and data loader
     dataset = datasets.ImageFolder(TRAIN_IMG_DIR, transforms.Compose([
@@ -197,7 +208,7 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
         transforms.ToTensor(),
         transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
     ]))
-    print('Dataset created')
+    # print('Dataset created')
     dataloader = data.DataLoader(
         dataset,
         shuffle=True,
@@ -216,7 +227,7 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
     #     lr=LR_INIT,
     #     momentum=MOMENTUM,
     #     weight_decay=LR_DECAY)
-    print('Optimizer created')
+    # print('Optimizer created')
 
     # multiply LR by 1 / 10 after every 30 epochs
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)

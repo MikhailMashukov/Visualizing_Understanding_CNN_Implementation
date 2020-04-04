@@ -28,7 +28,7 @@ class CPyTorchImageNetVisWrapper:
         self.imageDataset = CImageNetPartDataset(self.imageCache) if imageDataset is None else imageDataset
         # self.imageDataset = CAugmentedMnistDataset(CImageNetPartDataset()) if imageDataset is None else imageDataset
         self.net = None
-        self.optimizer = None
+        self.batchSize = 128
         self.netPreprocessStageName = 'net'  # for self.net = alexnet.AlexNet()
         self.doubleSizeLayerNames = []    # Not stored in saveState
         self.curEpochNum = 0
@@ -151,7 +151,7 @@ class CPyTorchImageNetVisWrapper:
             else:
                 raise Exception('No weights found for layer %s' % layerName)
 
-        weights = weights.numpy()      # E.g. [96, 3, 11, 11]
+        weights = weights.cpu().numpy()      # E.g. [96, 3, 11, 11]
         # Converting to channels_last
 #         print(weights.shape)
         if len(weights.shape) == 5:
@@ -298,71 +298,51 @@ class CPyTorchImageNetVisWrapper:
         try:
             epochNum = 0    # Number for starting from small epochs each time
 
-            trainImageNums = np.arange(1, self.imageDataset.getImageCount('train') + 1)
-            testImageNums = np.arange(1, self.imageDataset.getImageCount('test') + 1)
-                # TODO: actually doesn't pass to image dataset now
+            # trainImageNums = np.arange(1, self.imageDataset.getImageCount('train') + 1)
+            # testImageNums = np.arange(1, self.imageDataset.getImageCount('test') + 1)
+            #     # TODO: actually doesn't pass to image dataset now
 
-            # fullTestDataset = self.imageDataset.getNetSource('test')
-            if 1:
-            #     # Old variant, without augmentation but with simple CimageDataset support
-            #
-            #     fullDataset = self.imageDataset.getNetSource('train')
-                if not options.trainImageNums is None:
-                    trainImageNums = options.trainImageNums
-                    if options.additTrainImageCount > 0:
-                        trainImageNums = np.concatenate([trainImageNums, np.random.randint(
-                                low=1, high=self.imageDataset.getImageCount('train'),
-                                size=options.additTrainImageCount)])
-            #         trainDataset = (fullDataset[0][imageNums - 1],
-            #                        fullDataset[1][imageNums - 1])
-            # else:
-            #     # Optionally augmented and optimized for this variant
-            #
-            #     if options.trainImageNums is None:
-            #         trainDataset = self.imageDataset.getAugmentedImages(epochImageCount)
-            #     else:
-            #         imageNums = options.trainImageNums
-            #         if options.additTrainImageCount > 0:
-            #             fullDataset = self.imageDataset.getNetSource('train')
-            #             imageNums = np.concatenate([imageNums, np.random.randint(
-            #                     low=1, high=fullDataset[0].shape[0], size=options.additTrainImageCount)])
-            #         trainDataset = self.imageDataset.getAugmentedImagesForNums(imageNums)
+            # if 1:
+                # if not options.trainImageNums is None:
+                #     trainImageNums = options.trainImageNums
+                #     if options.additTrainImageCount > 0:
+                #         trainImageNums = np.concatenate([trainImageNums, np.random.randint(
+                #                 low=1, high=self.imageDataset.getImageCount('train'),
+                #                 size=options.additTrainImageCount)])
 
             for _ in range(int(math.ceil(iterCount / 100))):
                 self.printProgress('Learn. rate %.3g, batch %d' % \
-                        (options.learnRate, self.net.batchSize))
+                        (options.learnRate, self.getBatchSize()))
+                epochImageCount = 5000
                 if 1:
                     if iterCount > 500:
                         if epochNum < 4:
-                            epochImageCount = 1000
+                            pass
                         elif 2 << (epochNum - 4) <= 10:
-                            epochImageCount = 2000 << (epochNum - 4)
+                            epochImageCount = epochImageCount << (epochNum - 3)
                         else:
-                            epochImageCount = 10000
-                    else:
-                        epochImageCount = 2000
-                else:
-                    epochImageCount = 2000
-                if DeepOptions.imagesMainFolder.lower().find('imagenet') >= 0 and \
-                   DeepOptions.imagesMainFolder != 'ImageNetPart':
-                    epochImageCount *= 2
+                            epochImageCount *= 10
+                # if DeepOptions.imagesMainFolder.lower().find('imagenet') >= 0 and \
+                #    DeepOptions.imagesMainFolder != 'ImageNetPart':
+                #     epochImageCount *= 2
 
                 if self.curModelLearnRate != options.learnRate:
                     self.setLearnRate(options.learnRate)
                     print('Learning rate switched to %f' % options.learnRate)
 
                 # print('Train images: ', trainImageNums)
-                if epochNum == 0:
-                    infoStr = self.net.doLearning(1, callback,
-                            trainImageNums, testImageNums,
-                            epochImageCount, self.curEpochNum)
-                else:
-                    infoStr = self.net.doLearningWithPrevDataset(1, callback,
-                            epochImageCount, self.curEpochNum)
+                # if epochNum == 0:
+                #     infoStr = self.net.doLearning(1, callback,
+                #             trainImageNums, testImageNums,
+                #             epochImageCount, self.curEpochNum)
+                # else:
+                #     infoStr = self.net.doLearningWithPrevDataset(1, callback,
+                #             epochImageCount, self.curEpochNum)
+                infoStr = self._doLearning_Internal(epochImageCount)
                 self.curEpochNum += 1
                 epochNum += 1
                 infoStr = 'Epoch %d: %s' % (self.curEpochNum, infoStr)
-                if epochNum < 10 or epochNum % 10 == 0:
+                if epochNum < 3: #  or epochNum % 10 == 0:
                     print(self.getCacheStatusInfo(True))
                 self.printProgress(infoStr)
 
@@ -377,9 +357,69 @@ class CPyTorchImageNetVisWrapper:
         finally:
             self.isLearning = False
 
+        # infoStr = "%s, last %d epochs: %.4f s" % \
+        #           (infoStr, epochCount,
+        #            (datetime.datetime.now() - groupStartTime).total_seconds())
+
         # self.activationCache.clear()
         return infoStr
 
+    def _doLearning_Internal(self, epochImageCount):
+        import torch
+        import torch.nn.functional as F
+
+        testImageCount = epochImageCount // 6
+        # for batchNum in range(epochImageCount // self.batchSize):
+        batchNum = 0
+        lossSum = 0
+        accuracySum = 0
+        for imgs, classes_Cpu in self.pytTrainDataLoader:
+            batchNum += 1
+            if batchNum * self.batchSize > epochImageCount:
+                break
+
+            imgs, classes = imgs.to(self.pytDevice), classes_Cpu.to(self.pytDevice)
+
+            # calculate the loss
+            output = self.net(imgs)
+            loss = F.cross_entropy(output, classes)
+
+            # update the parameters
+            self.pytOptimizer.zero_grad()
+            loss.backward()
+            self.pytOptimizer.step()
+
+            lossSum += loss
+            _, preds = torch.max(output.cpu(), 1)
+            accuracySum += torch.sum(preds == classes_Cpu)
+        batchCount = batchNum - 1
+        print('%d batches processed' % batchCount)
+        infoStr = "loss %.7g" % (float(lossSum) / self.batchSize / batchCount)
+        infoStr += ", acc %.5f" % (float(accuracySum) / self.batchSize / batchCount)
+
+        batchNum = 0
+        lossSum = 0
+        accuracySum = 0
+        self.pytOptimizer.zero_grad()
+        with torch.set_grad_enabled(False):
+            for imgs, classes_Cpu in self.pytTestDataLoader:
+                batchNum += 1
+                if batchNum * self.batchSize > testImageCount:
+                    break
+
+                imgs, classes = imgs.to(self.pytDevice), classes_Cpu.to(self.pytDevice)
+                output = self.net(imgs)
+                loss = F.cross_entropy(output, classes)
+
+                lossSum += loss
+                _, preds = torch.max(output.cpu(), 1)
+                accuracySum += torch.sum(preds == classes_Cpu)
+        batchCount = batchNum - 1
+        print('%d val. batches processed' % batchCount)
+        infoStr += ", val. loss %.7f" % (float(lossSum) / self.batchSize / batchCount)
+        infoStr += ", val. acc %.7f" % (float(accuracySum) / self.batchSize / batchCount)
+
+        return infoStr
 
     def getSavedNetEpochs(self):
         return getSavedNetEpochs(self.weightsFileNameTempl.replace('%d', '*'))
@@ -389,7 +429,8 @@ class CPyTorchImageNetVisWrapper:
             self.saveCacheState()
         try:
             if not self.net is None:
-                self.net.model.save_weights(self.weightsFileNameTempl % self.curEpochNum)
+                self.net.saveState(self.weightsFileNameTempl % self.curEpochNum)
+                      #  {'optimizer': self.pytOptimizer.state_dict()})      # Occupies too much space, 2 times more than weights
         except Exception as ex:
             print("Error in saveState: %s" % str(ex))
 
@@ -424,7 +465,10 @@ class CPyTorchImageNetVisWrapper:
             #         print("Error on loading weights to other model: %s" % str(ex))
             #         self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             # else:
-            self.net.loadState(self.weightsFileNameTempl % epochNum)
+            additInfo = self.net.loadState(self.weightsFileNameTempl % epochNum)
+            if 'optimizer' in additInfo:
+                self.pytOptimizer.load_state_dict(additInfo['optimizer'])
+                print('Optimizer state loaded')
             self.curEpochNum = epochNum
         # except Exception as ex:
         #     print("Error in loadState: %s" % str(ex))
@@ -450,18 +494,55 @@ class CPyTorchImageNetVisWrapper:
     #     return MnistModel2.CMnistModel2()
 
     def _initMainNet(self):
-        import PyTorch.DansuhModel as PyTorchModel
+        import torch
+        import PyTorch.DansuhModel as PyTorchModelModule
+        import torchvision.datasets as PyTorchDatasets
+        import torchvision.transforms as transforms
+        from torch.utils import data
 
-        self.net = PyTorchModel.AlexNet()   # highest_layer=None, doubleSizeLayerNames=self.doubleSizeLayerNames)
-        # dataset = CMnistDataset()
-        # self.net.init(self.imageDataset, 'QtLogs/ImageNet')
-        # self.net.batchSize = max(8 * getCpuCoreCount(), 32)
+        self.pytDevice = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+        self.net = PyTorchModelModule.AlexNet(num_classes=DeepOptions.classCount).to(self.pytDevice)
+            # highest_layer=None, doubleSizeLayerNames=self.doubleSizeLayerNames)
+        self.pytOptimizer = torch.optim.Adam(params=self.net.parameters())
 
         self.netsCache = dict()
+
+        datasetFolder = '%s/train' % (DeepOptions.imagesMainFolder)
+        self.pytTrainDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
+                # transforms.RandomResizedCrop(IMAGE_DIM, scale=(0.9, 1.0), ratio=(0.9, 1.1)),
+                transforms.CenterCrop(227),
+                # transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]))
+        self.pytTrainDataLoader = data.DataLoader(self.pytTrainDataset,
+                shuffle=True,
+                pin_memory=True,
+                num_workers=16,
+                drop_last=True,
+                batch_size=self.batchSize)
+
+        datasetFolder = '%s/test' % (DeepOptions.imagesMainFolder)
+        self.pytTestDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
+                # transforms.RandomResizedCrop(IMAGE_DIM, scale=(0.9, 1.0), ratio=(0.9, 1.1)),
+                transforms.CenterCrop(227),
+                # transforms.RandomHorizontalFlip(),
+                transforms.ToTensor(),
+                transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
+        ]))
+        self.pytTestDataLoader = data.DataLoader(self.pytTestDataset,
+                shuffle=True,
+                pin_memory=True,
+                num_workers=4,
+                drop_last=True,
+                batch_size=self.batchSize)
+        print('Images loaders initialized')
 
     def setLearnRate(self, learnRate):
         if not self.net:
             self._initMainNet()
+        for g in self.pytOptimizer.param_groups:
+            g['lr'] = learnRate
         self.curModelLearnRate = learnRate
 
     def setLayerTrainable(self, layerName, trainable, allowCombinedLayers=True):
@@ -477,9 +558,12 @@ class CPyTorchImageNetVisWrapper:
         # return 0.1      # SGD
         return 0.001    # Adam
 
+    def getBatchSize(self):
+        return self.batchSize
+
 
     def printProgress(self, str):
-        with open('QtLogs/progress.log', 'a') as file:
+        with open('PyTLogs/progress.log', 'a') as file:
             file.write(str + '\n')
 
     # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
@@ -579,6 +663,7 @@ class CPyTorchImageNetVisWrapper:
         if highestLayer is None:
             return self.net
         else:
+            raise Exception('Not implemented')
             if not highestLayer in self.netsCache:
                 import ImageNet
 
@@ -588,18 +673,3 @@ class CPyTorchImageNetVisWrapper:
     def _isMatchedLayer(layerName, layerToFindName, allowCombinedLayers):
         return layerName == layerToFindName or \
                 (allowCombinedLayers and layerName[ : len(layerToFindName) + 1] == layerToFindName + '_')
-
-    # def _compileModel(self, learnRate):
-    #     from keras.optimizers import Adam, SGD
-    #     from tensorflow_addons.optimizers import AdamW
-    #     from keras.losses import categorical_crossentropy
-    #
-    #     # self.optimizer = SGD(lr=learnRate, decay=5e-4, momentum=0.9, nesterov=True)
-    #     # self.optimizer = Adam(learning_rate=learnRate, decay=2.5e-4, epsilon=1e-6)
-    #     self.optimizer = AdamW(learning_rate=learnRate, weight_decay=2.5e-4, epsilon=1e-6)
-    #     # It's possible to turn off layers' weights updating with layer.trainable = False/
-    #     # It requires model.compile for changes to take effect
-    #     self.net.model.compile(optimizer=self.optimizer,
-    #                            loss=categorical_crossentropy,  # loss='mse',
-    #                            metrics=['accuracy'])
-    #
