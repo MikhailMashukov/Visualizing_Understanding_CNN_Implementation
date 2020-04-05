@@ -140,12 +140,17 @@ class AlexNet(nn.Module):
     def getAllLayers(self):
         return self.namedLayers
 
-    def saveState(self, fileName, additInfo={}):
+    def saveState(self, fileName,
+                  additInfo={}, additFileName=None):
         if 1:
             state = {'model': self.state_dict()}
-            state.update(additInfo)
-            torch.save(state, fileName)
-                # os.path.join(CHECKPOINT_DIR, 'alexnet_states_e{}.pkl'.format(epochNum + 1))
+            if additFileName is None:
+                state.update(additInfo)
+                torch.save(state, fileName)
+                    # os.path.join(CHECKPOINT_DIR, 'alexnet_states_e{}.pkl'.format(epochNum + 1))
+            else:
+                torch.save(state, fileName)
+                torch.save(additInfo, additFileName)
         else:
             torch.save(self.state_dict(), fileName)
 
@@ -176,6 +181,9 @@ class AlexNet(nn.Module):
 
         del state['model']
         return state
+
+    def loadStateAdditInfo(self, fileName):
+        return torch.load(fileName)
 
 
 def printProgress(str):

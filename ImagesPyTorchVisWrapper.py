@@ -2,7 +2,7 @@ from __future__ import absolute_import, division, print_function, unicode_litera
 
 # import datetime
 import math
-# import random
+import random
 import os
 import psutil
 # import time
@@ -23,6 +23,7 @@ class CPyTorchImageNetVisWrapper:
     def __init__(self, imageDataset=None, activationCache=None):
         self.name = 'image'
         self.weightsFileNameTempl = 'PyTLogs/checkpoints/PyTImWeights_Epoch%d.pkl'
+        self.optimStateFileNameTempl = 'PyTLogs/checkpoints/PyTImOptState_Epoch%d.pkl'
         # self.weightsFileNameTempl = 'PyTLogs/checkpoints/PyTImWeights_Epoch%d.h5'
         self.imageCache = DataCache.CDataCache(256 * getCpuCoreCount())
         self.imageDataset = CImageNetPartDataset(self.imageCache) if imageDataset is None else imageDataset
@@ -369,15 +370,13 @@ class CPyTorchImageNetVisWrapper:
         import torch.nn.functional as F
 
         testImageCount = epochImageCount // 6
-        # for batchNum in range(epochImageCount // self.batchSize):
-        batchNum = 0
+
+        batchCount = epochImageCount // self.batchSize
         lossSum = 0
         accuracySum = 0
-        for imgs, classes_Cpu in self.pytTrainDataLoader:
-            batchNum += 1
-            if batchNum * self.batchSize > epochImageCount:
-                break
-
+        self.net.train()
+        for batchNum in range(batchCount):
+            imgs, classes_Cpu = self.getTrainBatch()
             imgs, classes = imgs.to(self.pytDevice), classes_Cpu.to(self.pytDevice)
 
             # calculate the loss
@@ -392,32 +391,35 @@ class CPyTorchImageNetVisWrapper:
             lossSum += loss
             _, preds = torch.max(output.cpu(), 1)
             accuracySum += torch.sum(preds == classes_Cpu)
-        batchCount = batchNum - 1
+
         print('%d batches processed' % batchCount)
         infoStr = "loss %.7g" % (float(lossSum) / self.batchSize / batchCount)
         infoStr += ", acc %.5f" % (float(accuracySum) / self.batchSize / batchCount)
 
-        batchNum = 0
-        lossSum = 0
-        accuracySum = 0
+        self.net.eval()
         self.pytOptimizer.zero_grad()
-        with torch.set_grad_enabled(False):
-            for imgs, classes_Cpu in self.pytTestDataLoader:
-                batchNum += 1
-                if batchNum * self.batchSize > testImageCount:
-                    break
-
+        batchCount = testImageCount // self.batchSize
+#         for batchNum in range(batchCount):
+#                 imgs, classes_Cpu = self.getTestBatch()
+#                 imgs, classes = imgs.to(self.pytDevice), classes_Cpu.to(self.pytDevice)
+#                 with torch.set_grad_enabled(False):
+#                     output = self.net(imgs)
+        if 1:
+            lossSum = 0
+            accuracySum = 0
+            for batchNum in range(batchCount):
+                imgs, classes_Cpu = self.getTestBatch()
                 imgs, classes = imgs.to(self.pytDevice), classes_Cpu.to(self.pytDevice)
-                output = self.net(imgs)
-                loss = F.cross_entropy(output, classes)
+                with torch.set_grad_enabled(False):
+                    output = self.net(imgs)
+                    loss = F.cross_entropy(output, classes)
 
                 lossSum += loss
                 _, preds = torch.max(output.cpu(), 1)
                 accuracySum += torch.sum(preds == classes_Cpu)
-        batchCount = batchNum - 1
-        print('%d val. batches processed' % batchCount)
-        infoStr += ", val. loss %.7f" % (float(lossSum) / self.batchSize / batchCount)
-        infoStr += ", val. acc %.7f" % (float(accuracySum) / self.batchSize / batchCount)
+            print('%d val. batches processed' % batchCount)
+            infoStr += ", val. loss %.7f" % (float(lossSum) / self.batchSize / batchCount)
+            infoStr += ", val. acc %.7f" % (float(accuracySum) / self.batchSize / batchCount)
 
         return infoStr
 
@@ -429,8 +431,12 @@ class CPyTorchImageNetVisWrapper:
             self.saveCacheState()
         try:
             if not self.net is None:
-                self.net.saveState(self.weightsFileNameTempl % self.curEpochNum)
-                      #  {'optimizer': self.pytOptimizer.state_dict()})      # Occupies too much space, 2 times more than weights
+                if 0:
+                    self.net.saveState(self.weightsFileNameTempl % self.curEpochNum)
+                else:
+                    self.net.saveState(self.weightsFileNameTempl % self.curEpochNum,
+                            {'optimizer': self.pytOptimizer.state_dict()},       # Occupies too much space, 2 times more than weights
+                            self.optimStateFileNameTempl % self.curEpochNum)
         except Exception as ex:
             print("Error in saveState: %s" % str(ex))
 
@@ -466,6 +472,10 @@ class CPyTorchImageNetVisWrapper:
             #         self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             # else:
             additInfo = self.net.loadState(self.weightsFileNameTempl % epochNum)
+            if additInfo is None:
+                additInfoFileName = self.optimStateFileNameTempl % self.curEpochNum
+                if os.path.exists(additInfoFileName):
+                    additInfo = self.net.loadStateAdditInfo(additInfoFileName)
             if 'optimizer' in additInfo:
                 self.pytOptimizer.load_state_dict(additInfo['optimizer'])
                 print('Optimizer state loaded')
@@ -496,9 +506,6 @@ class CPyTorchImageNetVisWrapper:
     def _initMainNet(self):
         import torch
         import PyTorch.DansuhModel as PyTorchModelModule
-        import torchvision.datasets as PyTorchDatasets
-        import torchvision.transforms as transforms
-        from torch.utils import data
 
         self.pytDevice = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         self.net = PyTorchModelModule.AlexNet(num_classes=DeepOptions.classCount).to(self.pytDevice)
@@ -506,7 +513,14 @@ class CPyTorchImageNetVisWrapper:
         self.pytOptimizer = torch.optim.Adam(params=self.net.parameters())
 
         self.netsCache = dict()
+        self.setBatchSize(self.batchSize)
 
+    def setBatchSize(self, batchSize):
+        import torchvision.datasets as PyTorchDatasets
+        import torchvision.transforms as transforms
+        from torch.utils import data
+
+        self.batchSize = batchSize
         datasetFolder = '%s/train' % (DeepOptions.imagesMainFolder)
         self.pytTrainDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
                 # transforms.RandomResizedCrop(IMAGE_DIM, scale=(0.9, 1.0), ratio=(0.9, 1.1)),
@@ -521,6 +535,7 @@ class CPyTorchImageNetVisWrapper:
                 num_workers=16,
                 drop_last=True,
                 batch_size=self.batchSize)
+        self.pytTrainDataIt = iter(self.pytTrainDataLoader)
 
         datasetFolder = '%s/test' % (DeepOptions.imagesMainFolder)
         self.pytTestDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
@@ -536,7 +551,28 @@ class CPyTorchImageNetVisWrapper:
                 num_workers=4,
                 drop_last=True,
                 batch_size=self.batchSize)
-        print('Images loaders initialized')
+        self.pytTestDataIt = iter(self.pytTestDataLoader)
+        print('Images loaders initialized. Batch size ', self.batchSize)
+        print('First batch: ', next(self.pytTrainDataIt)[1])
+
+    def getTrainBatch(self):
+        try:
+            if random.random() < 5e-4:
+                self.pytTrainDataIt = iter(self.pytTrainDataLoader)
+                print('First batch: ', next(self.pytTrainDataIt)[1])
+            return next(self.pytTrainDataIt)    # imgs, classes
+        except StopIteration:
+            self.pytTrainDataIt = iter(self.pytTrainDataLoader)
+
+            return next(self.pytTrainDataIt)
+
+    def getTestBatch(self):
+        try:
+            return next(self.pytTestDataIt)    # imgs, classes
+        except StopIteration:
+            self.pytTestDataIt = iter(self.pytTestDataLoader)
+            return next(self.pytTestDataIt)
+
 
     def setLearnRate(self, learnRate):
         if not self.net:

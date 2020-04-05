@@ -221,22 +221,44 @@ def deep_getsizeof(o, ids):
         pass
     return r
 
+# Prints brief information about nested dict with NumPy arrays and tensors
+def printDict(d, level=0):
+    for key, val in d.items():
+        s = '%*s%s: ' % (level * 2, '', key)
+        if isinstance(val, np.ndarray):
+            s += 'ndarray %s' % str(val.shape)
+        else:
+            try:
+                shapeInfo = str(val.shape)
+                s += '%s %s' % (type(val).__name__, shapeInfo)
+            except:
+                if isinstance(val, dict):
+                    s += '{'
+                else:
+                    s += type(val).__name__
+        print(s)
+
+        if isinstance(val, dict):
+            printDict(val, level + 1)
+
 
 builtinPrint = print
 
 def print_timeMeasure(*args):
     try:
-        t = time.clock()
-        builtinPrint("%5.3f (%9.2f) " % (t, (t - print_timeMeasure.prevTime) * 1000000), end='')
+        cpuTime = time.clock()
+        t = time.time()
+        builtinPrint("%5.3f (%5.5f) " % (t - print_timeMeasure.t0, (cpuTime - print_timeMeasure.prevCpuTime) * 1000), end='')
         builtinPrint(*args)
         # (%.3f s)%s" % \
         #                   (iterNum, math.sqrt(avgSqDiff), avgSqDiff, time2 - time0, ad
         # time0 = time2
         sys.stdout.flush()
-        print_timeMeasure.prevTime = t
+        print_timeMeasure.prevCpuTime = cpuTime
     except:
-        builtinPrint("seconds from start (spent CPU core microseconds)")
+        builtinPrint("seconds from start (spent CPU core milliseconds)")
         builtinPrint(*args)
-        print_timeMeasure.prevTime = time.clock()
+        print_timeMeasure.prevCpuTime = cpuTime
 
 print = print_timeMeasure
+print_timeMeasure.t0 = time.time()
