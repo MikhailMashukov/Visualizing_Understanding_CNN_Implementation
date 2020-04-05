@@ -431,7 +431,11 @@ class CPyTorchImageNetVisWrapper:
             self.saveCacheState()
         try:
             if not self.net is None:
-                if 0:
+                dir = os.path.split(self.weightsFileNameTempl)[0]
+                if not os.path.exists(dir):
+                    os.makedirs(dir)
+
+                if self.curEpochNum % 20 != 0:
                     self.net.saveState(self.weightsFileNameTempl % self.curEpochNum)
                 else:
                     self.net.saveState(self.weightsFileNameTempl % self.curEpochNum,
@@ -472,8 +476,8 @@ class CPyTorchImageNetVisWrapper:
             #         self.net.model.load_weights(self.weightsFileNameTempl % epochNum)
             # else:
             additInfo = self.net.loadState(self.weightsFileNameTempl % epochNum)
-            if additInfo is None:
-                additInfoFileName = self.optimStateFileNameTempl % self.curEpochNum
+            if not additInfo:
+                additInfoFileName = self.optimStateFileNameTempl % epochNum
                 if os.path.exists(additInfoFileName):
                     additInfo = self.net.loadStateAdditInfo(additInfoFileName)
             if 'optimizer' in additInfo:
@@ -516,6 +520,7 @@ class CPyTorchImageNetVisWrapper:
         self.setBatchSize(self.batchSize)
 
     def setBatchSize(self, batchSize):
+        import PIL
         import torchvision.datasets as PyTorchDatasets
         import torchvision.transforms as transforms
         from torch.utils import data
@@ -523,9 +528,13 @@ class CPyTorchImageNetVisWrapper:
         self.batchSize = batchSize
         datasetFolder = '%s/train' % (DeepOptions.imagesMainFolder)
         self.pytTrainDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
-                # transforms.RandomResizedCrop(IMAGE_DIM, scale=(0.9, 1.0), ratio=(0.9, 1.1)),
-                transforms.CenterCrop(227),
-                # transforms.RandomHorizontalFlip(),
+#                 transforms.RandomResizedCrop(256, scale=(1.0, 1.0), ratio=(0.8, 1.3)),
+                transforms.Resize(256),
+#                 transforms.RandomRotation(degrees=20, resample=PIL.Image.BICUBIC,
+#                         expand=True, fill=(124, 117, 104)),
+#                 transforms.CenterCrop(256),
+                transforms.RandomCrop(227),
+                transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
         ]))
@@ -539,7 +548,7 @@ class CPyTorchImageNetVisWrapper:
 
         datasetFolder = '%s/test' % (DeepOptions.imagesMainFolder)
         self.pytTestDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
-                # transforms.RandomResizedCrop(IMAGE_DIM, scale=(0.9, 1.0), ratio=(0.9, 1.1)),
+                transforms.Resize(256),
                 transforms.CenterCrop(227),
                 # transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
@@ -548,7 +557,7 @@ class CPyTorchImageNetVisWrapper:
         self.pytTestDataLoader = data.DataLoader(self.pytTestDataset,
                 shuffle=True,
                 pin_memory=True,
-                num_workers=4,
+                num_workers=6,
                 drop_last=True,
                 batch_size=self.batchSize)
         self.pytTestDataIt = iter(self.pytTestDataLoader)
@@ -557,13 +566,13 @@ class CPyTorchImageNetVisWrapper:
 
     def getTrainBatch(self):
         try:
-            if random.random() < 5e-4:
-                self.pytTrainDataIt = iter(self.pytTrainDataLoader)
-                print('First batch: ', next(self.pytTrainDataIt)[1])
+#             if random.random() < 5e-4:
+#                 self.pytTrainDataIt = iter(self.pytTrainDataLoader)
+#                 print('First batch: ', next(self.pytTrainDataIt)[1])
             return next(self.pytTrainDataIt)    # imgs, classes
         except StopIteration:
             self.pytTrainDataIt = iter(self.pytTrainDataLoader)
-
+            print('First batch: ', next(self.pytTrainDataIt)[1])
             return next(self.pytTrainDataIt)
 
     def getTestBatch(self):

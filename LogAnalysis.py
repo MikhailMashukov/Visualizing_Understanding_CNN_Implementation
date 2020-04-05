@@ -163,7 +163,7 @@ def getLogAsTable(srcFilePath):
 
             # Parsing "Epoch 1: loss 0.001033556, acc 0.00056, val. loss 0.0010439, val. acc 0.0000000, last 1 epochs: 59.2020 s"
             match = re.match(r'.*Epoch (\d.*?)\: loss (\d.*?), acc.*? (\d.*?)'
-                             ', val. loss (\d.*?), val. acc (\d.*?).*', line)
+                             ', val. loss (\d.*?), val. acc (\d.*?)[, ].*', line.strip('\r\n') + ' ')
             if match:
                 epochNum = int(match.groups()[0])
                 row = [epochNum] + [float(valStr) for valStr in match.groups()[1:]]
