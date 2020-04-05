@@ -204,7 +204,7 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
     # create model
     alexnet = AlexNet(num_classes=NUM_CLASSES).to(device)
     # train on multiple GPUs
-    alexnet = torch.nn.parallel.DataParallel(alexnet, device_ids=DEVICE_IDS)
+#     alexnet = torch.nn.parallel.DataParallel(alexnet, device_ids=DEVICE_IDS)
     print(alexnet)
     # print('AlexNet created')
 
@@ -241,11 +241,14 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
     lr_scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=30, gamma=0.1)
     print('LR Scheduler created')
 
+  #  alexnet.loadState(os.path.join(CHECKPOINT_DIR, 'PyTImWeights_Epoch{}.pkl'.format(1400))) #d_
+
     # start training!!
     print('Starting training...')
     total_steps = 1
     blockNum = 0
     valLossInfo = 'val. loss 0, val. acc 0'
+    lossSum = 0
     for epochNum in range(NUM_EPOCHS):
         lr_scheduler.step()
         for imgs, classes in dataloader:
@@ -259,6 +262,7 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
+            lossSum += loss.item()
 
             # log the information and add to tensorboard
             if total_steps % 50 == 0:
@@ -271,8 +275,9 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
                     blockNum += 1
                     printProgress('Epoch %d: loss %.7g, acc %.6f, %s ' \
                                   '(actual epoch: %d)' %
-                                  (blockNum, loss.item(), accuracy.item(), valLossInfo,
+                                  (blockNum, lossSum / 50, accuracy.item(), valLossInfo,
                                    epochNum + 1))
+                    lossSum = 0
                     tbwriter.add_scalar('loss', loss.item(), total_steps)
                     tbwriter.add_scalar('accuracy', accuracy.item(), total_steps)
 
@@ -303,7 +308,7 @@ def trainAlexNet(learnRate=LR_INIT, printWeightStats=False):
                 additInfo = {'epoch': epochNum,
                              'total_steps': total_steps,
                              'seed': seed}
-                alexnet.saveState(os.path.join(CHECKPOINT_DIR, 'PyTImWeights_Epoch{}.h5'.format(blockNum)),
+                alexnet.saveState(os.path.join(CHECKPOINT_DIR, 'PyTImWeights_Epoch{}.pkl'.format(blockNum)),
                                   additInfo)
                         # os.path.join(CHECKPOINT_DIR, 'alexnet_states_e{}.pkl'.format(epochNum + 1))
 
