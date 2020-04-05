@@ -97,15 +97,19 @@ class AlexNet(nn.Module):
             ('relu_5', nn.ReLU()),
             ('max_pool_5', nn.MaxPool2d(kernel_size=3, stride=2)),  # (b x 256 x 6 x 6)
           ]))
+
+        self.namedLayers['dense_1'] = nn.Linear(in_features=(256 * 6 * 6), out_features=4096)
+        self.namedLayers['dense_2'] = nn.Linear(in_features=4096, out_features=4096)
+        self.namedLayers['dense_3'] = nn.Linear(in_features=4096, out_features=num_classes)
         # classifier is just a name for linear layers
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5, inplace=True),
-            nn.Linear(in_features=(256 * 6 * 6), out_features=4096),
+            self.namedLayers['dense_1'],
             nn.ReLU(),
             nn.Dropout(p=0.5, inplace=True),
-            nn.Linear(in_features=4096, out_features=4096),
+            self.namedLayers['dense_2'],
             nn.ReLU(),
-            nn.Linear(in_features=4096, out_features=num_classes),
+            self.namedLayers['dense_3'],
         )
         self.init_bias()  # initialize bias
 
@@ -184,6 +188,45 @@ class AlexNet(nn.Module):
 
     def loadStateAdditInfo(self, fileName):
         return torch.load(fileName)
+
+
+class CutAlexNet(nn.Module):
+    def __init__(self, baseModule, highestLayerName):
+        super().__init__()
+        self.baseModule = baseModule
+        highestLayer = baseModule.getLayer(highestLayerName)
+
+        found = False
+        layers = OrderedDict()
+        for name, layer in baseModule.net.named_children():
+#             print('Layer ', name, ' - ', layer)
+            layers[name] = layer
+            if layer == highestLayer:
+                print('Highest layer %s found (%d in new model)' % (highestLayerName, len(layers)))
+                found = True
+                break
+
+        if found:
+            self.net = nn.Sequential(layers)
+            self.classifier = None
+        else:
+            self.net = baseModule.net
+            layers = OrderedDict()
+            for name, layer in baseModule.classifier.named_children():
+                layers[name] = layer
+                if layer == highestLayer:
+                    print('Highest layer %s found (%d in new model)' % (highestLayerName, len(layers)))
+                    found = True
+                    break
+            self.classifier = nn.Sequential(layers)
+
+    def forward(self, x):
+        x = self.net(x)
+        if self.classifier is None:
+            return x
+
+        x = x.view(-1, 256 * 6 * 6)
+        return self.classifier(x)
 
 
 def printProgress(str):

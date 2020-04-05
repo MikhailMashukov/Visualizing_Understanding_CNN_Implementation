@@ -8,6 +8,8 @@ import psutil
 # import time
 import numpy as np
 import warnings
+import torch
+import torch.nn.functional as F
 
 import DeepOptions
 import DataCache
@@ -58,24 +60,32 @@ class CPyTorchImageNetVisWrapper:
         return DeepOptions.towerCount
 
     def getImageActivations(self, layerName, imageNum, epochNum=None):
-        if epochNum is None or epochNum < 0:
-            epochNum = self.curEpochNum
-        itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
-        cacheItem = self.activationCache.getObject(itemCacheName)
-        if not cacheItem is None:
-            return cacheItem
+        return self.getImagesActivations_Batch(layerName, [imageNum], epochNum)
 
-        model = self._getNet(layerName)
-        if epochNum != self.curEpochNum:
-            self.loadState(epochNum)
-        imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName)
-        imageData = np.expand_dims(imageData, 0)
-        activations = model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
+#         if epochNum is None or epochNum < 0:
+#             epochNum = self.curEpochNum
+#         itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
+#         cacheItem = self.activationCache.getObject(itemCacheName)
+#         if not cacheItem is None:
+#             return cacheItem
 
-        if self.netPreprocessStageName == 'net':
-            activations = self._transposeToOutBatchDims(activations)
-        self.activationCache.saveObject(itemCacheName, activations)
-        return activations
+#         model = self._getNet(layerName)
+#         if epochNum != self.curEpochNum:
+#             self.loadState(epochNum)
+#         imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName)
+#         imageData = np.expand_dims(imageData, 0)
+
+#         imageData = np.transpose(imageData, (0, 3, 1, 2))
+#         print('imageData ', torch.from_numpy(imageData).shape)
+#         model.eval()
+#         # self.pytOptimizer.zero_grad()
+#         with torch.set_grad_enabled(False):
+#             activations = model.forward(torch.from_numpy(imageData).to(self.pytDevice))   # np.expand_dims(imageData, 0), 3))
+
+#         if self.netPreprocessStageName == 'net':
+#             activations = self._transposeToOutBatchDims(activations)
+#         self.activationCache.saveObject(itemCacheName, activations)
+#         return activations
 
     def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None):
         if epochNum is None or epochNum < 0:
@@ -101,12 +111,23 @@ class CPyTorchImageNetVisWrapper:
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
         imageData = np.stack(images, axis=0)
+        imageData = np.transpose(imageData, (0, 3, 1, 2))
         # print("Predict data prepared")
-        activations = model.model.predict(imageData)   # np.expand_dims(imageData, 0), 3))
-        # print("Predicted")
+#         print('imageData dtype', imageData.dtype, ', shape', torch.from_numpy(imageData).shape)
+#         print('imageData min', imageData.min(), ' max', imageData.max())
 
-        if self.netPreprocessStageName == 'net':
-            activations = self._transposeToOutBatchDims(activations)
+        model.eval()
+        imageData = imageData + np.zeros(imageData.shape, dtype=np.float32)   # Workaround for "max_pool2d_with_indices_out_cuda_frame failed with error code 0"
+        pytImageData = torch.from_numpy(imageData).cuda()
+        pytImageData /= 64                        # Approximately (std is about 0.25)
+        with torch.set_grad_enabled(False):
+            activations = model.forward(pytImageData)   # np.expand_dims(imageData, 0), 3))
+        # print("Predicted")
+            activations = activations.cpu().numpy()
+
+#         if self.netPreprocessStageName == 'net':
+#             activations = self._transposeToOutBatchDims(activations)
+        # print('Activations', activations.shape)
 
         predictedI = 0
         for i in range(len(imageNums)):
@@ -366,9 +387,6 @@ class CPyTorchImageNetVisWrapper:
         return infoStr
 
     def _doLearning_Internal(self, epochImageCount):
-        import torch
-        import torch.nn.functional as F
-
         testImageCount = epochImageCount // 6
 
         batchCount = epochImageCount // self.batchSize
@@ -708,11 +726,10 @@ class CPyTorchImageNetVisWrapper:
         if highestLayer is None:
             return self.net
         else:
-            raise Exception('Not implemented')
             if not highestLayer in self.netsCache:
-                import ImageNet
+                import PyTorch.DansuhModel as PyTorchModelModule
 
-                self.netsCache[highestLayer] = ImageNet.CImageRecognitionNet(highestLayer, base_model=self.net)
+                self.netsCache[highestLayer] = PyTorchModelModule.CutAlexNet(self.net, highestLayer)
             return self.netsCache[highestLayer]
 
     def _isMatchedLayer(layerName, layerToFindName, allowCombinedLayers):
