@@ -277,9 +277,6 @@ class CImageRecognitionNet:
                     randI = 0
                     for imageNum in imageNums:
                         image = self.imageDataset.getImage(imageNum, 'resized256', 'train').astype(np.float32)
-                        image[:, :, 0] -= 123
-                        image[:, :, 1] -= 116
-                        image[:, :, 2] -= 103
 
 #d_                         image = next(datagen.flow(np.expand_dims(image, axis=0), batch_size=1))[0]
                         image = image[rands[randI] : rands[randI] + crop_size[0],
@@ -294,6 +291,10 @@ class CImageRecognitionNet:
 #                     print(len(images), images[0].shape, images[0].dtype)
 
                     images = np.stack(images)
+                    images[:, :, :, 0] -= 123
+                    images[:, :, :, 1] -= 116
+                    images[:, :, :, 2] -= 103
+                    images / 64
                     return images, tf.keras.utils.to_categorical(
                                 labels, num_classes=classCount)
 
@@ -303,7 +304,7 @@ class CImageRecognitionNet:
                     return images, labels
 
                 tfTrainDataset = self.imageDataset.getTfDataset('train')   # .take(100).repeat()
-                tfTrainDataset = tfTrainDataset.shuffle(buffer_size=max(epochImageCount, 12000))
+                tfTrainDataset = tfTrainDataset.shuffle(buffer_size=max(epochImageCount, 400000))
                 tfTrainDataset = tfTrainDataset.batch(self.batchSize)
                 threadCount = 3 + getCpuCoreCount() // 4
                 tfTrainDataset = tfTrainDataset.map(tfPrepareBatch, num_parallel_calls=threadCount)
@@ -316,6 +317,8 @@ class CImageRecognitionNet:
 
             def _loadTestImage(imageNum, label):
                 imageData = self.imageDataset.getImage(imageNum, 'net', 'test')
+                # TODO? images[:, :, :, 2] -= 103
+                #    images / 64
                 return (imageData, tf.keras.utils.to_categorical(
                             label, num_classes=classCount))
 

@@ -66,6 +66,7 @@ Further ideas:
 - to add batch normalization at the end of SE blocks;
 * to multiply weights when activations dimish;
 * to run training steps several times and to select best result;
+- to try to scale images for TF AlexNet
 """
 
 # import copy

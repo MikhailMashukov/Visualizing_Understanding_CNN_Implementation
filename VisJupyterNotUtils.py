@@ -2225,7 +2225,8 @@ def getMultWeightsInfo(controlObj, layerName, epochNum):
 
     # img = controlObj.imageDataset.getImage(controlObj.curImageNum, 'cropped', 'train')
     # plt.imshow(img / 255.0)
-    controlObj.netWrapper.loadState(epochNum)
+    if epochNum != controlObj.netWrapper.curEpochNum:
+        controlObj.netWrapper.loadState(epochNum)
     weights = controlObj.netWrapper.getMultWeights(layerName, True)
 #     print('%s weights: %s, min %.4f, max %.4f (%s)' % \
 #                 (layerName, str(activations.shape), activations.min(), activations.max(),
@@ -2234,6 +2235,28 @@ def getMultWeightsInfo(controlObj, layerName, epochNum):
     g_infoCache.saveObject(itemCacheName, info)
     return info
 
+# Debug method for looking at train/test images and predictions for them
+def calcActivations(model, images, classes):
+    import torch
+
+    model.eval()
+    activations = model.forward(images.cuda())
+    # print(activations.shape, activations[:, 70:72])
+    for imgInd, pytImg in enumerate(images[:4]):
+        img = np.transpose(pytImg.numpy(), (1, 2, 0))
+        img = (img + 2.2) / 5
+#         print(img.dtype, img.shape, img.min(), img.max())
+        imshow(img)
+        plt.show()
+        with torch.set_grad_enabled(False):
+            if 1:
+                activations = model.forward(pytImg.unsqueeze(0).cuda())
+                npActs = activations[0].cpu().numpy()
+            else:
+                npActs = activations[imgInd].cpu().numpy()
+#             print(activations.tolist())
+            sortedActInds = npActs.argsort()[::-1]
+            print(activations.shape, classes[imgInd], sortedActInds) #, npActs[sortedActInds])
 
 if __name__ == "__main__":
     print(controlObj.getSelectedEpochNum())

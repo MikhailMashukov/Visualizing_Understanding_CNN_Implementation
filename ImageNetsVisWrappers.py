@@ -618,9 +618,7 @@ class CImageNetVisWrapper:
         self.optimizer = AdamW(learning_rate=learnRate, weight_decay=2.5e-4, epsilon=1e-6)
         # It's possible to turn off layers' weights updating with layer.trainable = False/
         # It requires model.compile for changes to take effect
-        self.net.model.compile(optimizer=self.optimizer,
-                               loss=categorical_crossentropy,  # loss='mse',
-                               metrics=['accuracy'])
+        self.net.model.compile(optimizer=self.optimizer, loss='mse', metrics=['accuracy'])
 
 # class CImageNetVisWrapper_6_VKI(CImageNetVisWrapper):
 #     def _initMainNet(self):

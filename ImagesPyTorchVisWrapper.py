@@ -119,7 +119,7 @@ class CPyTorchImageNetVisWrapper:
         model.eval()
         imageData = imageData + np.zeros(imageData.shape, dtype=np.float32)   # Workaround for "max_pool2d_with_indices_out_cuda_frame failed with error code 0"
         pytImageData = torch.from_numpy(imageData).cuda()
-        pytImageData /= 64                        # Approximately (std is about 0.25)
+        pytImageData /= 128                        # Approximately (std is about 0.25)
         with torch.set_grad_enabled(False):
             activations = model.forward(pytImageData)   # np.expand_dims(imageData, 0), 3))
         # print("Predicted")
@@ -399,7 +399,7 @@ class CPyTorchImageNetVisWrapper:
 
             # calculate the loss
             output = self.net(imgs)
-            loss = F.cross_entropy(output, classes)
+            loss = F.cross_entropy(output, classes)      # Averaged for entire batch
 
             # update the parameters
             self.pytOptimizer.zero_grad()
@@ -411,7 +411,7 @@ class CPyTorchImageNetVisWrapper:
             accuracySum += torch.sum(preds == classes_Cpu)
 
         print('%d batches processed' % batchCount)
-        infoStr = "loss %.7g" % (float(lossSum) / self.batchSize / batchCount)
+        infoStr = "loss %.7g" % (float(lossSum) / batchCount)
         infoStr += ", acc %.5f" % (float(accuracySum) / self.batchSize / batchCount)
 
         self.net.eval()
@@ -434,9 +434,13 @@ class CPyTorchImageNetVisWrapper:
 
                 lossSum += loss
                 _, preds = torch.max(output.cpu(), 1)
+#                 print('classes', classes_Cpu)
+#                 print('preds', preds)
+#                 print(torch.sum(preds == classes_Cpu))
                 accuracySum += torch.sum(preds == classes_Cpu)
+
             print('%d val. batches processed' % batchCount)
-            infoStr += ", val. loss %.7f" % (float(lossSum) / self.batchSize / batchCount)
+            infoStr += ", val. loss %.7f" % (float(lossSum) / batchCount)
             infoStr += ", val. acc %.7f" % (float(accuracySum) / self.batchSize / batchCount)
 
         return infoStr
@@ -580,7 +584,7 @@ class CPyTorchImageNetVisWrapper:
                 batch_size=self.batchSize)
         self.pytTestDataIt = iter(self.pytTestDataLoader)
         print('Images loaders initialized. Batch size ', self.batchSize)
-        print('First batch: ', next(self.pytTrainDataIt)[1])
+#         print('First batch: ', next(self.pytTrainDataIt)[1])
 
     def getTrainBatch(self):
         try:
@@ -590,7 +594,7 @@ class CPyTorchImageNetVisWrapper:
             return next(self.pytTrainDataIt)    # imgs, classes
         except StopIteration:
             self.pytTrainDataIt = iter(self.pytTrainDataLoader)
-            print('First batch: ', next(self.pytTrainDataIt)[1])
+#             print('First batch: ', next(self.pytTrainDataIt)[1])
             return next(self.pytTrainDataIt)
 
     def getTestBatch(self):

@@ -16,6 +16,8 @@ import torchvision.transforms as transforms
 # from tensorboardX import SummaryWriter
 from torch.utils.tensorboard import SummaryWriter
 
+import DeepOptions
+
 # define pytorch device - useful for device-agnostic execution
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 
@@ -31,6 +33,7 @@ DEVICE_IDS = [0]  # GPUs to use
 # modify this to point to your data directory
 # INPUT_ROOT_DIR = '/root/Visualiz_Zeiler/ImageNet'         # 'alexnet_data_in'
 TRAIN_IMG_DIR =  '/root/Visualiz_Zeiler/ImageNet/train'   # 'alexnet_data_in/imagenet'
+TEST_IMG_DIR =  '/root/Visualiz_Zeiler/ImageNet/test'   # 'alexnet_data_in/imagenet'
 OUTPUT_DIR = 'PyTLogs'
 LOG_DIR = OUTPUT_DIR + '/TbLogs'  # tensorboard logs
 CHECKPOINT_DIR = OUTPUT_DIR + '/checkpoints'  # model checkpoints
@@ -51,34 +54,38 @@ class AlexNet(nn.Module):
             num_classes (int): number of classes to predict with this model
         """
         super().__init__()
+
+        mult = DeepOptions.netSizeMult
+        denseMult = mult
+
         # input size should be : (b x 3 x 227 x 227)
         # The image in the original paper states that width and height are 224 pixels, but
         # the dimensions after first convolution layer do not lead to 55 x 55.
         if 0:         # For loading old models with not named layers
           self.net = nn.Sequential(
-            nn.Conv2d(in_channels=3, out_channels=96, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
+            nn.Conv2d(in_channels=3, out_channels=mult * 6, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
             nn.ReLU(),
             nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2),  # section 3.3
             nn.MaxPool2d(kernel_size=3, stride=2),  # (b x 96 x 27 x 27)
-            nn.Conv2d(96, 256, 5, padding=2),  # (b x 256 x 27 x 27)
+            nn.Conv2d(mult * 6, mult * 16, 5, padding=2),  # (b x 256 x 27 x 27)
             nn.ReLU(),
             nn.LocalResponseNorm(size=5, alpha=0.0001, beta=0.75, k=2),
             nn.MaxPool2d(kernel_size=3, stride=2),  # (b x 256 x 13 x 13)
-            nn.Conv2d(256, 384, 3, padding=1),  # (b x 384 x 13 x 13)
+            nn.Conv2d(mult * 16, mult * 24, 3, padding=1),  # (b x 384 x 13 x 13)
             nn.ReLU(),
-            nn.Conv2d(384, 384, 3, padding=1),  # (b x 384 x 13 x 13)
+            nn.Conv2d(mult * 24, mult * 24, 3, padding=1),  # (b x 384 x 13 x 13)
             nn.ReLU(),
-            nn.Conv2d(384, 256, 3, padding=1),  # (b x 256 x 13 x 13)
+            nn.Conv2d(mult * 24, mult * 16, 3, padding=1),  # (b x 256 x 13 x 13)
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=3, stride=2))  # (b x 256 x 6 x 6)
           self.namedLayers = {'conv_1': list(self.net.children())[0]}
         else:
           self.namedLayers = {
-            'conv_1': nn.Conv2d(in_channels=3, out_channels=96, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
-            'conv_2': nn.Conv2d(96, 256, 5, padding=2),  # (b x 256 x 27 x 27)
-            'conv_3': nn.Conv2d(256, 384, 3, padding=1),  # (b x 384 x 13 x 13)
-            'conv_4': nn.Conv2d(384, 384, 3, padding=1),  # (b x 384 x 13 x 13)
-            'conv_5': nn.Conv2d(384, 256, 3, padding=1),  # (b x 256 x 13 x 13)
+            'conv_1': nn.Conv2d(in_channels=3, out_channels=mult * 6, kernel_size=11, stride=4),  # (b x 96 x 55 x 55)
+            'conv_2': nn.Conv2d(mult * 6,  mult * 16, 5, padding=2),  # (b x 256 x 27 x 27)
+            'conv_3': nn.Conv2d(mult * 16, mult * 24, 3, padding=1),  # (b x 384 x 13 x 13)
+            'conv_4': nn.Conv2d(mult * 24, mult * 24, 3, padding=1),  # (b x 384 x 13 x 13)
+            'conv_5': nn.Conv2d(mult * 24, mult * 16, 3, padding=1),  # (b x 256 x 13 x 13)
           }
           self.net = nn.Sequential(OrderedDict([       # OrderedDict doesn't help, need custom naming
             ('conv_1', self.namedLayers['conv_1']),
@@ -98,9 +105,9 @@ class AlexNet(nn.Module):
             ('max_pool_5', nn.MaxPool2d(kernel_size=3, stride=2)),  # (b x 256 x 6 x 6)
           ]))
 
-        self.namedLayers['dense_1'] = nn.Linear(in_features=(256 * 6 * 6), out_features=4096)
-        self.namedLayers['dense_2'] = nn.Linear(in_features=4096, out_features=4096)
-        self.namedLayers['dense_3'] = nn.Linear(in_features=4096, out_features=num_classes)
+        self.namedLayers['dense_1'] = nn.Linear(in_features=(mult * 16 * 6 * 6), out_features=4000 // 16 * denseMult)
+        self.namedLayers['dense_2'] = nn.Linear(in_features=4000 // 16 * denseMult, out_features=4000 // 16 * denseMult)
+        self.namedLayers['dense_3'] = nn.Linear(in_features=4000 // 16 * denseMult, out_features=num_classes)
         # classifier is just a name for linear layers
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5, inplace=True),
@@ -134,7 +141,7 @@ class AlexNet(nn.Module):
             output (Tensor): output tensor
         """
         x = self.net(x)
-        x = x.view(-1, 256 * 6 * 6)  # reduce the dimensions for linear layer input
+        x = x.view(-1, DeepOptions.netSizeMult * 16 * 6 * 6)  # reduce the dimensions for linear layer input
         return self.classifier(x)
 
 
@@ -225,7 +232,7 @@ class CutAlexNet(nn.Module):
         if self.classifier is None:
             return x
 
-        x = x.view(-1, 256 * 6 * 6)
+        x = x.view(-1, DeepOptions.netSizeMult * 16 * 6 * 6)
         return self.classifier(x)
 
 
