@@ -1476,6 +1476,32 @@ class NetControlObject():
             self.lastUpdateTime = datetime.datetime.now() + datetime.timedelta(seconds=2)
                 # A hacking of super-class in order to make epoch info visible longer
 
+    # Tries several learning rate and selects the one that gave biggest advance
+    def tryDiffParams(self, learnRates):  # tryCount, minLearnRate, maxLearnRate):
+        startEpochNum = self.netWrapper.curEpochNum
+        bestResult = None
+        tryCount = len(learnRates)
+        for tryInd in range(tryCount):
+            print('try ', tryInd)
+            if tryInd > 0:
+                self.loadState(startEpochNum)
+
+            curLearnRate = learnRates[tryInd]
+            # if tryCount > 1:
+            #     curLearnRate = minLearnRate + (maxLearnRate - minLearnRate) / (tryCount - 1)
+            # else:
+            #     curLearnRate = minLearnRate
+
+            self.learnRate = curLearnRate
+            self.curEpochNum = startEpochNum
+            self.onDoItersPressed(200)
+            if bestResult is None or bestResult > self.netWrapper.lastEpochResult['TrainLoss']:
+                bestResult = self.netWrapper.lastEpochResult['TrainLoss']
+                bestParam = curLearnRate
+                self.saveState()
+
+        self.netWrapper.printProgress("Best try's learn rate %f" % bestParam)
+        self.loadState(startEpochNum + 1)
 
     def onTestPress(self):
         # self.loadState()
@@ -2257,6 +2283,7 @@ def calcActivations(model, images, classes):
 #             print(activations.tolist())
             sortedActInds = npActs.argsort()[::-1]
             print(activations.shape, classes[imgInd], sortedActInds) #, npActs[sortedActInds])
+
 
 if __name__ == "__main__":
     print(controlObj.getSelectedEpochNum())

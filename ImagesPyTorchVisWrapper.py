@@ -413,6 +413,8 @@ class CPyTorchImageNetVisWrapper:
         print('%d batches processed' % batchCount)
         infoStr = "loss %.7g" % (float(lossSum) / batchCount)
         infoStr += ", acc %.5f" % (float(accuracySum) / self.batchSize / batchCount)
+        self.lastEpochResult = {'TrainLoss': float(lossSum) / batchCount,
+                                'TrainAcc': float(accuracySum) / self.batchSize / batchCount}
 
         self.net.eval()
         self.pytOptimizer.zero_grad()
@@ -442,7 +444,8 @@ class CPyTorchImageNetVisWrapper:
             print('%d val. batches processed' % batchCount)
             infoStr += ", val. loss %.7f" % (float(lossSum) / batchCount)
             infoStr += ", val. acc %.7f" % (float(accuracySum) / self.batchSize / batchCount)
-
+            self.lastEpochResult.update({'TestLoss': float(lossSum) / batchCount,
+                                         'TestAcc': float(accuracySum) / self.batchSize / batchCount})
         return infoStr
 
     def getSavedNetEpochs(self):
@@ -583,7 +586,7 @@ class CPyTorchImageNetVisWrapper:
                 drop_last=True,
                 batch_size=self.batchSize)
         self.pytTestDataIt = iter(self.pytTestDataLoader)
-        print('Images loaders initialized. Batch size ', self.batchSize)
+        print('Images loaders initialized. Batch size', self.batchSize)
 #         print('First batch: ', next(self.pytTrainDataIt)[1])
 
     def getTrainBatch(self):
