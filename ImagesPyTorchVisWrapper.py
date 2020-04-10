@@ -534,11 +534,17 @@ class CPyTorchImageNetVisWrapper:
 
     def _initMainNet(self):
         import torch
-        import PyTorch.DansuhModel as PyTorchModelModule
+        import PyTorch.DansuhModel
+        import PyTorch.PyTImageModels
 
         self.pytDevice = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-        self.net = PyTorchModelModule.AlexNet(num_classes=DeepOptions.classCount).to(self.pytDevice)
-            # highest_layer=None, doubleSizeLayerNames=self.doubleSizeLayerNames)
+        if DeepOptions.modelClass == 'AlexnetModel':
+            self.net = PyTorch.DansuhModel.AlexNet(num_classes=DeepOptions.classCount).to(self.pytDevice)
+                # highest_layer=None, doubleSizeLayerNames=self.doubleSizeLayerNames)
+        elif DeepOptions.modelClass == 'AlexnetModel_TV':
+            self.net = PyTorch.PyTImageModels.AlexNet_TV(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        else:
+            raise Exception('Unknown model class %s' % DeepOptions.modelClass)
         self.pytOptimizer = torch.optim.Adam(params=self.net.parameters())
 
         self.netsCache = dict()

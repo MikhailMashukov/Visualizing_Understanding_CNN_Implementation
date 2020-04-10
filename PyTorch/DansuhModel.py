@@ -56,7 +56,6 @@ class AlexNet(nn.Module):
         super().__init__()
 
         mult = DeepOptions.netSizeMult
-        denseMult = mult
 
         # input size should be : (b x 3 x 227 x 227)
         # The image in the original paper states that width and height are 224 pixels, but
@@ -105,9 +104,10 @@ class AlexNet(nn.Module):
             ('max_pool_5', nn.MaxPool2d(kernel_size=3, stride=2)),  # (b x 256 x 6 x 6)
           ]))
 
-        self.namedLayers['dense_1'] = nn.Linear(in_features=(mult * 16 * 6 * 6), out_features=4000 // 16 * denseMult)
-        self.namedLayers['dense_2'] = nn.Linear(in_features=4000 // 16 * denseMult, out_features=4000 // 16 * denseMult)
-        self.namedLayers['dense_3'] = nn.Linear(in_features=4000 // 16 * denseMult, out_features=num_classes)
+        denseSize = 4096 // 16 * mult
+        self.namedLayers['dense_1'] = nn.Linear(in_features=(mult * 16 * 6 * 6), out_features=denseSize)
+        self.namedLayers['dense_2'] = nn.Linear(in_features=denseSize, out_features=denseSize)
+        self.namedLayers['dense_3'] = nn.Linear(in_features=denseSize, out_features=num_classes)
         # classifier is just a name for linear layers
         self.classifier = nn.Sequential(
             nn.Dropout(p=0.5, inplace=True),

@@ -190,6 +190,24 @@ def getLogAsTable(srcFilePath):
 
     return pd.DataFrame(table, columns=fieldNames)
 
+# RegExpStr is e.g. '.*\sLoss (\d.*?) \(.*Acc@1\s*(\d.*?)\s.*'.
+# Return number column (1, 2, 3, ...) and found values
+def parseLogByRegExp(srcFilePath, regExpStr):
+    table = []
+    with open(srcFilePath, 'r') as file:
+        epochNum = 0
+        for line in file:
+            match = re.match(regExpStr, line)
+            if match:
+                epochNum += 1
+                row = [epochNum] + [float(valStr) for valStr in match.groups()]
+                # if len(row) != len(fieldNames):
+                #     raise Exception('Value count mismatch (%s)' % line)
+                table.append(row)
+
+    return pd.DataFrame(table) # , columns=fieldNames)
+
+
 # # Cuts diagram on the right if it exits from minY-maxY
 # def cutDiag(xs, ys, minY, maxY):
 #     for i in range(len(xs)):
@@ -238,6 +256,7 @@ def sigint_handler(*args):
     QtGui.QApplication.quit()
 
 if __name__ == '__main__':
+      # t = parseLogByRegExp('progress.log', '.*\sLoss (\d.*?) \(.*Acc@1\s*(\d.*?)\s.*')
     # # filePath = 'log'
     # if len(sys.argv) > 1:
     #     filePath = sys.argv[1]
