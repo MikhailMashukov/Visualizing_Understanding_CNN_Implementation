@@ -545,7 +545,13 @@ class CPyTorchImageNetVisWrapper:
             self.net = PyTorch.PyTImageModels.AlexNet_TV(num_classes=DeepOptions.classCount).to(self.pytDevice)
         else:
             raise Exception('Unknown model class %s' % DeepOptions.modelClass)
-        self.pytOptimizer = torch.optim.Adam(params=self.net.parameters())
+
+        if 0:
+            self.pytOptimizer = torch.optim.AdamW(params=self.net.parameters())
+        else:
+            print('SGD')
+            self.pytOptimizer = torch.optim.SGD(params=self.net.parameters(), lr=self.getRecommendedLearnRate(),
+                                                momentum=0.9, weight_decay=1e-4)
 
         self.netsCache = dict()
         self.setBatchSize(self.batchSize)

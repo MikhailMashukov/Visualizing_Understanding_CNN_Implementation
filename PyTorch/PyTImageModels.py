@@ -17,33 +17,39 @@ class AlexNet_TV(nn.Module):
         super(AlexNet_TV, self).__init__()
 
         mult = DeepOptions.netSizeMult
+        self.namedLayers = {
+            'conv_1': nn.Conv2d(3, mult * 4, kernel_size=11, stride=4, padding=2),
+            'conv_2': nn.Conv2d(mult * 4,  mult * 12, 5, padding=2),
+            'conv_3': nn.Conv2d(mult * 12, mult * 24, 3, padding=1),
+            'conv_4': nn.Conv2d(mult * 24, mult * 16, 3, padding=1),
+            'conv_5': nn.Conv2d(mult * 16, mult * 16, 3, padding=1),
+        }
         self.net = nn.Sequential(
-            nn.Conv2d(3, mult * 4, kernel_size=11, stride=4, padding=2),
+            self.namedLayers['conv_1'],
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(mult * 4, mult * 12, kernel_size=5, padding=2),
+            self.namedLayers['conv_2'],
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
-            nn.Conv2d(mult * 12, mult * 24, kernel_size=3, padding=1),
+            self.namedLayers['conv_3'],
             nn.ReLU(inplace=True),
-            nn.Conv2d(mult * 24, mult * 16, kernel_size=3, padding=1),
+            self.namedLayers['conv_4'],
             nn.ReLU(inplace=True),
-            nn.Conv2d(mult * 16, mult * 16, kernel_size=3, padding=1),
+            self.namedLayers['conv_5'],
             nn.ReLU(inplace=True),
             nn.MaxPool2d(kernel_size=3, stride=2),
+            nn.AdaptiveAvgPool2d((6, 6)),
         )
-        self.avgpool = nn.AdaptiveAvgPool2d((6, 6))
 
         denseSize = 4096 // 16 * mult
-        self.namedLayers = {'conv_1': list(self.net.children())[0]}
         self.namedLayers['dense_1'] = nn.Linear(in_features=(mult * 16 * 6 * 6), out_features=denseSize)
         self.namedLayers['dense_2'] = nn.Linear(in_features=denseSize, out_features=denseSize)
         self.namedLayers['dense_3'] = nn.Linear(in_features=denseSize, out_features=num_classes)
         self.classifier = nn.Sequential(
-            nn.Dropout(),
+            nn.Dropout(p=0.5),
             self.namedLayers['dense_1'],
             nn.ReLU(inplace=True),
-            nn.Dropout(),
+            nn.Dropout(p=0.5),
             self.namedLayers['dense_2'],
             nn.ReLU(inplace=True),
             self.namedLayers['dense_3'],
@@ -51,7 +57,6 @@ class AlexNet_TV(nn.Module):
 
     def forward(self, x):
         x = self.net(x)
-        x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.classifier(x)
         return x
@@ -82,10 +87,7 @@ class AlexNet_TV(nn.Module):
         # print('state ', state)
         savedStateDict = state['model']
         try:
-            c_replacements = [['module.', ''],
-                              ['net.0.', 'net.conv_1.'], ['net.4.', 'net.conv_2.'],
-                              ['net.8.', 'net.conv_3.'], ['net.10.', 'net.conv_4.'],
-                              ['net.12.', 'net.conv_5.']]
+            c_replacements = [['module.', ''], ]
             stateDict = {}
             for name, data in savedStateDict.items():
                 for replRule in c_replacements:
