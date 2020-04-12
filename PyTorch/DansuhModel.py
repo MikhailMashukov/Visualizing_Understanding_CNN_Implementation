@@ -188,7 +188,7 @@ class AlexNet(nn.Module):
 
         if len(savedStateDict) != len(self.state_dict()):
             raise Exception('You are trying to load parameters for %d layers, but the model has %d' %
-                            (len(savedStateDict) != len(self.state_dict())))
+                            (len(savedStateDict), len(self.state_dict())))
 
         del state['model']
         return state

@@ -8,6 +8,7 @@ if fastDebugMode:
 else:
     netSizeMult = 8
     modelClass = 'AlexnetModel4'
+    modelClass = 'ImageModel3'
     # modelClass = 'ImageModel4'
     # modelClass = 'ChanConvModel'
     # modelClass = 'ChanUnitingModel'

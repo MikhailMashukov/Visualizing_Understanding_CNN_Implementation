@@ -5,79 +5,87 @@ from torchvision.models.utils import load_state_dict_from_url
 
 import DeepOptions
 
-__all__ = ['AlexNet', 'alexnet']
-
-model_urls = {
-    'alexnet': 'https://download.pytorch.org/models/alexnet-owt-4df8aa71.pth',
-}
-
-# AlexNet, based on torchvision.examples. First advance in the middle of the 1st epoch,
-# top-1 train/test accuracy after 5 epochs - 23.3%/30.3%.
-# Now also added towers and changed number of channels
-class AlexNet4(nn.Module):
+# More advanced AlexNet4 - with fractional max pools
+class ImageModel3_Deeper(nn.Module):
     def __init__(self, num_classes=1000):
-        super(AlexNet4, self).__init__()
+        super(ImageModel3_Deeper, self).__init__()
 
         mult = DeepOptions.netSizeMult
         towerCount = DeepOptions.towerCount
         self.towerCount = towerCount
-        self.namedLayers = {'conv_1': nn.Conv2d(3, mult * 6, kernel_size=11, stride=4, padding=2)}   # Input - 227 * 227
-        self.namedLayers['conv_3'] = nn.Conv2d(mult * 16, mult * 24, 3, padding=1)
-        # self.namedLayers['conv_4'] = nn.Conv2d(mult * 24, mult * 16, 3, padding=1)
-#         self.namedLayers['conv_5'] = nn.Conv2d(mult * 16, mult * 16, 3, padding=1)
-        # if towerCount == 1:
-        #     self.namedLayers['conv_2'] = nn.Conv2d(mult * 4,  mult * 12, 5, padding=2)
-        # else:
+        self.namedLayers = {'conv_1': nn.Conv2d(3, mult * 6, kernel_size=7, stride=2)}   # Input - 227 * 227
+        self.namedLayers['conv_3'] = nn.Conv2d(mult * 16, mult * 24, 3, padding=0)
         for towerInd in range(towerCount):
-                self.namedLayers['conv_2_%d' % (towerInd + 1)] = nn.Conv2d(mult * 6 // towerCount,  mult * 16 // towerCount, 5, padding=2)
-                    # Input image 27 * 27
+                self.namedLayers['conv_2_%d' % (towerInd + 1)] = nn.Conv2d(mult * 6 // towerCount,  mult * 16 // towerCount, 3, padding=1)
+                    # Input image 55 * 55, output - 77 * 77
+                self.namedLayers['conv_22_%d' % (towerInd + 1)] = nn.Conv2d(mult * 16 // towerCount,  mult * 16 // towerCount, 3)
+                    # Output image -
                 # self.namedLayers['conv_3%d' % (towerInd + 1)] = nn.Conv2d(mult * 12 // towerCount, mult * 24 // towerCount, 3, padding=1)
-                self.namedLayers['conv_4_%d' % (towerInd + 1)] = nn.Conv2d(mult * 24 // towerCount,  mult * 24 // towerCount, 3, padding=1)
-                    # Input image 13 * 13
-                self.namedLayers['conv_5_%d' % (towerInd + 1)] = nn.Conv2d(mult * 24 // towerCount,  mult * 16 // towerCount, 3, padding=1)
+                self.namedLayers['conv_4_%d' % (towerInd + 1)] = \
+                        nn.Conv2d(mult * 24 // towerCount,  mult * 32 // towerCount, 3, padding=1)
+                    # Input image 29 * 29
+                self.namedLayers['conv_5_%d' % (towerInd + 1)] = \
+                        nn.Conv2d(mult * 32 // towerCount,  mult * 24 // towerCount, 3, padding=1)
+                    # Output image 15 * 15
+#                 self.namedLayers['conv_6_%d' % (towerInd + 1)] = \
+#                         nn.Conv2d(mult * 32 // towerCount,  mult * 16 // towerCount, 3, padding=1)
+#                     # Output image 11 * 11
 
         self.subnet1 = nn.Sequential(OrderedDict([
                 ('conv_1', self.namedLayers['conv_1']),
                 ('relu_1', nn.ReLU(inplace=True)),
-                ('max_pool_1', nn.MaxPool2d(kernel_size=3, stride=2))]))
+                ('max_pool_1', nn.FractionalMaxPool2d(3, output_ratio=0.67))]))
+#                 ('max_pool_1', nn.MaxPool2d(kernel_size=3, stride=2))]))
         subnets2 = []
         for towerInd in range(towerCount):
             name = 'conv_2_%d' % (towerInd + 1)
             subnets2.append(nn.Sequential(OrderedDict([
-                    (name, self.namedLayers[name])])))
+                    (name, self.namedLayers[name]),
+                    ('relu_2_%d' % (towerInd + 1), nn.ReLU(inplace=True)),
+                    ('max_pool_4_%d' % (towerInd + 1), nn.FractionalMaxPool2d(3, output_ratio=0.67)),
+                    ('conv_22_%d' % (towerInd + 1), self.namedLayers['conv_22_%d' % (towerInd + 1)]),])))
         self.subnets2 = nn.ModuleList(subnets2)
         self.subnet3 = nn.Sequential(OrderedDict([
-                ('relu_3_1', nn.ReLU(inplace=True)),
-                ('max_pool_1', nn.MaxPool2d(kernel_size=3, stride=2)),
+                ('relu_2', nn.ReLU(inplace=True)),
+#                 ('max_pool_2', nn.MaxPool2d(kernel_size=3, stride=2)),
+                ('max_pool_2', nn.FractionalMaxPool2d(3, output_ratio=0.67)),
                 ('conv_3', self.namedLayers['conv_3']),
                 ('relu_3_2', nn.ReLU(inplace=True))]))
+#                 ('pad_3', nn.ZeroPad2d(1))]))
         subnets4 = []
         for towerInd in range(towerCount):
             subnets4.append(nn.Sequential(OrderedDict([
                     ('conv_4_%d' % (towerInd + 1), self.namedLayers['conv_4_%d' % (towerInd + 1)]),
                     ('relu_4_%d' % (towerInd + 1), nn.ReLU(inplace=True)),
+                    ('max_pool_4_%d' % (towerInd + 1), nn.FractionalMaxPool2d(3, output_ratio=0.67)),
+                #                     ('pad_5_%d' % (towerInd + 1), nn.ZeroPad2d(1)),
                     ('conv_5_%d' % (towerInd + 1), self.namedLayers['conv_5_%d' % (towerInd + 1)])])))
+#                     ('relu_5_%d' % (towerInd + 1), nn.ReLU(inplace=True)),
+#                     ('max_pool_5', nn.FractionalMaxPool2d(3, output_ratio=0.7)),
+# #                     ('pad_6_%d' % (towerInd + 1), nn.ZeroPad2d(1)),
+#                     ('conv_6_%d' % (towerInd + 1), self.namedLayers['conv_6_%d' % (towerInd + 1)])])))
         self.subnets4 = nn.ModuleList(subnets4)
         self.subnet5 = nn.Sequential(OrderedDict([
-                ('relu_5_1', nn.ReLU(inplace=True)),
-                ('max_pool_5', nn.MaxPool2d(kernel_size=3, stride=2)),
-                ('avg_pool', nn.AdaptiveAvgPool2d((6, 6)))]))
+                ('relu_6_1', nn.ReLU(inplace=True)),
+                ('max_pool_6', nn.MaxPool2d(kernel_size=3, stride=2, padding=1)),
+                ('avg_pool', nn.AdaptiveAvgPool2d((5, 5)))]))
         # self.net = nn.ModuleList([self.subnet1] + self.subnets2 + [self.subnet3] + \
         #         self.subnets4 + [self.subnet5])
         self.subnetList = [[self.subnet1], self.subnets2, [self.subnet3], \
                 self.subnets4, [self.subnet5]]
 
         denseSize = 4096 // 16 * mult
-        self.namedLayers['dense_1'] = nn.Linear(in_features=(mult * 16 * 6 * 6), out_features=denseSize)
+        self.namedLayers['dense_1'] = nn.Linear(in_features=(mult * 24 * 5 * 5), out_features=denseSize)
         self.namedLayers['dense_2'] = nn.Linear(in_features=denseSize, out_features=denseSize)
         self.namedLayers['dense_3'] = nn.Linear(in_features=denseSize, out_features=num_classes)
-        self.namedLayers['dropout_1'] = nn.Dropout(p=0.5)
-        self.namedLayers['relu_c_1'] = nn.ReLU(inplace=True)
-        self.namedLayers['dropout_2'] = nn.Dropout(p=0.5)
-        self.namedLayers['relu_c_2'] = nn.ReLU(inplace=True)
         self.classifier = nn.Sequential(OrderedDict([
-                (name, self.namedLayers[name]) for name in ['dropout_1', 'dense_1', 'relu_c_1',
-                    'dropout_2', 'dense_2', 'relu_c_2', 'dense_3']]))
+                ('dropout_1', nn.Dropout(p=0.5)),
+                ('dense_1', self.namedLayers['dense_1']),
+                ('relu_c_1', nn.ReLU(inplace=True)),
+                ('dropout_1', nn.Dropout(p=0.5)),
+                ('dense_2', self.namedLayers['dense_2']),
+                ('relu_c_2', nn.ReLU(inplace=True)),
+                ('dense_3', self.namedLayers['dense_3'])]))
 
     def forward(self, x):
         x = self.subnet1(x)
@@ -155,19 +163,28 @@ class AlexNet4(nn.Module):
             self.allowCombinedLayers = allowCombinedLayers
 
         def forward(self, x):
-#             print(x.shape)
+            printShapes = 0 # True
+            if printShapes:
+                print(x.shape)
             towerCount = self.baseModule.towerCount
             combineLayer = self.allowCombinedLayers and \
                     not self.highestLayerName in self.baseModule.getAllLayers()
             for subnet in self.baseModule.subnetList:
-                # print('subn', len(subnet))
+                print('subnet len', len(subnet), 'shape', x.shape)
                 foundTowerInd = self.findBlockInSubnet(subnet, self.highestLayerName)
                 if len(subnet) == 1:
                     if foundTowerInd < 0:
-                        x = subnet[0](x)
+                        if printShapes:
+                            for name, module in subnet[0].named_children():
+                                x = module(x)
+                                print('After %s: %s' % (name, str(x.shape)))
+                        else:
+                            x = subnet[0](x)
                     else:
                         for name, module in subnet[0].named_children():
                             x = module(x)
+                            if printShapes:
+                                print('After %s: %s' % (name, str(x.shape)))
                             if self._isMatchedBlock(name, self.highestLayerName):
                                 return x
                 else:
@@ -175,7 +192,12 @@ class AlexNet4(nn.Module):
 
                     if foundTowerInd < 0:
                         for towerInd in range(towerCount):
-                            xs[towerInd] = subnet[towerInd](xs[towerInd])
+                            if printShapes and towerInd == 0:
+                                for name, module in subnet[towerInd].named_children():
+                                    xs[towerInd] = module(xs[towerInd])
+                                    print('After %s: %s' % (name, str(xs[towerInd].shape)))
+                            else:
+                                xs[towerInd] = subnet[towerInd](xs[towerInd])
                     else:
                         xsToReturn = []
                         for towerInd in ([foundTowerInd] if not combineLayer else range(len(subnet))):
@@ -184,12 +206,16 @@ class AlexNet4(nn.Module):
                                 if self._isMatchedBlock(name, self.highestLayerName):
                                     xsToReturn.append(xs[towerInd])
                                     break
+                        print('xsToReturn', len(xsToReturn))
                         return torch.cat(xsToReturn, 1)
 
                     x = torch.cat(xs, 1)
+            print(x.shape)
             x = torch.flatten(x, 1)
+            print(x.shape)
             for name, module in self.baseModule.classifier.named_children():
                 x = module(x)
+                print('After %s: %s' % (name, str(x.shape)))
                 if name == self.highestLayerName:
                     return x
             raise Exception('Layer %s not found' % self.highestLayerName)
@@ -206,18 +232,3 @@ class AlexNet4(nn.Module):
             return blockName == blockToFindName or \
                     (self.allowCombinedLayers and blockName[ : len(blockToFindName) + 1] == blockToFindName + '_')
 
-
-def alexnet4(pretrained=False, progress=True, **kwargs):
-    r"""AlexNet model architecture from the
-    `"One weird trick..." <https://arxiv.org/abs/1404.5997>`_ paper.
-
-    Args:
-        pretrained (bool): If True, returns a model pre-trained on ImageNet
-        progress (bool): If True, displays a progress bar of the download to stderr
-    """
-    model = AlexNet4(**kwargs)
-    if pretrained:
-        state_dict = load_state_dict_from_url(model_urls['alexnet'],
-                                              progress=progress)
-        model.load_state_dict(state_dict)
-    return model

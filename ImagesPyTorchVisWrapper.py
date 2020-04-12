@@ -536,6 +536,7 @@ class CPyTorchImageNetVisWrapper:
         import torch
         import PyTorch.DansuhModel
         import PyTorch.PyTImageModels
+        import PyTorch.PyTImageModel3
 
         self.pytDevice = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if DeepOptions.modelClass == 'AlexnetModel':
@@ -543,6 +544,8 @@ class CPyTorchImageNetVisWrapper:
                 # highest_layer=None, doubleSizeLayerNames=self.doubleSizeLayerNames)
         elif DeepOptions.modelClass == 'AlexnetModel4':
             self.net = PyTorch.PyTImageModels.AlexNet4(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        elif DeepOptions.modelClass == 'ImageModel3':
+            self.net = PyTorch.PyTImageModel3.ImageModel3_Deeper(num_classes=DeepOptions.classCount).to(self.pytDevice)
         else:
             raise Exception('Unknown model class %s' % DeepOptions.modelClass)
 
@@ -749,12 +752,17 @@ class CPyTorchImageNetVisWrapper:
             if not highestLayer in self.netsCache[allowFlag]:
                 import PyTorch.DansuhModel
                 import PyTorch.PyTImageModels
+                import PyTorch.PyTImageModel3
 
                 if DeepOptions.modelClass == 'AlexnetModel':
-                    self.netsCache[allowFlag][highestLayer] = PyTorch.DansuhModel.CutAlexNet(self.net, highestLayer)
+                    self.netsCache[allowFlag][highestLayer] = \
+                            PyTorch.DansuhModel.CutAlexNet(self.net, highestLayer)
                 elif DeepOptions.modelClass == 'AlexnetModel4':
                     self.netsCache[allowFlag][highestLayer] = \
                             PyTorch.PyTImageModels.AlexNet4.CutVersion(self.net, highestLayer, allowCombinedLayers)
+                elif DeepOptions.modelClass == 'ImageModel3':
+                    self.netsCache[allowFlag][highestLayer] = \
+                            PyTorch.PyTImageModel3.ImageModel3_Deeper.CutVersion(self.net, highestLayer, allowCombinedLayers)
 
             return self.netsCache[allowFlag][highestLayer]
 
