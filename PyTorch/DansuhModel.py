@@ -206,7 +206,7 @@ class CutAlexNet(nn.Module):
         found = False
         layers = OrderedDict()
         for name, layer in baseModule.net.named_children():
-#             print('Layer ', name, ' - ', layer)
+            # print('Layer ', name, ' - ', layer)
             layers[name] = layer
             if layer == highestLayer:
                 print('Highest layer %s found (%d in new model)' % (highestLayerName, len(layers)))

@@ -4,7 +4,7 @@ import tensorflow as tf
 if 1:
     from keras.models import Model
     from keras.layers import Flatten, Reshape, Dense, Dropout, SpatialDropout2D, \
-            Activation, Input, merge, Add, Concatenate, Multiply
+            AveragePooling2D, Activation, Input, merge, Add, Concatenate, Multiply
     from keras.layers.convolutional import Conv2D, DepthwiseConv2D, MaxPooling2D, ZeroPadding2D
     from keras.layers.normalization import BatchNormalization
     from keras.layers.advanced_activations import ReLU

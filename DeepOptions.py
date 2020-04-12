@@ -6,8 +6,8 @@ if fastDebugMode:
     modelClass = 'DebugImageModel4'
     netSizeMult = 1
 else:
-    netSizeMult = 4
-    modelClass = 'AlexnetModel_TV'
+    netSizeMult = 8
+    modelClass = 'AlexnetModel4'
     # modelClass = 'ImageModel4'
     # modelClass = 'ChanConvModel'
     # modelClass = 'ChanUnitingModel'

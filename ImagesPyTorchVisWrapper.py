@@ -24,8 +24,8 @@ warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
 class CPyTorchImageNetVisWrapper:
     def __init__(self, imageDataset=None, activationCache=None):
         self.name = 'image'
-        self.weightsFileNameTempl = 'PyTLogs/checkpoints/PyTImWeights_Epoch%d.pkl'
-        self.optimStateFileNameTempl = 'PyTLogs/checkpoints/PyTImOptState_Epoch%d.pkl'
+        self.weightsFileNameTempl = 'QtLogs/checkpoints/PyTImWeights_Epoch%d.pkl'
+        self.optimStateFileNameTempl = 'QtLogs/checkpoints/PyTImOptState_Epoch%d.pkl'
         # self.weightsFileNameTempl = 'PyTLogs/checkpoints/PyTImWeights_Epoch%d.h5'
         self.imageCache = DataCache.CDataCache(256 * getCpuCoreCount())
         self.imageDataset = CImageNetPartDataset(self.imageCache) if imageDataset is None else imageDataset
@@ -59,8 +59,8 @@ class CPyTorchImageNetVisWrapper:
     def getTowerCount(self):
         return DeepOptions.towerCount
 
-    def getImageActivations(self, layerName, imageNum, epochNum=None):
-        return self.getImagesActivations_Batch(layerName, [imageNum], epochNum)
+    def getImageActivations(self, layerName, imageNum, epochNum=None, allowCombinedLayers=True):
+        return self.getImagesActivations_Batch(layerName, [imageNum], epochNum, allowCombinedLayers)
 
 #         if epochNum is None or epochNum < 0:
 #             epochNum = self.curEpochNum
@@ -87,7 +87,7 @@ class CPyTorchImageNetVisWrapper:
 #         self.activationCache.saveObject(itemCacheName, activations)
 #         return activations
 
-    def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None):
+    def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None, allowCombinedLayers=True):
         if epochNum is None or epochNum < 0:
             epochNum = self.curEpochNum
 
@@ -107,7 +107,7 @@ class CPyTorchImageNetVisWrapper:
             # print("Activations for batch taken from cache")
             return np.stack(batchActs, axis=0)
 
-        model = self._getNet(layerName)
+        model = self._getNet(layerName, allowCombinedLayers)
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
         imageData = np.stack(images, axis=0)
@@ -541,8 +541,8 @@ class CPyTorchImageNetVisWrapper:
         if DeepOptions.modelClass == 'AlexnetModel':
             self.net = PyTorch.DansuhModel.AlexNet(num_classes=DeepOptions.classCount).to(self.pytDevice)
                 # highest_layer=None, doubleSizeLayerNames=self.doubleSizeLayerNames)
-        elif DeepOptions.modelClass == 'AlexnetModel_TV':
-            self.net = PyTorch.PyTImageModels.AlexNet_TV(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        elif DeepOptions.modelClass == 'AlexnetModel4':
+            self.net = PyTorch.PyTImageModels.AlexNet4(num_classes=DeepOptions.classCount).to(self.pytDevice)
         else:
             raise Exception('Unknown model class %s' % DeepOptions.modelClass)
 
@@ -553,7 +553,7 @@ class CPyTorchImageNetVisWrapper:
             self.pytOptimizer = torch.optim.SGD(params=self.net.parameters(), lr=self.getRecommendedLearnRate(),
                                                 momentum=0.9, weight_decay=1e-4)
 
-        self.netsCache = dict()
+        self.netsCache = [dict(), dict()]
         self.setBatchSize(self.batchSize)
 
     def setBatchSize(self, batchSize):
@@ -565,10 +565,10 @@ class CPyTorchImageNetVisWrapper:
         self.batchSize = batchSize
         datasetFolder = '%s/train' % (DeepOptions.imagesMainFolder)
         self.pytTrainDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
-#                 transforms.RandomResizedCrop(256, scale=(1.0, 1.0), ratio=(0.8, 1.3)),
                 transforms.Resize(256),
-#                 transforms.RandomRotation(degrees=20, resample=PIL.Image.BICUBIC,
-#                         expand=True, fill=(124, 117, 104)),
+                # transforms.RandomResizedCrop(256, scale=(0.8, 1.0), ratio=(0.8, 1.3)),
+                # transforms.RandomRotation(degrees=30, resample=PIL.Image.BICUBIC,
+                #         expand=True, fill=(124, 117, 104)),
 #                 transforms.CenterCrop(256),
                 transforms.RandomCrop(227),
                 transforms.RandomHorizontalFlip(),
@@ -645,7 +645,7 @@ class CPyTorchImageNetVisWrapper:
 
 
     def printProgress(self, str):
-        with open('PyTLogs/progress.log', 'a') as file:
+        with open('QtLogs/progress.log', 'a') as file:
             file.write(str + '\n')
 
     # Converting to channels first, as VisQtMain expects (batch, channels, y, x)
@@ -731,25 +731,32 @@ class CPyTorchImageNetVisWrapper:
             newLayer.set_weights(allWeights)
 
         print('Doubling done')
-        self.netsCache = dict()
+        self.netsCache = [dict(), dict()]
         self.activationCache.clear()
         assert self.curModelLearnRate
         self._compileModel(self.curModelLearnRate)
         self.printProgress('Doubled layers: %s' % (', '.join(self.doubleSizeLayerNames)))
 
 
-    def _getNet(self, highestLayer = None):
+    def _getNet(self, highestLayer=None, allowCombinedLayers=False):
         if not self.net:
             self._initMainNet()
 
         if highestLayer is None:
             return self.net
         else:
-            if not highestLayer in self.netsCache:
-                import PyTorch.DansuhModel as PyTorchModelModule
+            allowFlag = 1 if allowCombinedLayers else 0
+            if not highestLayer in self.netsCache[allowFlag]:
+                import PyTorch.DansuhModel
+                import PyTorch.PyTImageModels
 
-                self.netsCache[highestLayer] = PyTorchModelModule.CutAlexNet(self.net, highestLayer)
-            return self.netsCache[highestLayer]
+                if DeepOptions.modelClass == 'AlexnetModel':
+                    self.netsCache[allowFlag][highestLayer] = PyTorch.DansuhModel.CutAlexNet(self.net, highestLayer)
+                elif DeepOptions.modelClass == 'AlexnetModel4':
+                    self.netsCache[allowFlag][highestLayer] = \
+                            PyTorch.PyTImageModels.AlexNet4.CutVersion(self.net, highestLayer, allowCombinedLayers)
+
+            return self.netsCache[allowFlag][highestLayer]
 
     def _isMatchedLayer(layerName, layerToFindName, allowCombinedLayers):
         return layerName == layerToFindName or \

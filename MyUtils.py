@@ -6,6 +6,9 @@ import subprocess
 import sys
 import time
 
+def averageList(l, step):
+    return [sum(l[i : i + step]) / step for i in range(0, len(l), step)]
+
 def checkColorComponet(v):
     if v < 0:
         return 0
