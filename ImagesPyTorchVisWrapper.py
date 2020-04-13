@@ -546,6 +546,8 @@ class CPyTorchImageNetVisWrapper:
             self.net = PyTorch.PyTImageModels.AlexNet4(num_classes=DeepOptions.classCount).to(self.pytDevice)
         elif DeepOptions.modelClass == 'ImageModel3':
             self.net = PyTorch.PyTImageModel3.ImageModel3_Deeper(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        elif DeepOptions.modelClass == 'ImageModel4':
+            self.net = PyTorch.PyTImageModel3.ImageModel4_ConnectedTowers(num_classes=DeepOptions.classCount).to(self.pytDevice)
         else:
             raise Exception('Unknown model class %s' % DeepOptions.modelClass)
 
@@ -760,7 +762,7 @@ class CPyTorchImageNetVisWrapper:
                 elif DeepOptions.modelClass == 'AlexnetModel4':
                     self.netsCache[allowFlag][highestLayer] = \
                             PyTorch.PyTImageModels.AlexNet4.CutVersion(self.net, highestLayer, allowCombinedLayers)
-                elif DeepOptions.modelClass == 'ImageModel3':
+                elif DeepOptions.modelClass in ['ImageModel3', 'ImageModel4']:
                     self.netsCache[allowFlag][highestLayer] = \
                             PyTorch.PyTImageModel3.ImageModel3_Deeper.CutVersion(self.net, highestLayer, allowCombinedLayers)
 
