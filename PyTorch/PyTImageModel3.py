@@ -4,6 +4,7 @@ import torch.nn as nn
 from torchvision.models.utils import load_state_dict_from_url
 
 import DeepOptions
+import AlexNetVisWrapper
 
 # More advanced AlexNet4 - with fractional max pools
 class ImageModel3_Deeper(nn.Module):
@@ -16,9 +17,11 @@ class ImageModel3_Deeper(nn.Module):
         self.namedLayers = {'conv_1': nn.Conv2d(3, mult * 6, kernel_size=7, stride=2)}   # Input - 227 * 227
         self.namedLayers['conv_3'] = nn.Conv2d(mult * 16, mult * 24, 3, padding=0)
         for towerInd in range(towerCount):
-                self.namedLayers['conv_2_%d' % (towerInd + 1)] = nn.Conv2d(mult * 6 // towerCount,  mult * 16 // towerCount, 3, padding=1)
+                self.namedLayers['conv_2_%d' % (towerInd + 1)] = \
+                        nn.Conv2d(mult * 6 // towerCount,  mult * 16 // towerCount, 3, padding=1)
                     # Input image 55 * 55, output - 77 * 77
-                self.namedLayers['conv_22_%d' % (towerInd + 1)] = nn.Conv2d(mult * 16 // towerCount,  mult * 16 // towerCount, 3)
+                self.namedLayers['conv_22_%d' % (towerInd + 1)] = \
+                        nn.Conv2d(mult * 16 // towerCount,  mult * 16 // towerCount, 3)
                     # Output image -
                 # self.namedLayers['conv_3%d' % (towerInd + 1)] = nn.Conv2d(mult * 12 // towerCount, mult * 24 // towerCount, 3, padding=1)
                 self.namedLayers['conv_4_%d' % (towerInd + 1)] = \
@@ -235,8 +238,10 @@ class ImageModel3_Deeper(nn.Module):
 
 # Multiple towers with some connections between them
 class ImageModel4_ConnectedTowers(nn.Module):
-    def __init__(self, num_classes=1000):
+    def __init__(self, num_classes=1000, highestLayerName=None, allowCombinedLayers=True):
         super(ImageModel4_ConnectedTowers, self).__init__()
+        self.highestLayerName = highestLayerName
+        self.allowCombinedLayers = allowCombinedLayers
 
         mult = DeepOptions.netSizeMult
         towerCount = DeepOptions.towerCount
@@ -308,26 +313,57 @@ class ImageModel4_ConnectedTowers(nn.Module):
                     'dropout_2', 'dense_2', 'relu_c_2', 'dense_3']]))
 
     def forward(self, x):
+        if self.highestLayerName == 'conv_1':
+            return self.namedLayers['conv_1'](x)
         x = self.subnet1(x)
         xs = list(torch.split(x, x.shape[1] // self.towerCount, 1))
 #         print(len(xs), xs[0].shape)
+        if self.highestLayerName == 'conv_2':
+            for towerInd in range(self.towerCount):
+                xs[towerInd] = self.namedLayers['conv_2_%d' % (towerInd + 1)](xs[towerInd])
+            return torch.cat(xs, 1)
         for towerInd in range(self.towerCount):
             xs[towerInd] = self.subnets2[towerInd](xs[towerInd])
         x = torch.cat(xs, 1)
 
         convU2x = self.subnetUnite2(x)
+        if self.highestLayerName == 'conv_u_2':
+            return convU2x
+        if self.highestLayerName == 'conv_3':
+            for towerInd in range(self.towerCount):
+                xs[towerInd] = self.namedLayers['conv_3_%d' % (towerInd + 1)](torch.cat([xs[towerInd], convU2x], 1))
+            return torch.cat(xs, 1)
         # xs = list(torch.split(x, x.shape[1] // self.towerCount, 1))
         for towerInd in range(self.towerCount):
             xs[towerInd] = self.subnets3[towerInd](torch.cat([xs[towerInd], convU2x], 1))
         x = torch.cat(xs, 1)
+
         convU3x = self.subnetUnite3(x)
+        if self.highestLayerName == 'conv_u_3':
+            return convU3x
+        if self.highestLayerName == 'conv_4':
+            for towerInd in range(self.towerCount):
+                xs[towerInd] = self.namedLayers['conv_4_%d' % (towerInd + 1)](torch.cat([xs[towerInd], convU3x], 1))
+            return torch.cat(xs, 1)
         for towerInd in range(self.towerCount):
             xs[towerInd] = self.subnets4[towerInd](torch.cat([xs[towerInd], convU3x], 1))
+        if self.highestLayerName == 'conv_5':
+            return torch.cat(xs, 1)
         x = torch.cat(xs, 1)
         x = self.subnet5(x)
         x = torch.flatten(x, 1)
+        if self.highestLayerName is not None:
+            for name, module in self.classifier.named_children():
+                x = module(x)
+                if self._isMatchedBlock(name, self.highestLayerName):
+                    return x
+            return torch.cat(xs, 1)
         x = self.classifier(x)
         return x
+
+    def _isMatchedBlock(self, blockName, blockToFindName):
+        return blockName == blockToFindName or \
+                (self.allowCombinedLayers and blockName[ : len(blockToFindName) + 1] == blockToFindName + '_')
 
 
     def getLayer(self, layerName):
@@ -379,81 +415,53 @@ class ImageModel4_ConnectedTowers(nn.Module):
         return torch.load(fileName)
 
 
-    class CutVersion(nn.Module):
-        def __init__(self, baseModule, highestLayerName, allowCombinedLayers=False):
-            super().__init__()
-            self.baseModule = baseModule
-            self.highestLayerName = highestLayerName
-            # highestLayer = baseModule.getLayer(highestLayerName)
-            self.allowCombinedLayers = allowCombinedLayers
+    class CSourceBlockCalculator:
+        @staticmethod
+        def get_source_block_calc_func(layerName):
+            thisClass = ImageModel4_ConnectedTowers.CSourceBlockCalculator
+            size = 11
+            if layerName == 'conv_1':
+                def get_source_block(x, y):
+                    source_xy_0 = (x * 4 - 2, y * 4 - 2)
+                    return thisClass.correctZeroCoords(source_xy_0, size)
 
-        def forward(self, x):
-            printShapes = 0 # True
-            if printShapes:
-                print(x.shape)
-            towerCount = self.baseModule.towerCount
-            combineLayer = self.allowCombinedLayers and \
-                    not self.highestLayerName in self.baseModule.getAllLayers()
-            for subnet in self.baseModule.subnetList:
-                print('subnet len', len(subnet), 'shape', x.shape)
-                foundTowerInd = self.findBlockInSubnet(subnet, self.highestLayerName)
-                if len(subnet) == 1:
-                    if foundTowerInd < 0:
-                        if printShapes:
-                            for name, module in subnet[0].named_children():
-                                x = module(x)
-                                print('After %s: %s' % (name, str(x.shape)))
-                        else:
-                            x = subnet[0](x)
-                    else:
-                        for name, module in subnet[0].named_children():
-                            x = module(x)
-                            if printShapes:
-                                print('After %s: %s' % (name, str(x.shape)))
-                            if self._isMatchedBlock(name, self.highestLayerName):
-                                return x
-                else:
-                    xs = list(torch.split(x, x.shape[1] // towerCount, 1))
+                return get_source_block
+            size += 4 * 2 + 8 * 4
+            if layerName == 'conv_2':
+                def get_source_block(x, y):
+                    source_xy_0 = ((x - 2) * 8 - 2, (y - 2) * 8 - 2)
+                    return thisClass.correctZeroCoords(source_xy_0, size)
 
-                    if foundTowerInd < 0:
-                        for towerInd in range(towerCount):
-                            if printShapes and towerInd == 0:
-                                for name, module in subnet[towerInd].named_children():
-                                    xs[towerInd] = module(xs[towerInd])
-                                    print('After %s: %s' % (name, str(xs[towerInd].shape)))
-                            else:
-                                xs[towerInd] = subnet[towerInd](xs[towerInd])
-                    else:
-                        xsToReturn = []
-                        for towerInd in ([foundTowerInd] if not combineLayer else range(len(subnet))):
-                            for name, module in subnet[towerInd].named_children():
-                                xs[towerInd] = module(xs[towerInd])
-                                if self._isMatchedBlock(name, self.highestLayerName):
-                                    xsToReturn.append(xs[towerInd])
-                                    break
-                        print('xsToReturn', len(xsToReturn))
-                        return torch.cat(xsToReturn, 1)
+                return get_source_block
+            size += 8 * 2 + 16 * 2
+            if layerName == 'conv_3':
+                def get_source_block(x, y):
+                    source_xy_0 = ((x - 2) * 16 - 2, (y - 2) * 16 - 2)
+                    return thisClass.correctZeroCoords(source_xy_0, size)
 
-                    x = torch.cat(xs, 1)
-            print(x.shape)
-            x = torch.flatten(x, 1)
-            print(x.shape)
-            for name, module in self.baseModule.classifier.named_children():
-                x = module(x)
-                print('After %s: %s' % (name, str(x.shape)))
-                if name == self.highestLayerName:
-                    return x
-            raise Exception('Layer %s not found' % self.highestLayerName)
+                return get_source_block
+            size += 16 * 2
+            if layerName == 'conv_4':
+                def get_source_block(x, y):
+                    source_xy_0 = ((x - 3) * 16 - 2, (y - 3) * 16 - 2)
+                    return thisClass.correctZeroCoords(source_xy_0, size)
 
-        # Returns index in subnet's list or < 0
-        def findBlockInSubnet(self, subnet, blockToFindName):
-            for towerInd, module in enumerate(subnet):
-                for name, layer in module.named_children():
-                    if self._isMatchedBlock(name, blockToFindName):
-                        return towerInd
-            return -1
+                return get_source_block
+            size += 16 * 2
+            if layerName == 'conv_5':
+                def get_source_block(x, y):
+                    source_xy_0 = ((x - 4) * 16 - 2, (y - 4) * 16 - 2)
+                    return thisClass.correctZeroCoords(source_xy_0, size)
 
-        def _isMatchedBlock(self, blockName, blockToFindName):
-            return blockName == blockToFindName or \
-                    (self.allowCombinedLayers and blockName[ : len(blockToFindName) + 1] == blockToFindName + '_')
+                return get_source_block
 
+            if layerName[:6] == 'dense_':
+                return AlexNetVisWrapper.CAlexNetVisWrapper.get_entire_image_block
+            else:
+                return None
+
+        @staticmethod
+        def correctZeroCoords(source_xy_0, size):
+            return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                    0 if source_xy_0[1] < 0 else source_xy_0[1],
+                    source_xy_0[0] + int(size), source_xy_0[1] + int(size))

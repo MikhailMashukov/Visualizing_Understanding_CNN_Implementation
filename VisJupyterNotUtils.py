@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 #     # import glumpy.app.window.key as keys
 import os
 # # import random
-# # import sys
+import sys
 # # import time
 # import _thread
 try:
@@ -47,6 +47,8 @@ import DataCache
 from MyUtils import *
 from VisUtils import *
 
+if __name__ != "__main__":
+    sys.path.append("src")
 
 # Part of QtMainWindow without GUI
 class NetControlObject():
@@ -75,7 +77,7 @@ class NetControlObject():
         self.weightsReinitInds = None
         self.weightsReinitEpochNum = None
 
-        self.maxAnalyzeChanCount = 70
+        self.maxAnalyzeChanCount = 500
 
     def init(self):
         # DeepMain.MainWrapper.__init__(self, DeepOptions.studyType)

@@ -5,6 +5,7 @@ import matplotlib
 matplotlib.use('AGG')
 matplotlib.rcParams['savefig.dpi'] = 600
 import matplotlib.pyplot as plt
+from matplotlib.pyplot import figure, imshow, axis
 import math
 import numpy as np
 import os
@@ -279,6 +280,8 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         #     pickle.dump(bestSourceCoords, file)
         return imageData
 
+    # n = 0
+
     def buildChannelMultActTopImage(self, bestSourceCoords, chanInd,
                                     sourceBlockCalcFunc, topColCount):
         vals = np.concatenate(bestSourceCoords[chanInd], axis=1)       # E.g. 4 * 100
@@ -289,6 +292,21 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         selectedImageList = []
         selectedList = []                   # Will be e.g. 9 * 4
         i = sortedVals.shape[1] - 1
+
+        if 0:      #d_
+#             print('shape %s, n %d, x %d-%f, y %d-%f' %
+#                       (str(sortedVals.shape), self.n, sortedVals[1, :].min(), sortedVals[1, :].max(),
+#                        sortedVals[2, :].min(), sortedVals[2, :].max()))
+            self.n = 0
+
+            imageData = self.imageDataset.getImage(19, 'cropped')
+            for x in list(range(0, int(sortedVals[1, :].max()) - 1, 2)) + [int(sortedVals[1, :].max() + 0.1)]:
+                curVal = [1, x, 3, 0]
+                sourceBlock = sourceBlockCalcFunc(x, 3)
+                blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
+                selectedImageList.append(blockData)
+                selectedList.append(curVal)
+
         while len(selectedList) < self.topCount and i >= 0:
             curVal = sortedVals[:, i]
             isOk = True
@@ -301,11 +319,22 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                 sourceBlock = sourceBlockCalcFunc(int(curVal[1]), int(curVal[2]))
                 curImageNum = int(curVal[0])
                 imageData = self.imageDataset.getImage(curImageNum, 'cropped')
-#                 print('curVal ', curVal, ', sourceBlock ', sourceBlock, imageData.shape)
                 blockData = imageData[sourceBlock[1] : sourceBlock[3], sourceBlock[0] : sourceBlock[2]]
                 if blockData.shape[0] == 0 or blockData.shape[1] == 0:
                     # Reproduced with incorrect sorting in calcBestSourceCoords
                     print("Warning: 0 block %s, %d, %s" % (str(curVal), curImageNum, str(sourceBlock)))
+                if 0: # chanInd == 12:  # self.n < 20:     #d_
+                    print('ch %d, curVal %s, source %s, image %d, im. shape %s' % \
+                            (chanInd, str(curVal), str(sourceBlock), curImageNum, str(imageData.shape)))
+                    fig = figure(figsize=(8, 5))
+                    ax = fig.add_subplot()
+                    ax.imshow(imageData)
+                    plt.show()
+                    fig = figure(figsize=(3, 3))
+                    ax = fig.add_subplot()
+                    ax.imshow(blockData)
+                    plt.show()
+                    self.n += 1
                 if self.embedImageNums and curImageNum <= 255 and imageData.max() > 1.01:
                     blockData[-1][-1] = curImageNum
                 selectedImageList.append(blockData)

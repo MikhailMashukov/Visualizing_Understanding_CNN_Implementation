@@ -1,5 +1,6 @@
 from __future__ import absolute_import, division, print_function, unicode_literals
 
+import copy
 # import datetime
 import math
 import random
@@ -15,8 +16,11 @@ import DeepOptions
 import DataCache
 from MyUtils import *
 from MnistNetVisWrapper import CBaseLearningCallback, getSavedNetEpochs
-# import AlexNetVisWrapper
+import AlexNetVisWrapper
 from ImageNetsVisWrappers import CImageNetPartDataset, CSourceBlockCalculator
+import PyTorch.DansuhModel
+import PyTorch.PyTImageModels
+import PyTorch.PyTImageModel3
 
 warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
 
@@ -524,7 +528,14 @@ class CPyTorchImageNetVisWrapper:
 
     @staticmethod
     def get_source_block_calc_func(layerName):
-        return CSourceBlockCalculator.get_source_block_calc_func(layerName)
+        # return CSourceBlockCalculator.get_source_block_calc_func(layerName)
+        if layerName == 'conv_u_2':
+            layerName = 'conv_2'
+        elif layerName == 'conv_u_3':
+            layerName = 'conv_3'
+        if DeepOptions.modelClass == 'ImageModel4':
+            return PyTorch.PyTImageModel3.ImageModel4_ConnectedTowers.CSourceBlockCalculator.get_source_block_calc_func(layerName)
+        return AlexNetVisWrapper.CAlexNetVisWrapper.get_source_block_calc_func(layerName)
 
     # @property
     # def baseModel(self):
@@ -534,9 +545,6 @@ class CPyTorchImageNetVisWrapper:
 
     def _initMainNet(self):
         import torch
-        import PyTorch.DansuhModel
-        import PyTorch.PyTImageModels
-        import PyTorch.PyTImageModel3
 
         self.pytDevice = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if DeepOptions.modelClass == 'AlexnetModel':
@@ -752,19 +760,19 @@ class CPyTorchImageNetVisWrapper:
         else:
             allowFlag = 1 if allowCombinedLayers else 0
             if not highestLayer in self.netsCache[allowFlag]:
-                import PyTorch.DansuhModel
-                import PyTorch.PyTImageModels
-                import PyTorch.PyTImageModel3
-
                 if DeepOptions.modelClass == 'AlexnetModel':
                     self.netsCache[allowFlag][highestLayer] = \
                             PyTorch.DansuhModel.CutAlexNet(self.net, highestLayer)
                 elif DeepOptions.modelClass == 'AlexnetModel4':
                     self.netsCache[allowFlag][highestLayer] = \
                             PyTorch.PyTImageModels.AlexNet4.CutVersion(self.net, highestLayer, allowCombinedLayers)
-                elif DeepOptions.modelClass in ['ImageModel3', 'ImageModel4']:
+                elif DeepOptions.modelClass == 'ImageModel3':
                     self.netsCache[allowFlag][highestLayer] = \
                             PyTorch.PyTImageModel3.ImageModel3_Deeper.CutVersion(self.net, highestLayer, allowCombinedLayers)
+                elif DeepOptions.modelClass == 'ImageModel4':
+                    self.netsCache[allowFlag][highestLayer] = \
+                            copy.copy(self.net)
+                    self.netsCache[allowFlag][highestLayer].highestLayerName = highestLayer
 
             return self.netsCache[allowFlag][highestLayer]
 
