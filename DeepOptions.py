@@ -1,18 +1,18 @@
 import math
 
 fastDebugMode = 0      # True means that net is very small and heavy statistics is not gathered
-towerCount = 2
+towerCount = 4
 if fastDebugMode:
     modelClass = 'DebugImageModel4'
     netSizeMult = 1
 else:
-    netSizeMult = 16
-    modelClass = 'AlexnetModel4'
-    modelClass = 'ImageModel4'
+    netSizeMult = 64 * 2   # Default for wide ResNet - 64 * 2
+    # modelClass = 'AlexnetModel4'
     # modelClass = 'ImageModel4'
     # modelClass = 'ChanConvModel'
     # modelClass = 'ChanUnitingModel'
     # modelClass = 'ChanMatrixModel'
+    modelClass = 'MyWideResNet'
 additLayerCounts = (1, 1)  # (2, 2)
 # deeperNet = 0          # True means that exended network is created but smaller subnet can be loaded from checkpoint
 # hlAndIndicsDivision = False   # To divide input data onto 3 blocks. Currently implemented only for GRU network

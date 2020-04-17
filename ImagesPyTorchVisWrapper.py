@@ -21,6 +21,7 @@ from ImageNetsVisWrappers import CImageNetPartDataset, CSourceBlockCalculator
 import PyTorch.DansuhModel
 import PyTorch.PyTImageModels
 import PyTorch.PyTImageModel3
+import PyTorch.PyTResNets
 
 warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
 
@@ -37,6 +38,7 @@ class CPyTorchImageNetVisWrapper:
         self.net = None
         self.batchSize = 128
         self.netPreprocessStageName = 'net'  # for self.net = alexnet.AlexNet()
+        self.netImageSize = 224 if DeepOptions.modelClass.lower().find('resnet') >= 0 else 227
         self.doubleSizeLayerNames = []    # Not stored in saveState
         self.curEpochNum = 0
         self.isLearning = False
@@ -556,10 +558,14 @@ class CPyTorchImageNetVisWrapper:
             self.net = PyTorch.PyTImageModel3.ImageModel3_Deeper(num_classes=DeepOptions.classCount).to(self.pytDevice)
         elif DeepOptions.modelClass == 'ImageModel4':
             self.net = PyTorch.PyTImageModel3.ImageModel4_ConnectedTowers(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        elif DeepOptions.modelClass == 'ResNet18':
+            self.net = PyTorch.PyTResNets.resnet18(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        elif DeepOptions.modelClass == 'MyWideResNet':
+            self.net = PyTorch.PyTResNets.my_wide_resnet(num_classes=DeepOptions.classCount).to(self.pytDevice)
         else:
             raise Exception('Unknown model class %s' % DeepOptions.modelClass)
 
-        if 0:
+        if 1:
             self.pytOptimizer = torch.optim.AdamW(params=self.net.parameters())
         else:
             print('SGD')
@@ -583,7 +589,7 @@ class CPyTorchImageNetVisWrapper:
                 # transforms.RandomRotation(degrees=30, resample=PIL.Image.BICUBIC,
                 #         expand=True, fill=(124, 117, 104)),
 #                 transforms.CenterCrop(256),
-                transforms.RandomCrop(227),
+                transforms.RandomCrop(self.netImageSize),
                 transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
@@ -599,7 +605,7 @@ class CPyTorchImageNetVisWrapper:
         datasetFolder = '%s/test' % (DeepOptions.imagesMainFolder)
         self.pytTestDataset = PyTorchDatasets.ImageFolder(datasetFolder, transforms.Compose([
                 transforms.Resize(256),
-                transforms.CenterCrop(227),
+                transforms.CenterCrop(self.netImageSize),
                 # transforms.RandomHorizontalFlip(),
                 transforms.ToTensor(),
                 transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
