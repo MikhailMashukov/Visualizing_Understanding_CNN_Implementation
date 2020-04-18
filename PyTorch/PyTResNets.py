@@ -70,7 +70,6 @@ class BasicBlock(nn.Module):
 
         out += identity
         out = self.relu(out)
-
         return out
 
 
@@ -87,6 +86,8 @@ class Bottleneck(nn.Module):
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width)
         self.bn1 = norm_layer(width)
+        print('conv2: w %d, stride %d, groups %d, dilation %d' % \
+                (width, stride, groups, dilation))
         self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
@@ -114,16 +115,45 @@ class Bottleneck(nn.Module):
 
         out += identity
         out = self.relu(out)
+        return out
 
+    def forward_CutModel(self, x, highestLayer):
+        identity = x
+
+        out = self.conv1(x)
+        if highestLayer == self.conv1:
+            return out
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        if highestLayer == self.conv2:
+            return out
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        if highestLayer == self.conv3:
+            return out
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu(out)
         return out
 
 
 class ResNet(nn.Module):
-
     def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, replace_stride_with_dilation=None,
                  norm_layer=None):
         super(ResNet, self).__init__()
+        self.setHighestLayer(None)
+        self.layerDepths = layers
+
+        self.namedLayers = {}
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
@@ -141,18 +171,21 @@ class ResNet(nn.Module):
         self.base_width = width_per_group
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
+        self.namedLayers['conv_1'] = self.conv1
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        self.layer1 = self._make_layer(block, 64, layers[0])
-        self.layer2 = self._make_layer(block, 128, layers[1], stride=2,
+        self.layer1 = self._make_layer(block, 2, 64, layers[0])
+        self.layer2 = self._make_layer(block, 3, 128, layers[1], stride=2,
                                        dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 256, layers[2], stride=2,
+        self.layer3 = self._make_layer(block, 4, 256, layers[2], stride=2,
                                        dilate=replace_stride_with_dilation[1])
-        self.layer4 = self._make_layer(block, 512, layers[3], stride=2,
+        self.layer4 = self._make_layer(block, 5, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
+        self.namedLayers['avg_pool_5'] = self.avgpool
         self.fc = nn.Linear(512 * block.expansion, num_classes)
+        self.namedLayers['dense_1'] = self.fc
 
         for m in self.modules():
             if isinstance(m, nn.Conv2d):
@@ -171,7 +204,7 @@ class ResNet(nn.Module):
                 elif isinstance(m, BasicBlock):
                     nn.init.constant_(m.bn2.weight, 0)
 
-    def _make_layer(self, block, planes, blocks, stride=1, dilate=False):
+    def _make_layer(self, block, layerNum, planes, blocks, stride=1, dilate=False):
         norm_layer = self._norm_layer
         downsample = None
         previous_dilation = self.dilation
@@ -185,15 +218,30 @@ class ResNet(nn.Module):
             )
 
         layers = []
+        convLayerNamePrefix = 'conv_%d' % layerNum
         layers.append(block(self.inplanes, planes, stride, downsample, self.groups,
                             self.base_width, previous_dilation, norm_layer))
+        # print('layers.append', layers[-1])
         self.inplanes = planes * block.expansion
         for _ in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups=self.groups,
                                 base_width=self.base_width, dilation=self.dilation,
                                 norm_layer=norm_layer))
+        for i, layerBlock in enumerate(layers):
+            # Block of the Bottleneck type is implied here
+            self.namedLayers[convLayerNamePrefix + '%d' % (i + 1)]  = layerBlock.conv2   # Will be considered main
+            self.namedLayers[convLayerNamePrefix + '%d1' % (i + 1)] = layerBlock.conv1
+            self.namedLayers[convLayerNamePrefix + '%d3' % (i + 1)] = layerBlock.conv3
 
         return nn.Sequential(*layers)
+
+    # Takes layer name like 'conv_11' or None
+    def setHighestLayer(self, highestLayerName):
+        self.highestLayerName = highestLayerName
+        if self.highestLayerName is None:
+            self.forward = self._forward_impl
+        else:
+            self.forward = self._forward_Impl_CutModel
 
     def _forward_impl(self, x):
         # See note [TorchScript super()]
@@ -210,12 +258,60 @@ class ResNet(nn.Module):
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
-
         return x
 
-    def forward(self, x):
-        return self._forward_impl(x)
+    def _forward_Impl_CutModel(self, x):
+        highestLayer = self.namedLayers[self.highestLayerName]
+        x = self.conv1(x)
+        if highestLayer == self.conv1:
+            return x
+        x = self.bn1(x)
+        x = self.relu(x)
+        x = self.maxpool(x)
 
+        if self.highestLayerName.find('conv_2') == 0:
+            return self._forward_layer_CutModel(self.layer1, x)
+        x = self.layer1(x)
+        if self.highestLayerName.find('conv_3') == 0:
+            return self._forward_layer_CutModel(self.layer2, x)
+        x = self.layer2(x)
+        if self.highestLayerName.find('conv_4') == 0:
+            return self._forward_layer_CutModel(self.layer3, x)
+        x = self.layer3(x)
+        if self.highestLayerName.find('conv_5') == 0:
+            return self._forward_layer_CutModel(self.layer4, x)
+        x = self.layer4(x)
+
+        x = self.avgpool(x)
+        if highestLayer == self.avgpool:
+            return x
+        x = torch.flatten(x, 1)
+        x = self.fc(x)
+        if highestLayer == self.fc:
+            return x
+        raise Exception('Layer %s not found' % self.highestLayerName)
+
+    # def forward(self, x):
+    #     return self._forward_impl(x)
+
+    def _forward_layer_CutModel(self, layerModule, x):
+        hishestLayerNameSuffix = self.highestLayerName[len('conv_N') : ]
+        hishestBlockInd = int(hishestLayerNameSuffix[0]) - 1
+        for blockInd, layerBlock in enumerate(layerModule):
+            # layerBlock = layerModule[blockInd]   # This is block from layers.append(block(...)) in _make_layer
+            if blockInd < hishestBlockInd:
+                x = layerBlock(x)
+            else:
+                # Block of the Bottleneck type is implied here
+                return layerBlock.forward_CutModel(x, self.namedLayers[self.highestLayerName])
+
+
+
+    def getLayer(self, layerName):
+        return self.namedLayers[layerName]
+
+    def getAllLayers(self):
+        return self.namedLayers
 
     def saveState(self, fileName,
                   additInfo={}, additFileName=None):
@@ -258,6 +354,93 @@ class ResNet(nn.Module):
 
     def loadStateAdditInfo(self, fileName):
         return torch.load(fileName)
+
+
+    # class CSourceBlockCalculator:
+    #     @staticmethod
+    def get_source_block_calc_func(self, layerName):
+            thisClass = ResNet  # .CSourceBlockCalculator
+            if layerName[:6] == 'dense_':
+                return thisClass.get_entire_image_block
+
+            size = 7
+            if layerName == 'conv_1':
+                def get_source_block(x, y):
+                    source_xy_0 = (x * 2 - 3, y * 2 - 3)
+                    return thisClass.correctZeroCoords(source_xy_0, size)
+
+                return get_source_block
+            size += 2 * 2
+            if layerName in ['max_pool_1', 'conv_211']:
+                def get_source_block(x, y):
+                    source_xy_0 = (x * 4 - 5, y * 4 - 5)
+                    return thisClass.correctZeroCoords(source_xy_0, size)
+
+                return get_source_block
+
+            stride = 4
+            leftUpShift = 5
+            found = False
+            for layerInd, layerDepth in enumerate(self.layerDepths):
+                for blockNum in range(1, layerDepth + 1):
+                    curLayerNamePrefix = 'conv_%d%d' % (layerInd + 2, blockNum)
+
+                    if layerName == curLayerNamePrefix + '1':
+                        if blockNum == 1:
+                            stride //= 2
+                        found = True
+                    else:
+                        size += stride * 2
+                        leftUpShift += stride   # Padding is usually 1
+                        if layerName == curLayerNamePrefix:
+                            found = True
+                        else:
+                            size += stride * 2
+                            leftUpShift += stride
+                            if layerName == curLayerNamePrefix + '3':
+                                found = True
+
+                    if found:
+                        def get_source_block(x, y):
+                            source_xy_0 = (x * stride - leftUpShift, y * stride - leftUpShift)
+                            return thisClass.correctZeroCoords(source_xy_0, size)
+
+                        return get_source_block
+                stride *= 2
+
+            # size += 4 * 2
+            # if layerName == 'conv_21':
+            #     def get_source_block(x, y):
+            #         source_xy_0 = ((x - 1) * 4 - 5, (y - 1) * 4 - 5)
+            #         return thisClass.correctZeroCoords(source_xy_0, size)
+            #
+            #     return get_source_block
+            # size += 4 * 2
+            # if layerName == 'conv_213':
+            #     def get_source_block(x, y):
+            #         source_xy_0 = ((x - 2) * 4 - 5, (y - 2) * 4 - 5)
+            #         return thisClass.correctZeroCoords(source_xy_0, size)
+            #
+            #     return get_source_block
+            # size += 16 * 2
+            # if layerName == 'conv_5':
+            #     def get_source_block(x, y):
+            #         source_xy_0 = ((x - 1) * 4 - 5, (y - 1) * 4 - 5)
+            #         return thisClass.correctZeroCoords(source_xy_0, size)
+            #
+            #     return get_source_block
+
+            return None
+
+    @staticmethod
+    def correctZeroCoords(source_xy_0, size):
+        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
+                0 if source_xy_0[1] < 0 else source_xy_0[1],
+                source_xy_0[0] + int(size), source_xy_0[1] + int(size))
+
+    @staticmethod
+    def get_entire_image_block(x, y):
+        return (0, 0, 224, 224)
 
 
 def _resnet(arch, block, layers, pretrained, progress, **kwargs):
@@ -358,11 +541,11 @@ def resnext101_32x8d(pretrained=False, progress=True, **kwargs):
 
 
 def my_wide_resnet(pretrained=False, progress=True, **kwargs):
-    r"""Added by me by analogy. Combination of ResNeXt and wide ResNet ideas and depth about 32
+    r"""Added by me by analogy. Combination of ResNeXt and wide ResNet ideas
     """
     kwargs['groups'] = DeepOptions.towerCount
     kwargs['width_per_group'] = DeepOptions.netSizeMult // DeepOptions.towerCount
-    return _resnet('wide_resnet', Bottleneck, [2, 3, 3, 2],
+    return _resnet('wide_resnet', Bottleneck, DeepOptions.additLayerCounts,
                    pretrained, progress, **kwargs)
 
 

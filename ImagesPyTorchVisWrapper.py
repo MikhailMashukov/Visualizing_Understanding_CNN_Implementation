@@ -528,9 +528,13 @@ class CPyTorchImageNetVisWrapper:
         return str
 
 
-    @staticmethod
-    def get_source_block_calc_func(layerName):
+    # @staticmethod
+    def get_source_block_calc_func(self, layerName):
         # return CSourceBlockCalculator.get_source_block_calc_func(layerName)
+        if DeepOptions.modelClass.lower().find('resnet') >= 0:
+            # return PyTorch.PyTResNets.ResNet.CSourceBlockCalculator.get_source_block_calc_func(layerName)
+            return self._getNet().get_source_block_calc_func(layerName)
+
         if layerName == 'conv_u_2':
             layerName = 'conv_2'
         elif layerName == 'conv_u_3':
@@ -776,9 +780,11 @@ class CPyTorchImageNetVisWrapper:
                     self.netsCache[allowFlag][highestLayer] = \
                             PyTorch.PyTImageModel3.ImageModel3_Deeper.CutVersion(self.net, highestLayer, allowCombinedLayers)
                 elif DeepOptions.modelClass == 'ImageModel4':
-                    self.netsCache[allowFlag][highestLayer] = \
-                            copy.copy(self.net)
+                    self.netsCache[allowFlag][highestLayer] = copy.copy(self.net)
                     self.netsCache[allowFlag][highestLayer].highestLayerName = highestLayer
+                elif DeepOptions.modelClass.lower().find('resnet') >= 0:
+                    self.netsCache[allowFlag][highestLayer] = copy.copy(self.net)
+                    self.netsCache[allowFlag][highestLayer].setHighestLayer(highestLayer)
 
             return self.netsCache[allowFlag][highestLayer]
 
