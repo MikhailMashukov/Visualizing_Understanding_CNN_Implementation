@@ -86,8 +86,8 @@ class Bottleneck(nn.Module):
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width)
         self.bn1 = norm_layer(width)
-        print('conv2: w %d, stride %d, groups %d, dilation %d' % \
-                (width, stride, groups, dilation))
+        # print('conv2: w %d, stride %d, groups %d, dilation %d' % \
+        #         (width, stride, groups, dilation))
         self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion)
@@ -117,6 +117,7 @@ class Bottleneck(nn.Module):
         out = self.relu(out)
         return out
 
+    # HighestLayer here can be some of self.<layer> or 'start' or 'final_conv'
     def forward_CutModel(self, x, highestLayer):
         identity = x
 
@@ -139,8 +140,12 @@ class Bottleneck(nn.Module):
 
         if self.downsample is not None:
             identity = self.downsample(x)
+        if highestLayer == 'start':
+            return identity
 
         out += identity
+        if highestLayer == 'final_conv':
+            return out
         out = self.relu(out)
         return out
 
@@ -229,8 +234,8 @@ class ResNet(nn.Module):
                                 norm_layer=norm_layer))
         for i, layerBlock in enumerate(layers):
             # Block of the Bottleneck type is implied here
-            self.namedLayers[convLayerNamePrefix + '%d' % (i + 1)]  = layerBlock.conv2   # Will be considered main
             self.namedLayers[convLayerNamePrefix + '%d1' % (i + 1)] = layerBlock.conv1
+            self.namedLayers[convLayerNamePrefix + '%d2' % (i + 1)] = layerBlock.conv2   # Will be considered main
             self.namedLayers[convLayerNamePrefix + '%d3' % (i + 1)] = layerBlock.conv3
 
         return nn.Sequential(*layers)
@@ -261,7 +266,12 @@ class ResNet(nn.Module):
         return x
 
     def _forward_Impl_CutModel(self, x):
-        highestLayer = self.namedLayers[self.highestLayerName]
+        if self.highestLayerName in self.namedLayers:
+            highestLayer = self.namedLayers[self.highestLayerName]
+        else:
+            highestLayer = None
+        (layerNum, blockNum, innerLayerSuffix) = self.parseLayerName(self.highestLayerName)
+
         x = self.conv1(x)
         if highestLayer == self.conv1:
             return x
@@ -269,17 +279,17 @@ class ResNet(nn.Module):
         x = self.relu(x)
         x = self.maxpool(x)
 
-        if self.highestLayerName.find('conv_2') == 0:
-            return self._forward_layer_CutModel(self.layer1, x)
+        if layerNum == 2:
+            return self._forward_layer_CutModel(self.layer1, blockNum, innerLayerSuffix, x)
         x = self.layer1(x)
-        if self.highestLayerName.find('conv_3') == 0:
-            return self._forward_layer_CutModel(self.layer2, x)
+        if layerNum == 3:
+            return self._forward_layer_CutModel(self.layer2, blockNum, innerLayerSuffix, x)
         x = self.layer2(x)
-        if self.highestLayerName.find('conv_4') == 0:
-            return self._forward_layer_CutModel(self.layer3, x)
+        if layerNum == 4:
+            return self._forward_layer_CutModel(self.layer3, blockNum, innerLayerSuffix, x)
         x = self.layer3(x)
-        if self.highestLayerName.find('conv_5') == 0:
-            return self._forward_layer_CutModel(self.layer4, x)
+        if layerNum == 5:
+            return self._forward_layer_CutModel(self.layer4, blockNum, innerLayerSuffix, x)
         x = self.layer4(x)
 
         x = self.avgpool(x)
@@ -294,17 +304,50 @@ class ResNet(nn.Module):
     # def forward(self, x):
     #     return self._forward_impl(x)
 
-    def _forward_layer_CutModel(self, layerModule, x):
-        hishestLayerNameSuffix = self.highestLayerName[len('conv_N') : ]
-        hishestBlockInd = int(hishestLayerNameSuffix[0]) - 1
+    @staticmethod
+    def parseLayerName(layerName):
+        if layerName.find('conv_') == 0:
+            layerBlockSubstr = layerName[len('conv_') : len('conv_') + 2]
+            # layerNum = int(layerName[len('conv_')])
+            # blockNum = int(layerName[len('conv_N')])
+            innerLayerSuffix = layerName[len('conv_NM') : ]
+        elif layerName.find('start_') == 0:
+            innerLayerSuffix = 'start'
+            layerBlockSubstr = layerName[len(innerLayerSuffix) + 1 : len(innerLayerSuffix) + 3]
+        elif layerName.find('final_conv_') == 0:
+            innerLayerSuffix = 'final_conv'
+            layerBlockSubstr = layerName[len(innerLayerSuffix) + 1 : len(innerLayerSuffix) + 3]
+        elif layerName.find('dense_') == 0:
+            innerLayerSuffix = 'dense'
+            layerBlockSubstr = layerName[len(innerLayerSuffix) + 1 : len(innerLayerSuffix) + 2]
+        else:
+            raise Exception('Unexpected layer name %s' % layerName)
+
+        layerNum = int(layerBlockSubstr[0])
+        if len(layerBlockSubstr) >= 2:
+            blockNum = int(layerBlockSubstr[1])
+        else:
+            blockNum = None
+        return (layerNum, blockNum, innerLayerSuffix)
+
+    def _forward_layer_CutModel(self, layerModule, blockNum, innerLayerSuffix, x):
+        # if self.highestLayerName.find('conv_') == 0:
+        #     hishestLayerNameSuffix = self.highestLayerName[len('conv_N') : ]
+        #     hishestBlockInd = int(hishestLayerNameSuffix[0]) - 1
+        #     innerHighestLayer = self.namedLayers[self.highestLayerName]
+        # elif self.highestLayerName.find('start_') == 0:
+
+        # print('highest ', self.highestLayerName, blockNum, innerLayerSuffix)
         for blockInd, layerBlock in enumerate(layerModule):
             # layerBlock = layerModule[blockInd]   # This is block from layers.append(block(...)) in _make_layer
-            if blockInd < hishestBlockInd:
+            if blockInd + 1 < blockNum:
                 x = layerBlock(x)
             else:
                 # Block of the Bottleneck type is implied here
-                return layerBlock.forward_CutModel(x, self.namedLayers[self.highestLayerName])
-
+                if self.highestLayerName in self.namedLayers:
+                    return layerBlock.forward_CutModel(x, self.namedLayers[self.highestLayerName])
+                else:
+                    return layerBlock.forward_CutModel(x, innerLayerSuffix)
 
 
     def getLayer(self, layerName):
@@ -378,29 +421,35 @@ class ResNet(nn.Module):
 
                 return get_source_block
 
+            (highestLayerNum, highestBlockNum, innerLayerSuffix) = self.parseLayerName(layerName)
             stride = 4
             leftUpShift = 5
             found = False
             for layerInd, layerDepth in enumerate(self.layerDepths):
                 for blockNum in range(1, layerDepth + 1):
-                    curLayerNamePrefix = 'conv_%d%d' % (layerInd + 2, blockNum)
+                    # curLayerNamePrefix = 'conv_%d%d' % (layerInd + 2, blockNum)
 
-                    if layerName == curLayerNamePrefix + '1':
-                        if blockNum == 1:
-                            stride //= 2
-                        found = True
-                    else:
+                    if not (layerInd + 2 == highestLayerNum and blockNum == highestBlockNum):
                         size += stride * 2
                         leftUpShift += stride   # Padding is usually 1
-                        if layerName == curLayerNamePrefix:
-                            found = True
+                    else:
+                        print('Matching layer %d, %d, %s' % (highestLayerNum, highestBlockNum, innerLayerSuffix))
+                        if innerLayerSuffix == '1' or innerLayerSuffix == 'start':
+                            if blockNum == 1:
+                                stride //= 2
                         else:
                             size += stride * 2
-                            leftUpShift += stride
-                            if layerName == curLayerNamePrefix + '3':
-                                found = True
+                            leftUpShift += stride   # Padding is usually 1
+                            if innerLayerSuffix == '2':
+                                pass
+                            else:
+                                size += stride * 2
+                                leftUpShift += stride
+                                if innerLayerSuffix in ['3', 'final_conv']:
+                                    found = True
+                                else:
+                                    raise Exception('Unexpected layer name %s' % self.highestLayerName)
 
-                    if found:
                         def get_source_block(x, y):
                             source_xy_0 = (x * stride - leftUpShift, y * stride - leftUpShift)
                             return thisClass.correctZeroCoords(source_xy_0, size)

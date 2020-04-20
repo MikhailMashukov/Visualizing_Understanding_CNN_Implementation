@@ -714,13 +714,18 @@ class NetControlObject():
             return True
 
 
-    def calcMultActTops_MultiThreaded(self):
-        self.startAction(self.calcMultActTops_MultiThreaded)
+    def buildMultActTops_MultiProcess(self, multiOptions):
+        self.startAction(self.buildMultActTops_MultiProcess)
+        mtCalculator = MultActTops.CMultiThreadedCalculator()
+        mtCalculator.run_MultiProcess_MultiOptions(multiOptions)
+
+    def buildMultActTops_MultiThreaded_AllEpochs(self):
+        self.startAction(self.buildMultActTops_MultiThreaded_AllEpochs)
         calculator = self.fillMainMultActTopsOptions()
         self.needShowCurMultActTops = False
         epochNums = self.netWrapper.getSavedNetEpochs()
         calculator.epochNum = None
-        calculator.threadCount = getCpuCoreCount() * 2
+        calculator.threadCount = min(20, getCpuCoreCount() * 2)
         mtCalculator = MultActTops.CMultiThreadedCalculator()
 
         # mtCalculator.run(calculator, epochNums)
@@ -2194,7 +2199,7 @@ controlObj.init()
 # controlObj.onShowMultActTopsPressed()
 # controlObj.onShowSortedChanActivationsPressed()
 # controlObj.onSpinBoxValueChanged()
-# controlObj.calcMultActTops_MultiThreaded()
+# controlObj.buildMultActTops_MultiThreaded()
 # controlObj.onGradientsByImagesPressed()
 # controlObj.onShowWorstImagesPressed()
 # controlObj.onShowImagesWithTSnePressed()

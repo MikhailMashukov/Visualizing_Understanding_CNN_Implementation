@@ -37,6 +37,7 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
 18_5-18_11: high epsilon killed learning
 18_13: people use warming up for several epochs, but for me it worsened variance a lot after 160 mini-epochs,
   further training only killed neirons finally
+PyT5_1-5_2: much worser result with shorter warmup, but higher variance at all layers except dense_3
 
 Further ideas:
 * to implement division of neirons: each is divided onto two with close weights
@@ -45,13 +46,15 @@ Further ideas:
 * to add 1 + for passing source channels coefficients through SE bottleneck
   (maybe wouldn't make sense since bias can make the same);
 * to investigate how weights of particular neirons changed during training;
-* to take for each neiron its source convolutions with theirs weights and to display
+- to take for each neiron its source convolutions with theirs weights and to display;
+* to find neirons which are active for particular classes (always > some minimum and high average);
 * to average values for each channel, then multiply channels by them and to sum -
   there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
-* to look at activatity maps on incorrectly classified images
+* to look at activity maps on incorrectly classified images
   https://raghakot.github.io/keras-vis/visualizations/class_activation_maps/;
+* to shift/resize a bit input images and to use this for top activations calculation;
 * to take activations for two objects, to build path between them and to generate
-  what corresponds to them
+  what corresponds to them;
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
   of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
   in a matrix network;
@@ -65,7 +68,7 @@ Further ideas:
 * to add "augmentation" into the middle of the network - shifting and so on on channels
 - to add batch normalization at the end of SE blocks;
 * to multiply weights when activations dimish;
-* to run training steps several times and to select best result;
+- to run training steps several times and to select best result;
 - to try to scale images for TF AlexNet
 """
 

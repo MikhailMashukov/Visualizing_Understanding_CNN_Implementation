@@ -1,3 +1,12 @@
+# import traceback
+# import sys
+#
+# type, value, tb = sys.exc_info()
+# print(str(traceback.format_tb(tb, limit=6)))
+#
+# print('import mult ')
+# sys.stdout.flush()
+
 import concurrent.futures
 import copy
 import datetime
@@ -11,9 +20,10 @@ import numpy as np
 import os
 # import random
 # import sys
-# import time
+import time
 import queue
 import _thread
+import traceback
 
 # sys.path.append(r"../Qt_TradeSim")
 # import AlexNetVisWrapper
@@ -25,7 +35,7 @@ class TMultActOpsOptions:
     topCount = 36   # GeForce hanged up with 64
     oneImageMaxTopCount = 4
     minDist = 3
-    batchSize = 16 * getCpuCoreCount()
+    batchSize = 16 * min(getCpuCoreCount(), 8)
     embedImageNums = False
     c_channelMargin = 2
     c_channelMargin_Top = 5
@@ -56,16 +66,27 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         for batchNum in range((self.imageToProcessCount - 1) // batchSize + 1):
             imageNums = range(batchNum * batchSize + 1,
                               min((batchNum + 1) * batchSize, self.imageToProcessCount) + 1)
-            if batchSize == 1:
+            retryCount = 5
+            while retryCount > 0:
                 try:
-                    batchActivations = self.netWrapper.getImageActivations(
-                            self.layerName, batchNum + 1, self.epochNum)
+                    if batchSize == 1:
+                        batchActivations = self.netWrapper.getImageActivations(
+                                self.layerName, batchNum + 1, self.epochNum)
+                    else:
+                        # print("Batch: ", ','.join(str(i) for i in imageNums))
+                        batchActivations = self.netWrapper.getImagesActivations_Batch(
+                                self.layerName, imageNums, self.epochNum)
+                    retryCount = -1
                 except Exception as ex:
                     print("Error on batchActivations: %s" % (str(ex)))
-            else:
-                # print("Batch: ", ','.join(str(i) for i in imageNums))
-                batchActivations = self.netWrapper.getImagesActivations_Batch(
-                        self.layerName, imageNums, self.epochNum)
+                    if str(ex).find('CUDA out of memory. Tried to allocate') >= 0:
+                        time.sleep(20)
+                        retryCount -= 1
+                        if retryCount > 0:
+                            print('BatchActivations: retrying %d more times' % retryCount)
+                    else:
+                        raise
+
             if batchNum == 0:
                 print('Layer %s batch activations: %s, min %.4f, max %.4f (%s)' % \
                         (self.layerName, str(batchActivations.shape),
@@ -363,8 +384,8 @@ class CMultActTopsCalculator(TMultActOpsOptions):
         if not os.path.exists(dirName):
             os.makedirs(dirName)
         # fileName = 'Data/top%d_%s_epoch%d_%dChan_%dImages.png' % \
-        fileName = '%s/Top%d_%s_Epoch%d.png' % \
-                 (dirName, self.topCount, self.layerName, self.epochNum)
+        fileName = '%s/Top%d_%s_Epoch%d_%dImages.png' % \
+                 (dirName, self.topCount, self.layerName, self.epochNum, processedImageCount)
         imsave(fileName, imageData, format='png')
         print("Image saved to '%s'" % fileName)
 
@@ -417,6 +438,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
 
 
 class CMultiThreadedCalculator:
+    # Doesn't give speed up because of Python's global lock as I remember
     def run(self, calculator, epochNums):
         self.mainCalculator = calculator
         self.activationsQueue = queue.Queue(maxsize=calculator.threadCount * 5)
@@ -455,6 +477,7 @@ class CMultiThreadedCalculator:
 
         print("Finished")
 
+    # Suits well for not big imageToProcessCount
     # TODO: cancelling support
     def run_MultiProcess(self, calculator, epochNums):
         import multiprocessing
@@ -518,6 +541,36 @@ class CMultiThreadedCalculator:
         self.stopEvent.set()
         for p in processes:
             p.join()
+
+        print("Finished")
+
+    # Suits for big imageToProcessCount and different sets of parameters
+    # TODO: cancelling support
+    def run_MultiProcess_MultiOptions(self, multiOptions):
+        # import multiprocessing
+        import torch.multiprocessing as multiprocessing
+
+        self.stopEvent = threading.Event()
+        # baseOptions = self.mainCalculator
+        # processesOptions = []
+        # for optionsUpdate in multiOptions:
+        #     options = copy.copy(baseOptions)
+        #     for optionName in ['layerName', 'epochNum', 'imageToProcessCount']:
+        #         if optionName in optionsUpdate:
+        #             setattr(options, optionName, optionsUpdate[optionName])
+        #     processesOptions.append(options)
+        #     # processesOptions.append((baseOptions, optionsUpdate)
+
+        workerProcessCount = len(multiOptions)
+        processes = []
+        # pool = multiprocessing.Pool(workerProcessCount)
+        print('Starting %d processes' % workerProcessCount)
+        for options in multiOptions:
+            multiprocessing.spawn(workerProcessFunc3_OneOutImage, args=(options, ))
+        # pool.map(workerProcessFunc3_OneOutImage, multiOptions)
+        # self.stopEvent.set()
+        # for p in processes:
+        #     p.join()
 
         print("Finished")
 
@@ -698,6 +751,55 @@ def workerProcessFunc2(params):
 
     print("%s: finished" % threadName)
 
+def workerProcessFunc3_OneOutImage(options):
+    try:
+        import sys
+
+        threadName = 'Process %s' % str(multiprocessing.current_process())
+        print("%s: started, options: %s" % (threadName, options))
+        sys.stdout.flush()
+        # (calculator, epochNum, epochActivations) = params
+        setProcessPriorityLow()
+
+        import VisJupyterNotUtils
+
+        controlObj = VisJupyterNotUtils.controlObj
+        # calculator = controlObj.fillMainMultActTopsOptions()
+        # for optionName in ['layerName', 'epochNum', 'imageToProcessCount']:
+        #     if optionName in options:
+        #         setattr(calculator, optionName, options[optionName])
+        for optionName in ['curLayerName', 'curImageNum']:
+            if optionName in options:
+                setattr(controlObj, optionName, options[optionName])
+        if 'epochNum' in options:
+            controlObj.loadState(int(options['epochNum']))
+        # print('buildMultActTops started')
+        controlObj.buildMultActTops()
+
+        # print("%s: inited" % threadName)
+        #
+        # calculator.epochNum = epochNum
+        # (bestSourceCoords, processedImageCount) = calculator.calcBestSourceCoords()
+        #     # Dangerous - we use method that can call model. But the cache is big so this should not happen
+        # resultImage = calculator.buildMultActTopsImage(bestSourceCoords, processedImageCount)
+        # calculator.saveMultActTopsImage(resultImage)
+        #
+        # infoStr = '%s: epoch %d ready, %s in cache' % \
+        #             (threadName, calculator.epochNum, calculator.netWrapper.getCacheStatusInfo())
+        # print(infoStr)
+        # return infoStr
+    except Exception as ex:
+        print("Error in %s workerProcessFunc3_OneOutImage: %s" % (threadName, str(ex)))
+        # mainObj.threadCrashed = True
+        # mainObj.stopEvent.set()
+        type, value, tb = sys.exc_info()
+        print(str(traceback.format_tb(tb, limit=6)))
+        sys.stdout.flush()
+        return 'Error: %s' % str(ex)
+
+    print("%s: finished" % threadName)
+    sys.stdout.flush()
+
 class TProgressIndicator2:
     def __init__(self, mainWindow, calculator, threadInfo=None):
         self.mainWindow = mainWindow
@@ -726,7 +828,7 @@ if __name__ == "__main__":
             # logging.info("Main: about to set event")
             # event.set()
 
-    if 1:
+    if 0:
         calc = dict()
         workerProcessFunc2(TProgressIndicator2(None, None), 'Test process')
 
