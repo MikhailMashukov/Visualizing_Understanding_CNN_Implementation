@@ -14,7 +14,7 @@ else:
     # modelClass = 'ChanMatrixModel'
     modelClass = 'MyWideResNet'
 # additLayerCounts = (1, 1)         # For ImageModel4 and similar, max (2, 2)
-additLayerCounts = [2, 3, 3, 2]     # For ResNets, actually number of blocks. This combination - most probably 32 layers
+additLayerCounts = [2, 3, 3, 3, 2]     # For ResNets, actually number of blocks. 2, 3, 3, 2 - most probably 32 layers
 # additLayerCounts = [1, 2, 2, 1]   # Most probably20 layers
 # deeperNet = 0          # True means that exended network is created but smaller subnet can be loaded from checkpoint
 # hlAndIndicsDivision = False   # To divide input data onto 3 blocks. Currently implemented only for GRU network
