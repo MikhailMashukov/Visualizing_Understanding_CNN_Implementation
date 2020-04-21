@@ -36,7 +36,7 @@ class CPyTorchImageNetVisWrapper:
         self.imageDataset = CImageNetPartDataset(self.imageCache) if imageDataset is None else imageDataset
         # self.imageDataset = CAugmentedMnistDataset(CImageNetPartDataset()) if imageDataset is None else imageDataset
         self.net = None
-        self.batchSize = 128
+        self.batchSize = 64
         self.netPreprocessStageName = 'net'  # for self.net = alexnet.AlexNet()
         self.netImageSize = 224 if DeepOptions.modelClass.lower().find('resnet') >= 0 else 227
         self.doubleSizeLayerNames = []    # Not stored in saveState
@@ -68,32 +68,8 @@ class CPyTorchImageNetVisWrapper:
     def getImageActivations(self, layerName, imageNum, epochNum=None, allowCombinedLayers=True):
         return self.getImagesActivations_Batch(layerName, [imageNum], epochNum, allowCombinedLayers)
 
-#         if epochNum is None or epochNum < 0:
-#             epochNum = self.curEpochNum
-#         itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
-#         cacheItem = self.activationCache.getObject(itemCacheName)
-#         if not cacheItem is None:
-#             return cacheItem
-
-#         model = self._getNet(layerName)
-#         if epochNum != self.curEpochNum:
-#             self.loadState(epochNum)
-#         imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName)
-#         imageData = np.expand_dims(imageData, 0)
-
-#         imageData = np.transpose(imageData, (0, 3, 1, 2))
-#         print('imageData ', torch.from_numpy(imageData).shape)
-#         model.eval()
-#         # self.pytOptimizer.zero_grad()
-#         with torch.set_grad_enabled(False):
-#             activations = model.forward(torch.from_numpy(imageData).to(self.pytDevice))   # np.expand_dims(imageData, 0), 3))
-
-#         if self.netPreprocessStageName == 'net':
-#             activations = self._transposeToOutBatchDims(activations)
-#         self.activationCache.saveObject(itemCacheName, activations)
-#         return activations
-
-    def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None, allowCombinedLayers=True):
+    def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None, allowCombinedLayers=True,
+                                   augment=False):
         if epochNum is None or epochNum < 0:
             epochNum = self.curEpochNum
 
@@ -101,7 +77,7 @@ class CPyTorchImageNetVisWrapper:
         images = []
         for i in range(len(imageNums)):
             imageNum = imageNums[i]
-            itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
+            itemCacheName = 'act_%s_%d_%d%s' % (layerName, imageNum, epochNum, '_aug' if augment else '')
             cacheItem = self.activationCache.getObject(itemCacheName)
             if not cacheItem is None:
                 batchActs[i] = cacheItem[0]
@@ -117,9 +93,11 @@ class CPyTorchImageNetVisWrapper:
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
         imageData = np.stack(images, axis=0)
-        imageData = np.transpose(imageData, (0, 3, 1, 2))
+        imageData = np.transpose(imageData, (0, 3, 1, 2))        # Becomes (images, channels, x, y)
         # print("Predict data prepared")
 #         print('imageData dtype', imageData.dtype, ', shape', torch.from_numpy(imageData).shape)
+        if augment:
+            imageData = self._prepareActivationsAugmentedImages(imageData)
 #         print('imageData min', imageData.min(), ' max', imageData.max())
 
         model.eval()
@@ -130,6 +108,8 @@ class CPyTorchImageNetVisWrapper:
             activations = model.forward(pytImageData)   # np.expand_dims(imageData, 0), 3))
         # print("Predicted")
             activations = activations.cpu().numpy()
+        if augment:
+            activations = self._combineActivationsAugmentedImages(activations, len(imageNums))
 
 #         if self.netPreprocessStageName == 'net':
 #             activations = self._transposeToOutBatchDims(activations)
@@ -146,8 +126,46 @@ class CPyTorchImageNetVisWrapper:
         assert predictedI == activations.shape[0]
         if len(images) == len(imageNums):
             return activations
-        print('Output prepared')
+#         print('Output prepared')
         return np.stack(batchActs, axis=0)
+
+    # Takes (images, channels, x, y). Has big memory leak (260 GB / 200000 source images)
+    def _prepareActivationsAugmentedImages(self, imageData):
+        import scipy.ndimage
+        import skimage.transform
+
+        # imageSize = list(imageData.shape)[3:]
+        augDataList = [imageData]
+        for dx, dy in [(-1, -1), (1, -1), (-1, 1), (1, 1)]:
+            curData = np.pad(imageData, ((0, 0), (0, 0),
+                        (-dx if dx < 0 else 0, dx if dx > 0 else 0),
+                        (-dy if dy < 0 else 0, dy if dy > 0 else 0)))
+
+            curData = curData[:, :, (dx if dx >= 0 else 0) : (dx if dx < 0 else curData.shape[2]),
+                                    (dy if dy >= 0 else 0) : (dy if dy < 0 else curData.shape[3])]
+            augDataList.append(np.array(curData))    # Copying here partially fixes memory leak
+
+        rotatedData = scipy.ndimage.rotate(imageData, 10, axes=(3, 2), reshape=False)
+#         print('rotatedData', rotatedData.shape)
+        mult = 20
+        for dx, dy in [(-mult, -mult), (mult, mult), (-mult, mult), (mult, -mult)]:
+            curData = rotatedData[:, :, (dx if dx >= 0 else 0) : (dx if dx < 0 else rotatedData.shape[2]),
+                                        (dy if dy >= 0 else 0) : (dy if dy < 0 else rotatedData.shape[3])]
+#             print('curData', curData.shape)
+            curData = skimage.transform.resize(curData, imageData.shape)
+            augDataList.append(curData)
+            if (dx, dy) == (mult, mult):
+                rotatedData = scipy.ndimage.rotate(imageData, -10, axes=(3, 2), reshape=False)
+
+        return np.concatenate(augDataList, axis=0)
+
+    def _combineActivationsAugmentedImages(self, imageData, sourceImageCount):
+        shape = list(imageData.shape)
+        data = np.reshape(imageData, [sourceImageCount, shape[0] // sourceImageCount] + shape[1:],
+                          order='F')
+        data = np.mean(data, axis=1)
+        return data
+
 
     # Returns convolutions' multiplication weights (not bias) or similar for other layers.
     # AllowCombinedLayers == True means than internal layers with names like 'conv_2_0' and 'conv_2_1'

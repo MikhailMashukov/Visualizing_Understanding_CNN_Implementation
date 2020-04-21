@@ -34,8 +34,11 @@ from VisUtils import *
 class TMultActOpsOptions:
     topCount = 36   # GeForce hanged up with 64
     oneImageMaxTopCount = 4
+    augmentImages = True
     minDist = 3
-    batchSize = 16 * min(getCpuCoreCount(), 8)
+    batchSize = 16 * min(getCpuCoreCount(), 2)
+    if augmentImages:
+        batchSize //= 8
     embedImageNums = False
     c_channelMargin = 2
     c_channelMargin_Top = 5
@@ -69,13 +72,14 @@ class CMultActTopsCalculator(TMultActOpsOptions):
             retryCount = 5
             while retryCount > 0:
                 try:
-                    if batchSize == 1:
-                        batchActivations = self.netWrapper.getImageActivations(
-                                self.layerName, batchNum + 1, self.epochNum)
-                    else:
-                        # print("Batch: ", ','.join(str(i) for i in imageNums))
-                        batchActivations = self.netWrapper.getImagesActivations_Batch(
-                                self.layerName, imageNums, self.epochNum)
+                    # if batchSize == 1:
+                    #     batchActivations = self.netWrapper.getImageActivations(
+                    #             self.layerName, batchNum + 1, self.epochNum)
+                    # else:
+                    # print("Batch: ", ','.join(str(i) for i in imageNums))
+                    batchActivations = self.netWrapper.getImagesActivations_Batch(
+                            self.layerName, imageNums, epochNum=self.epochNum, augment=self.augmentImages)
+
                     retryCount = -1
                 except Exception as ex:
                     print("Error on batchActivations: %s" % (str(ex)))
@@ -123,7 +127,7 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                     # print('-ch-')
                 t = datetime.datetime.now()
                 # if imageNum % 16 == 0:
-                if (t - prevT).total_seconds() >= 3:
+                if (t - prevT).total_seconds() >= 5:
                     if lastActionStartTime:
                         timeInfo = ', %.2f ms/image' % \
                             ((t - lastActionStartTime).total_seconds() * 1000 / imageNum)
@@ -132,8 +136,9 @@ class CMultActTopsCalculator(TMultActOpsOptions):
                     # timeInfo += ', last 16 - %.2f' % \
                     #         ((t - prevT).total_seconds() * 1000 / 16)
                     prevT = t
-                    infoStr = 'Stage 1: image %d%s, %s in cache' % \
-                            (imageNum, timeInfo, self.netWrapper.getCacheStatusInfo())
+                    infoStr = 'Stage 1: image %d / %d%s, %s in cache' % \
+                            (imageNum, self.imageToProcessCount,
+                             timeInfo, self.netWrapper.getCacheStatusInfo())
                         # progressCallback - like QMainWindow.TProgressIndicator
                     if not self.progressCallback.onMultActTopsProgress(infoStr, imageNum, bestSourceCoords):
                         return (bestSourceCoords, imageNum)

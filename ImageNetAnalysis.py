@@ -11,31 +11,29 @@ sys.stdout.flush()
 
 if __name__ == '__main__':
     multiOptions = []
-    curImageNum = 500
+    conseqMultiOptions = []
 
     # Harder tasks
-    for curLayerName in ['start_51', 'final_conv_51', 'final_conv_52', 'final_conv_53']:
-        multiOptions.append({'curLayerName': curLayerName, 'curImageNum': 500000,
-                             'epochNum': 411})
+    for curLayerName in ['start_41', 'final_conv_41']: # , 'final_conv_42', 'final_conv_43']:
+        multiOptions.append({'curLayerName': curLayerName, 'curImageNum': 200000,
+                             'epochNum': 400})
 
-    # First portion of smaller tasks
-    for curLayerName in ['start_21']:
-        multiOptions.append({'curLayerName': curLayerName, 'curImageNum': 50000,
-                             'epochNum': 411})
+    # Smaller tasks which will be run in parallel 1-after-1
+    for curLayerName in ['start_31', 'final_conv_31', 'final_conv_32', 'final_conv_33']:
+        conseqMultiOptions.append({'curLayerName': curLayerName, 'curImageNum': 50000,
+                             'epochNum': 400})
 
     # import multiprocessing
     import torch.multiprocessing as multiprocessing
 
     processes = []
     print('Starting %d processes' % len(multiOptions))
-    for options in multiOptions:
+    for options in multiOptions + conseqMultiOptions[:1]:
         processes.append(multiprocessing.Process(target=MultActTops.workerProcessFunc3_OneOutImage,
                                                  args=(options, )))
     for p in processes:
         p.start()
-    for curLayerName in ['final_conv_21', 'final_conv_22']:
-        options = {'curLayerName': curLayerName, 'curImageNum': 50000,
-                             'epochNum': 411}
+    for options in conseqMultiOptions[1:]:
         processes[-1].join()
         print('Running another task')
         del processes[-1]
