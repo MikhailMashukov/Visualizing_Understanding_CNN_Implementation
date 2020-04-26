@@ -1,6 +1,7 @@
 # from PyQt4.QtCore import *
 # from PyQt4.QtGui import *
 
+import numpy as np
 import psutil
 import subprocess
 import sys

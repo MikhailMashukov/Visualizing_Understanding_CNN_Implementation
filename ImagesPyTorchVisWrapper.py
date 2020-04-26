@@ -569,6 +569,7 @@ class CPyTorchImageNetVisWrapper:
 
     def _initMainNet(self):
         import torch
+        from PyTorch.lookahead import Lookahead
 
         self.pytDevice = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
         if DeepOptions.modelClass == 'AlexnetModel':
@@ -593,6 +594,8 @@ class CPyTorchImageNetVisWrapper:
             print('SGD')
             self.pytOptimizer = torch.optim.SGD(params=self.net.parameters(), lr=self.getRecommendedLearnRate(),
                                                 momentum=0.9, weight_decay=1e-4)
+        self.pytBaseOptimizer = self.pytOptimizer
+        self.pytOptimizer = Lookahead(self.pytOptimizer, k=5, alpha=0.5)
 
         self.netsCache = [dict(), dict()]
         self.setBatchSize(self.batchSize)

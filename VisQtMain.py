@@ -40,7 +40,7 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
 PyT5_1-5_2: much worser result with shorter warmup, but higher variance at all layers except dense_3
 
 Further ideas:
-* to implement division of neirons: each is divided onto two with close weights
+- to implement division of neirons: each is divided onto two with close weights
   and theirs output connections get about 1/2 of initial strength;
 * to turn SE blocks initially off;
 * to add 1 + for passing source channels coefficients through SE bottleneck
@@ -52,7 +52,7 @@ Further ideas:
   there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
 * to look at activity maps on incorrectly classified images
   https://raghakot.github.io/keras-vis/visualizations/class_activation_maps/;
-* to shift/resize a bit input images and to use this for top activations calculation;
++- to shift/resize a bit input images and to use this for top activations calculation;
 * to take activations for two objects, to build path between them and to generate
   what corresponds to them;
 * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
