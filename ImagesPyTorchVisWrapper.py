@@ -145,17 +145,17 @@ class CPyTorchImageNetVisWrapper:
                                     (dy if dy >= 0 else 0) : (dy if dy < 0 else curData.shape[3])]
             augDataList.append(np.array(curData))    # Copying here partially fixes memory leak
 
-        rotatedData = scipy.ndimage.rotate(imageData, 10, axes=(3, 2), reshape=False)
-#         print('rotatedData', rotatedData.shape)
-        mult = 20
-        for dx, dy in [(-mult, -mult), (mult, mult), (-mult, mult), (mult, -mult)]:
-            curData = rotatedData[:, :, (dx if dx >= 0 else 0) : (dx if dx < 0 else rotatedData.shape[2]),
-                                        (dy if dy >= 0 else 0) : (dy if dy < 0 else rotatedData.shape[3])]
-#             print('curData', curData.shape)
-            curData = skimage.transform.resize(curData, imageData.shape)
-            augDataList.append(curData)
-            if (dx, dy) == (mult, mult):
-                rotatedData = scipy.ndimage.rotate(imageData, -10, axes=(3, 2), reshape=False)
+#         rotatedData = scipy.ndimage.rotate(imageData, 10, axes=(3, 2), reshape=False)
+# #         print('rotatedData', rotatedData.shape)
+#         mult = 20
+#         for dx, dy in [(-mult, -mult), (mult, mult), (-mult, mult), (mult, -mult)]:
+#             curData = rotatedData[:, :, (dx if dx >= 0 else 0) : (dx if dx < 0 else rotatedData.shape[2]),
+#                                         (dy if dy >= 0 else 0) : (dy if dy < 0 else rotatedData.shape[3])]
+# #             print('curData', curData.shape)
+#             curData = skimage.transform.resize(curData, imageData.shape)
+#             augDataList.append(curData)
+#             if (dx, dy) == (mult, mult):
+#                 rotatedData = scipy.ndimage.rotate(imageData, -10, axes=(3, 2), reshape=False)
 
         return np.concatenate(augDataList, axis=0)
 
@@ -588,7 +588,7 @@ class CPyTorchImageNetVisWrapper:
         else:
             raise Exception('Unknown model class %s' % DeepOptions.modelClass)
 
-        if 1:
+        if 0:
             self.pytOptimizer = torch.optim.AdamW(params=self.net.parameters())
         else:
             print('SGD')

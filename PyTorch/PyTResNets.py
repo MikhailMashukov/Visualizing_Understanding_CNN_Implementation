@@ -85,13 +85,13 @@ class Bottleneck(nn.Module):
             norm_layer = nn.BatchNorm2d
         width = int(planes * (base_width / 64.)) * groups
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
-        self.conv1 = conv1x1(inplanes, width, groups=groups)
+        self.conv1 = conv1x1(inplanes, width) #, groups=groups)
         self.bn1 = norm_layer(width)
         # print('conv2: w %d, stride %d, groups %d, dilation %d' % \
         #         (width, stride, groups, dilation))
         self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
-        self.conv3 = conv1x1(width, planes * self.expansion, groups=groups)
+        self.conv3 = conv1x1(width, planes * self.expansion) #, groups=groups)
         self.bn3 = norm_layer(planes * self.expansion)
         self.relu = nn.ReLU(inplace=True)
         self.downsample = downsample
@@ -169,10 +169,10 @@ class ResNet(nn.Module):
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
-            replace_stride_with_dilation = [False, False, False]
-        if len(replace_stride_with_dilation) != 3:
-            raise ValueError("replace_stride_with_dilation should be None "
-                             "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
+            replace_stride_with_dilation = [False, False, False, False, False]
+#         if len(replace_stride_with_dilation) != 3:
+#             raise ValueError("replace_stride_with_dilation should be None "
+#                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
@@ -183,16 +183,20 @@ class ResNet(nn.Module):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         # self.maxpool = nn.FractionalMaxPool2d(kernel_size=3, output_ratio=0.66) #, padding=1)
         self.layer1 = self._make_layer(block, 2, 64, layers[0])                   # With fract. m. p. - 73 * 73
-        self.maxpool2 = nn.FractionalMaxPool2d(kernel_size=3, output_size=38)     # 24 * 24
+        self.maxpool2 = nn.FractionalMaxPool2d(kernel_size=3, output_size=36)     # 24 * 24
         self.layer2 = self._make_layer(block, 3, 96, layers[1], stride=1,         # 37 * 37
                                        dilate=replace_stride_with_dilation[0])
-        self.layer3 = self._make_layer(block, 4, 192, layers[2], stride=2,
+        self.maxpool3 = nn.FractionalMaxPool2d(kernel_size=3, output_size=24)     # 24 * 24
+        self.layer3 = self._make_layer(block, 4, 128, layers[2], stride=1,
                                        dilate=replace_stride_with_dilation[1])
-        self.maxpool3 = nn.FractionalMaxPool2d(kernel_size=3, output_size=12)
-        self.layer4 = self._make_layer(block, 5, 256, layers[3], stride=1,
+        self.maxpool4 = nn.FractionalMaxPool2d(kernel_size=3, output_size=16)
+        self.layer4 = self._make_layer(block, 5, 224, layers[3], stride=1,
                                        dilate=replace_stride_with_dilation[2])
-        self.layer5 = self._make_layer(block, 6, 512, layers[4], stride=2,
-                                       dilate=replace_stride_with_dilation[2])
+        self.maxpool5 = nn.FractionalMaxPool2d(kernel_size=3, output_size=10)
+        self.layer5 = self._make_layer(block, 6, 320, layers[4], stride=1,
+                                       dilate=replace_stride_with_dilation[3])
+        self.layer6 = self._make_layer(block, 7, 512, layers[5], stride=2,
+                                       dilate=replace_stride_with_dilation[4])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))                               # Input images - 6 * 6
         self.namedLayers['avg_pool_5'] = self.avgpool
         self.fc = nn.Linear(512 * block.expansion, num_classes)
@@ -235,7 +239,7 @@ class ResNet(nn.Module):
         # print('layers.append', layers[-1])
         self.inplanes = planes * block.expansion
         for i in range(1, blocks):
-            layers.append(block(self.inplanes, planes, groups=self.groups if i != 2 else 1,
+            layers.append(block(self.inplanes, planes, groups=self.groups, # if i != 2 else 1,
                                 base_width=self.base_width, dilation=self.dilation,
                                 norm_layer=norm_layer))
         for i, layerBlock in enumerate(layers):
@@ -264,10 +268,13 @@ class ResNet(nn.Module):
         x = self.layer1(x)
         x = self.maxpool2(x)
         x = self.layer2(x)
-        x = self.layer3(x)
         x = self.maxpool3(x)
+        x = self.layer3(x)
+        x = self.maxpool4(x)
         x = self.layer4(x)
+        x = self.maxpool5(x)
         x = self.layer5(x)
+        x = self.layer6(x)
 
         # print('avgp:', x.shape)
         x = self.avgpool(x)
@@ -296,16 +303,21 @@ class ResNet(nn.Module):
         if layerNum == 3:
             return self._forward_layer_CutModel(self.layer2, blockNum, innerLayerSuffix, x)
         x = self.layer2(x)
+        x = self.maxpool3(x)
         if layerNum == 4:
             return self._forward_layer_CutModel(self.layer3, blockNum, innerLayerSuffix, x)
         x = self.layer3(x)
-        x = self.maxpool3(x)
+        x = self.maxpool4(x)
         if layerNum == 5:
             return self._forward_layer_CutModel(self.layer4, blockNum, innerLayerSuffix, x)
         x = self.layer4(x)
+        x = self.maxpool5(x)
         if layerNum == 6:
             return self._forward_layer_CutModel(self.layer5, blockNum, innerLayerSuffix, x)
         x = self.layer5(x)
+        if layerNum == 7:
+            return self._forward_layer_CutModel(self.layer6, blockNum, innerLayerSuffix, x)
+        x = self.layer6(x)
 
         x = self.avgpool(x)
         if highestLayer == self.avgpool:
@@ -470,7 +482,7 @@ class ResNet(nn.Module):
                             return thisClass.correctZeroCoords(source_xy_0, size)
 
                         return get_source_block
-                stride *= 1.5 if layerInd in [0, 2] else 2
+                stride *= 1.5 if layerInd <= 3 else 2
 
             # size += 4 * 2
             # if layerName == 'conv_21':
