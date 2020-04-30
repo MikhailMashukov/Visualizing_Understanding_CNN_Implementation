@@ -1186,6 +1186,75 @@ class NetControlObject():
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
 
+    def getCorrectlyClassifiedImages(controlObj, classNum):
+    #     print(controlObj.netWrapper.batchSize)
+    #     print(list(divideList(controlObj.imageDataset.getClassImageNums(classNum), controlObj.netWrapper.batchSize)))
+        correctImageNums = []
+        classImageNums = controlObj.imageDataset.getClassImageNums(classNum)
+        for batchImageNums in MyUtils.divideList(classImageNums, controlObj.netWrapper.batchSize):
+            res = controlObj.netWrapper.getImagesActivations_Batch(None, batchImageNums, epochNum)
+            predictions = np.argmax(res, axis=1)
+    #         print(predictions)
+            for i in range(len(batchImageNums)):
+                if predictions[i] == classNum:
+                    correctImageNums.append(batchImageNums[i])
+        print('Correctly classified: %d / %d' % (len(correctImageNums), len(classImageNums)))
+        return correctImageNums
+
+
+    def doActAnalysis(self, classNum, layerName, plotChanCount=100):
+        import torch
+
+        # print(np.where(controlObj.imageDataset.subsets['train'].folders == 'n02109961'))
+        # print(controlObj.imageDataset.getClassNameLabel(752))
+        model = self.netWrapper._getNet(layerName, True)
+        epochNum = self.getSelectedEpochNum()
+#         self.netWrapper.loadState(epochNum)
+        model.eval()
+        order = None
+        ress = []
+        for imageNum in self.imageDataset.getClassImageNums(classNum)[:260]:
+        #    img = self.imageDataset.getImage(imageNum, 'net', 'train')
+        #    plt.imshow(img / 255.0 + 0.5)
+            res = controlObj.netWrapper.getImagesActivations_Batch(layerName, [imageNum], epochNum)[0]
+
+#         #     controlObj.netWrapper.pytOptimizer.zero_grad()
+#             with torch.set_grad_enabled(False):
+#             #             print(imgs[:1])
+#             #             res = model(imgs[:1].cuda())
+
+#                 imageData = np.stack([img], axis=0)
+#                 imageData = np.transpose(imageData, (0, 3, 1, 2)) / 128
+#         #         imageData = imageData + np.zeros((1, 3, 227, 227), dtype=np.float32)
+#                 imageData = torch.from_numpy(imageData)
+#                 res = model.forward(imageData.cuda())[0].cpu().numpy()
+# #                 print(res.shape, tuple(range(1, len(res.shape))))
+
+            if len(res.shape) > 1:
+                res = np.mean(res, axis=tuple(range(1, len(res.shape))))
+#             if correctlyPredicted:    # TODO
+
+            ress.append(res)
+        ress = np.stack(ress, axis=0)
+        order = np.mean(ress, axis=0).argsort()
+        print(order[-10:])
+        plt.plot(ress[3][order][-plotChanCount:], alpha=0.4)  # One of diagrams just for example
+        for i in range(ress.shape[0]):
+            plt.plot(ress[i][order][-plotChanCount:], 'o', color='black', linewidth=1, alpha=0.03, markersize=1)
+        plt.twinx().plot(np.std(ress, axis=0)[order][-plotChanCount:], linestyle='--', color='orange', alpha=0.4)
+
+        #     if order is None:
+        #         print(res.shape)
+        #         order = res.argsort()
+        # #         print(order)
+        #         print(order[-10:], res[order][-10:])
+        #     else:
+        #         order2 = res.argsort()
+        # #         print(imageNum, order2[-10:], res[order2][-10:], res[order][-10:])
+        #     plt.plot(res[order][-100:], 'o', linewidth=1, alpha=0.1, markersize=1)
+        #     plt.imshow(res)
+#         plt.show()
+
 
     def onCorrelationAnalyzisPressed(self):
         self.startAction(self.onCorrelationAnalyzisPressed)

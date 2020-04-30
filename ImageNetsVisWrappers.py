@@ -765,6 +765,9 @@ class CImageNetPartDataset:
     def getImageLabel(self, imageNum, subsetName='train'):
         return self.subsets[subsetName].getImageLabel(imageNum)
 
+    def getClassImageNums(self, label, subsetName='train'):
+        return self.subsets[subsetName].getClassImageNums(label)
+
     def getClassCount(self):
         return self.trainSubset.getClassCount()
 
@@ -931,6 +934,11 @@ class CImageNetSubset:
         if not self.isLoaded():
             self._loadData()
         return self.imageNumLabels[imageNum]
+
+    def getClassImageNums(self, label):
+        if not self.isLoaded():
+            self._loadData()
+        return np.where(self.imageNumLabels == label)[0]
 
     def getClassCount(self):
         if not self.isLoaded():

@@ -9,7 +9,24 @@ type, value, tb = sys.exc_info()
 print(str(traceback.format_tb(tb, limit=6)))
 sys.stdout.flush()
 
+
+def runProcesses(multiOptions, wait=True):
+    processes = []
+    print('Starting %d processes' % len(multiOptions))
+    for options in multiOptions:
+        processes.append(multiprocessing.Process(target=MultActTops.workerProcessFunc3_OneOutImage,
+                                                 args=(options, )))
+    for p in processes:
+        p.start()
+    if wait:
+        print("Awaiting")
+        for p in processes:
+            p.join()
+
 if __name__ == '__main__':
+    epochNum = 1204
+    imageCount = 2000
+
     multiOptions = []
     conseqMultiOptions = []
 
@@ -44,6 +61,13 @@ if __name__ == '__main__':
     print("Awaiting")
     for p in processes:
         p.join()
+
+    # multiOptions = []
+    # imageCount = 50000
+    # for curLayerName in ['final_conv_21', 'conv_311', 'conv_312', 'final_conv_31', 'final_conv_32']:
+    #     multiOptions.append({'curLayerName': curLayerName, 'curImageNum': imageCount,
+    #                          'epochNum': epochNum})
+    # runProcesses(multiOptions)
 
     # I was unable to implement this with Pool or under Jupyter notebook - was getting
     # 'python daemonic processes are not allowed to have children',

@@ -24,6 +24,10 @@ def mixColors(color1, coef1, color2, coef2):     # Accepts QColor
                   checkColorComponet(color1.blue()  * coef1 + color2.blue()  * coef2),
                   checkColorComponet(color1.alpha() * coef1 + color2.alpha() * coef2))
 
+def divideList(lst, partSize):
+    for i in range(0, len(lst), partSize):
+        yield lst[i:i + partSize]
+
 def getSubarrByIndices(npArr, axis, inds):
     assert len(npArr.shape) <= 5    # Simply not implemented here for more
     if len(npArr.shape) == 1:

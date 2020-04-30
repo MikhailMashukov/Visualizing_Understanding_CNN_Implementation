@@ -39,37 +39,51 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
   further training only killed neirons finally
 PyT5_1-5_2: much worser result with shorter warmup, but higher variance at all layers except dense_3
 
-Further ideas:
-- to implement division of neirons: each is divided onto two with close weights
-  and theirs output connections get about 1/2 of initial strength;
-* to turn SE blocks initially off;
-* to add 1 + for passing source channels coefficients through SE bottleneck
-  (maybe wouldn't make sense since bias can make the same);
-* to investigate how weights of particular neirons changed during training;
-- to take for each neiron its source convolutions with theirs weights and to display;
-* to find neirons which are active for particular classes (always > some minimum and high average);
-* to average values for each channel, then multiply channels by them and to sum -
-  there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
-* to look at activity maps on incorrectly classified images
-  https://raghakot.github.io/keras-vis/visualizations/class_activation_maps/;
-+- to shift/resize a bit input images and to use this for top activations calculation;
-* to take activations for two objects, to build path between them and to generate
-  what corresponds to them;
-* to train a usual each-to-each or towers conv. network, then estimate dissimilarity
-  of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
-  in a matrix network;
-* to try max pooling with strides (1, 1) and 3 * 2 with strides (2, 1);
--+ * to try 3D max pooling for neighbour channels;
-* to add towers to teached net and to make much higher noise to the teached part;
-* it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
-* to apply the same convolutions to neighbour layers - to recognize the same on different scales;
-* to combine convolutions' weights with multiplication in matrix net;
-* to add blocks of noise to the source images;
-* to add "augmentation" into the middle of the network - shifting and so on on channels
-- to add batch normalization at the end of SE blocks;
-* to multiply weights when activations dimish;
-- to run training steps several times and to select best result;
-- to try to scale images for TF AlexNet
+Further ideas.
+  Visualization:
+    * to investigate how weights of particular neirons changed during training;
+    - to take for each neiron its source convolutions with theirs weights and to display;
+    * to find neirons which are active for particular classes (always > some minimum and high average);
+    * to calculate statistics for each neiron how it is activated at correct and at wrong predictions;
+    * to average values for each channel, then multiply channels by them and to sum -
+      there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
+    * to look at activity maps (importance map) on incorrectly classified images,
+      maybe they are on incorrect features;
+      https://raghakot.github.io/keras-vis/visualizations/class_activation_maps/;
+    * to exclude incorrect (or all) of them during training from scratch;
+    +- to shift/resize a bit input images and to use this for top activations calculation;
+    * to take activations for two objects, to build path between them and to generate
+      what corresponds to them;
+    * to look at backprop.-generated max activation images during training. Whether they are more noisy
+      at start? Whether regularizers make them less noisy?
+
+  Training:
+    - to implement division of neirons: each is divided onto two with close weights
+      and theirs output connections get about 1/2 of initial strength;
+    * to turn SE blocks initially off;
+
+  Net architecture:
+    * to add 1 + for passing source channels coefficients through SE bottleneck
+      (maybe wouldn't make sense since bias can make the same);
+    * to train a usual each-to-each or towers conv. network, then estimate dissimilarity
+      of the obtained conv_1 filters, and divide most different onto horizontal and vertical groups
+      in a matrix network;
+    * to try max pooling with strides (1, 1) and 3 * 2 with strides (2, 1);
+    -+ * to try 3D max pooling for neighbour channels;
+    * to add towers to teached net and to make much higher noise to the teached part;
+    * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
+    * to apply the same convolutions to neighbour layers - to recognize the same on different scales;
+    * to combine convolutions' weights with multiplication in matrix net;
+
+  Augmentation:
+    * to add blocks of noise to the source images;
+    * to add "augmentation" into the middle of the network - shifting and so on on channels
+    - to add batch normalization at the end of SE blocks;
+    * to multiply weights when activations dimish;
+    - to run training steps several times and to select best result;
+    - to try to scale images for TF AlexNet;
+    * to add regularizations to ResNet;
+    * to make average pooling to 2 * 2;
 """
 
 # import copy
