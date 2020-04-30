@@ -169,35 +169,26 @@ class ResNet(nn.Module):
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
-            replace_stride_with_dilation = [False, False, False, False, False]
-#         if len(replace_stride_with_dilation) != 3:
-#             raise ValueError("replace_stride_with_dilation should be None "
-#                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
+            replace_stride_with_dilation = [False, False, False]
+        if len(replace_stride_with_dilation) != 3:
+            raise ValueError("replace_stride_with_dilation should be None "
+                             "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
-        self.namedLayers['conv_1'] = self.conv1                                   # Output images - 112 * 112
+        self.namedLayers['conv_1'] = self.conv1
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
-        # self.maxpool = nn.FractionalMaxPool2d(kernel_size=3, output_ratio=0.66) #, padding=1)
-        self.layer1 = self._make_layer(block, 2, 64, layers[0])                   # With fract. m. p. - 73 * 73
-        self.maxpool2 = nn.FractionalMaxPool2d(kernel_size=3, output_size=36)     # 24 * 24
-        self.layer2 = self._make_layer(block, 3, 96, layers[1], stride=1,         # 37 * 37
+        self.layer1 = self._make_layer(block, 2, 64, layers[0])
+        self.layer2 = self._make_layer(block, 3, 128, layers[1], stride=2,
                                        dilate=replace_stride_with_dilation[0])
-        self.maxpool3 = nn.FractionalMaxPool2d(kernel_size=3, output_size=24)     # 24 * 24
-        self.layer3 = self._make_layer(block, 4, 128, layers[2], stride=1,
+        self.layer3 = self._make_layer(block, 4, 256, layers[2], stride=2,
                                        dilate=replace_stride_with_dilation[1])
-        self.maxpool4 = nn.FractionalMaxPool2d(kernel_size=3, output_size=16)
-        self.layer4 = self._make_layer(block, 5, 224, layers[3], stride=1,
+        self.layer4 = self._make_layer(block, 5, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
-        self.maxpool5 = nn.FractionalMaxPool2d(kernel_size=3, output_size=10)
-        self.layer5 = self._make_layer(block, 6, 320, layers[4], stride=1,
-                                       dilate=replace_stride_with_dilation[3])
-        self.layer6 = self._make_layer(block, 7, 512, layers[5], stride=2,
-                                       dilate=replace_stride_with_dilation[4])
-        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))                               # Input images - 6 * 6
+        self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.namedLayers['avg_pool_5'] = self.avgpool
         self.fc = nn.Linear(512 * block.expansion, num_classes)
         self.namedLayers['dense_1'] = self.fc
@@ -266,17 +257,10 @@ class ResNet(nn.Module):
         x = self.maxpool(x)
 
         x = self.layer1(x)
-        x = self.maxpool2(x)
         x = self.layer2(x)
-        x = self.maxpool3(x)
         x = self.layer3(x)
-        x = self.maxpool4(x)
         x = self.layer4(x)
-        x = self.maxpool5(x)
-        x = self.layer5(x)
-        x = self.layer6(x)
 
-        # print('avgp:', x.shape)
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
         x = self.fc(x)
@@ -299,25 +283,15 @@ class ResNet(nn.Module):
         if layerNum == 2:
             return self._forward_layer_CutModel(self.layer1, blockNum, innerLayerSuffix, x)
         x = self.layer1(x)
-        x = self.maxpool2(x)
         if layerNum == 3:
             return self._forward_layer_CutModel(self.layer2, blockNum, innerLayerSuffix, x)
         x = self.layer2(x)
-        x = self.maxpool3(x)
         if layerNum == 4:
             return self._forward_layer_CutModel(self.layer3, blockNum, innerLayerSuffix, x)
         x = self.layer3(x)
-        x = self.maxpool4(x)
         if layerNum == 5:
             return self._forward_layer_CutModel(self.layer4, blockNum, innerLayerSuffix, x)
         x = self.layer4(x)
-        x = self.maxpool5(x)
-        if layerNum == 6:
-            return self._forward_layer_CutModel(self.layer5, blockNum, innerLayerSuffix, x)
-        x = self.layer5(x)
-        if layerNum == 7:
-            return self._forward_layer_CutModel(self.layer6, blockNum, innerLayerSuffix, x)
-        x = self.layer6(x)
 
         x = self.avgpool(x)
         if highestLayer == self.avgpool:
@@ -429,7 +403,10 @@ class ResNet(nn.Module):
     # class CSourceBlockCalculator:
     #     @staticmethod
     def get_source_block_calc_func(self, layerName):
-            thisClass = ResNet  # .CSourceBlockCalculator
+        return self._get_source_block_calc_impl(layerName,
+                ResNet, [2] * len(self.layerDepths))
+
+    def _get_source_block_calc_impl(self, layerName, thisClass, afterLayerStrides):
             if layerName[:6] == 'dense_':
                 return thisClass.get_entire_image_block
 
@@ -440,7 +417,7 @@ class ResNet(nn.Module):
                     return thisClass.correctZeroCoords(source_xy_0, size)
 
                 return get_source_block
-            size += 4
+            size += 2 * 2
             if layerName in ['max_pool_1', 'conv_211']:
                 def get_source_block(x, y):
                     source_xy_0 = (x * 4 - 5, y * 4 - 5)
@@ -510,9 +487,9 @@ class ResNet(nn.Module):
 
     @staticmethod
     def correctZeroCoords(source_xy_0, size):
-        return (0 if source_xy_0[0] < 0 else source_xy_0[0],
-                0 if source_xy_0[1] < 0 else source_xy_0[1],
-                source_xy_0[0] + int(size), source_xy_0[1] + int(size))
+        return (0 if source_xy_0[0] < 0 else int(source_xy_0[0]),
+                0 if source_xy_0[1] < 0 else int(source_xy_0[1]),
+                int(source_xy_0[0] + size), int(source_xy_0[1] + size))
 
     @staticmethod
     def get_entire_image_block(x, y):
@@ -616,7 +593,7 @@ def resnext101_32x8d(pretrained=False, progress=True, **kwargs):
                    pretrained, progress, **kwargs)
 
 
-def my_wide_resnet(pretrained=False, progress=True, **kwargs):
+def my_resnet(pretrained=False, progress=True, **kwargs):
     r"""Added by me by analogy. Combination of ResNeXt and wide ResNet ideas
     """
     kwargs['groups'] = DeepOptions.towerCount

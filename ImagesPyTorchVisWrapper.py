@@ -22,6 +22,7 @@ import PyTorch.DansuhModel
 import PyTorch.PyTImageModels
 import PyTorch.PyTImageModel3
 import PyTorch.PyTResNets
+import PyTorch.PyTFractMPResNet
 
 warnings.filterwarnings("ignore", "(Possibly )?corrupt EXIF data", UserWarning)
 
@@ -583,8 +584,10 @@ class CPyTorchImageNetVisWrapper:
             self.net = PyTorch.PyTImageModel3.ImageModel4_ConnectedTowers(num_classes=DeepOptions.classCount).to(self.pytDevice)
         elif DeepOptions.modelClass == 'ResNet18':
             self.net = PyTorch.PyTResNets.resnet18(num_classes=DeepOptions.classCount).to(self.pytDevice)
-        elif DeepOptions.modelClass == 'MyWideResNet':
-            self.net = PyTorch.PyTResNets.my_wide_resnet(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        elif DeepOptions.modelClass == 'MyResNet':
+            self.net = PyTorch.PyTResNets.my_resnet(num_classes=DeepOptions.classCount).to(self.pytDevice)
+        elif DeepOptions.modelClass == 'FractMPResNet':
+            self.net = PyTorch.PyTFractMPResNet.fract_max_pool_resnet(num_classes=DeepOptions.classCount).to(self.pytDevice)
         else:
             raise Exception('Unknown model class %s' % DeepOptions.modelClass)
 
