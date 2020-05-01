@@ -774,6 +774,9 @@ class CImageNetPartDataset:
     def getClassNameLabel(self, label):
         return self.trainSubset.getClassNameLabel(label)
 
+    def getClassName(self, label):
+        return self.trainSubset.getClassName(label)
+
     def getTfDataset(self, subsetName='train'):
         return self.subsets[subsetName].getTfDataset()
 
@@ -809,6 +812,7 @@ class CImageNetSubset:
         # self.imagesFolders = None    # ImageNum -> folder name
         self.imageNumLabels = None   # ImageNum -> label [0, category count)
         self.imagesFileNames = None  # ImageNum -> file path
+        self.classNames = None
 
         # try:
         #     import pandas
@@ -948,6 +952,11 @@ class CImageNetSubset:
     def getClassNameLabel(self, label):
         return self.folders[label]
 
+    def getClassName(self, label):
+        if self.classNames is None:
+            self._loadClassNames()
+        return self.classNames[label]
+
     def getNetSource(self): # TODO: to remove
         return (self.imagesFileNames, self.imageNumLabels)
 
@@ -1046,6 +1055,16 @@ class CImageNetSubset:
             self.parent.checkAllSubsetsMatch()
         # else:
         #     print(self.imagesFileNames[:5], self.imageNumLabels[:5])
+
+    def _loadClassNames(self):
+        from ImageNetDatasetsDownloader import Synsets
+
+        synsetDb = Synsets.CSynsetDatabase()
+        synsetDb.loadSynsetShortNames('ImageNetDatasetsDownloader/words.txt')
+        self.classNames = []
+        for label, folderName in enumerate(self.folders):    # self.folders[label], label - 0-based
+            self.classNames.append(synsetDb.getShortName(folderName))
+        self.classNames = np.array(self.classNames)
 
     def _getImageCacheName(self, imageNum, preprocessStage):
         return 'im_%d_%c_%s' %\

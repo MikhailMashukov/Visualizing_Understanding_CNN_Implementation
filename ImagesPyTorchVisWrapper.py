@@ -69,6 +69,14 @@ class CPyTorchImageNetVisWrapper:
     def getImageActivations(self, layerName, imageNum, epochNum=None, allowCombinedLayers=True):
         return self.getImagesActivations_Batch(layerName, [imageNum], epochNum, allowCombinedLayers)
 
+    def getAuxImageActivations(self, layerName, netImage, epochNum=None, allowCombinedLayers=True):
+        model = self._getNet(layerName, allowCombinedLayers)
+        if epochNum != self.curEpochNum:
+            self.loadState(epochNum)
+        imageData = np.expand_dims(netImage, 0)
+        activations = self._getImagesActivations_inner(model, imageData, False)
+        return activations
+
     def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None, allowCombinedLayers=True,
                                    augment=False):
         if epochNum is None or epochNum < 0:
@@ -94,23 +102,7 @@ class CPyTorchImageNetVisWrapper:
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
         imageData = np.stack(images, axis=0)
-        imageData = np.transpose(imageData, (0, 3, 1, 2))        # Becomes (images, channels, x, y)
-        # print("Predict data prepared")
-#         print('imageData dtype', imageData.dtype, ', shape', torch.from_numpy(imageData).shape)
-        if augment:
-            imageData = self._prepareActivationsAugmentedImages(imageData)
-#         print('imageData min', imageData.min(), ' max', imageData.max())
-
-        model.eval()
-        imageData = imageData + np.zeros(imageData.shape, dtype=np.float32)   # Workaround for "max_pool2d_with_indices_out_cuda_frame failed with error code 0"
-        pytImageData = torch.from_numpy(imageData).cuda()
-        pytImageData /= 128                        # Approximately (std is about 0.25)
-        with torch.set_grad_enabled(False):
-            activations = model.forward(pytImageData)   # np.expand_dims(imageData, 0), 3))
-        # print("Predicted")
-            activations = activations.cpu().numpy()
-        if augment:
-            activations = self._combineActivationsAugmentedImages(activations, len(imageNums))
+        activations = self._getImagesActivations_inner(model, imageData, augment)
 
 #         if self.netPreprocessStageName == 'net':
 #             activations = self._transposeToOutBatchDims(activations)
@@ -129,6 +121,27 @@ class CPyTorchImageNetVisWrapper:
             return activations
 #         print('Output prepared')
         return np.stack(batchActs, axis=0)
+
+    def _getImagesActivations_inner(self, model, imageData, augment):
+        imageCount = imageData.shape[0]
+        imageData = np.transpose(imageData, (0, 3, 1, 2))        # Becomes (images, channels, x, y)
+        # print("Predict data prepared")
+#         print('imageData dtype', imageData.dtype, ', shape', torch.from_numpy(imageData).shape)
+        if augment:
+            imageData = self._prepareActivationsAugmentedImages(imageData)
+#         print('imageData min', imageData.min(), ' max', imageData.max())
+
+        model.eval()
+        imageData = imageData + np.zeros(imageData.shape, dtype=np.float32)   # Workaround for "max_pool2d_with_indices_out_cuda_frame failed with error code 0"
+        pytImageData = torch.from_numpy(imageData).cuda()
+        pytImageData /= 128                        # Approximately (std is about 0.25)
+        with torch.set_grad_enabled(False):
+            activations = model.forward(pytImageData)   # np.expand_dims(imageData, 0), 3))
+        # print("Predicted")
+            activations = activations.cpu().numpy()
+        if augment:
+            activations = self._combineActivationsAugmentedImages(activations, imageCount)
+        return activations
 
     # Takes (images, channels, x, y). Has big memory leak (260 GB / 200000 source images)
     def _prepareActivationsAugmentedImages(self, imageData):
