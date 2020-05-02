@@ -39,6 +39,20 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
   further training only killed neirons finally
 PyT5_1-5_2: much worser result with shorter warmup, but higher variance at all layers except dense_3
 
+http://apollo2.ci.nsu.ru:9002/view/ImageNet/train/n02088094/n02088094_3511.JPEG: most probably mesh on the right
+  seems like a window. To try to blur it
+Image 6269 (n02091831/n02091831_4196.JPEG, Saluki max dog): with cleared left part (45 pixels)
+  is recognized as class 921 (book jacket)
+Image 27685 (n02091831/n02091831_898.JPEG, 2 small saluki max dog): recognized as classes [537 921 868]
+  ('dogsled', 'book jacket', 'tray']), 'wood rabbit', 'hatchet' if resized. Correct if resized and grass occluded
+  Book jackets are hard to recognize (can have many different objects, sometimes even without book corners),
+  although they contain text
+Image 60921 (n02091831/n02091831_1829.JPEG, saluki, very good visible), 87737:
+  'cradle', 'whippet', 'West Highland white terrier', 'mosquito net'
+Image 74635 (n02091831/n02091831_8539.JPEG): 'book jacket', even a bit better if some part of line below dog occluded
+Image 109513 (n02091831/n02091831_3681.JPEG, 2 not very good visible dogs and 2 people): 'crutch', 'Arabian camel',
+  even after resize. The dogs' legs really look like crutch
+
 Further ideas.
   Visualization:
     * to investigate how weights of particular neirons changed during training;

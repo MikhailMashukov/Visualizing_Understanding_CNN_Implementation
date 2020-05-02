@@ -66,10 +66,13 @@ class CPyTorchImageNetVisWrapper:
     def getTowerCount(self):
         return DeepOptions.towerCount
 
-    def getImageActivations(self, layerName, imageNum, epochNum=None, allowCombinedLayers=True):
-        return self.getImagesActivations_Batch(layerName, [imageNum], epochNum, allowCombinedLayers)
+    def getImageActivations(self, layerName, imageNum, epochNum=None,
+                            subsetName='train', allowCombinedLayers=True):
+        return self.getImagesActivations_Batch(layerName, [imageNum], epochNum,
+                subsetName=subsetName, allowCombinedLayers=allowCombinedLayers)
 
-    def getAuxImageActivations(self, layerName, netImage, epochNum=None, allowCombinedLayers=True):
+    def getAuxImageActivations(self, layerName, netImage, epochNum=None,
+                               allowCombinedLayers=True):
         model = self._getNet(layerName, allowCombinedLayers)
         if epochNum != self.curEpochNum:
             self.loadState(epochNum)
@@ -77,7 +80,8 @@ class CPyTorchImageNetVisWrapper:
         activations = self._getImagesActivations_inner(model, imageData, False)
         return activations
 
-    def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None, allowCombinedLayers=True,
+    def getImagesActivations_Batch(self, layerName, imageNums, epochNum=None,
+                                   subsetName='train', allowCombinedLayers=True,
                                    augment=False):
         if epochNum is None or epochNum < 0:
             epochNum = self.curEpochNum
@@ -86,12 +90,13 @@ class CPyTorchImageNetVisWrapper:
         images = []
         for i in range(len(imageNums)):
             imageNum = imageNums[i]
-            itemCacheName = 'act_%s_%d_%d%s' % (layerName, imageNum, epochNum, '_aug' if augment else '')
+            itemCacheName = 'act_%s_%d_%s_%d%s' % \
+                    (layerName, imageNum, subsetName, epochNum, '_aug' if augment else '')
             cacheItem = self.activationCache.getObject(itemCacheName)
             if not cacheItem is None:
                 batchActs[i] = cacheItem[0]
             else:
-                imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName, 'train')
+                imageData = self.imageDataset.getImage(imageNum, self.netPreprocessStageName, subsetName)
                 images.append(imageData)
                 # print('no data for ', itemCacheName)
         if not images:
@@ -113,7 +118,8 @@ class CPyTorchImageNetVisWrapper:
             if batchActs[i] is None:
                 batchActs[i] = activations[predictedI]
                 imageNum = imageNums[i]
-                itemCacheName = 'act_%s_%d_%d' % (layerName, imageNum, epochNum)
+                itemCacheName = 'act_%s_%d_%s_%d%s' % \
+                    (layerName, imageNum, subsetName, epochNum, '_aug' if augment else '')
                 self.activationCache.saveObject(itemCacheName, np.expand_dims(batchActs[i], 0))
                 predictedI += 1
         assert predictedI == activations.shape[0]

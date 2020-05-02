@@ -1188,13 +1188,14 @@ class NetControlObject():
         except Exception as ex:
             self.showProgress("Error: %s" % str(ex))
 
-    def getCorrectlyClassifiedImages(controlObj, classNum):
+    def getCorrectlyClassifiedImages(controlObj, classNum, subsetName='train'):
     #     print(controlObj.netWrapper.batchSize)
     #     print(list(divideList(controlObj.imageDataset.getClassImageNums(classNum), controlObj.netWrapper.batchSize)))
         correctImageNums = []
-        classImageNums = controlObj.imageDataset.getClassImageNums(classNum)
+        classImageNums = controlObj.imageDataset.getClassImageNums(classNum, subsetName=subsetName)
         for batchImageNums in divideList(classImageNums, controlObj.netWrapper.batchSize):
-            res = controlObj.netWrapper.getImagesActivations_Batch(None, batchImageNums, epochNum)
+            res = controlObj.netWrapper.getImagesActivations_Batch(
+                    None, batchImageNums, epochNum, subsetName=subsetName)
             predictions = np.argmax(res, axis=1)
     #         print(predictions)
             for i in range(len(batchImageNums)):
@@ -1203,23 +1204,57 @@ class NetControlObject():
         print('Correctly classified: %d / %d' % (len(correctImageNums), len(classImageNums)))
         return correctImageNums
 
+    def getIncorrectlyClassifiedImages(self, classNum, subsetName='train'):
+        resultImageNums = []
+        classImageNums = self.imageDataset.getClassImageNums(classNum, subsetName=subsetName)
+        for batchImageNums in divideList(classImageNums, self.netWrapper.batchSize):
+            res = self.netWrapper.getImagesActivations_Batch(
+                    None, batchImageNums, epochNum, subsetName=subsetName)
+            predictions = np.argmax(res, axis=1)
+    #         print(predictions)
+            for i in range(len(batchImageNums)):
+                if predictions[i] < 100 or predictions[i] > 300:   # Not dog
+                    resultImageNums.append(batchImageNums[i])
+                    print('%d - %d (%s)' % (batchImageNums[i], \
+                            predictions[i], self.imageDataset.getClassName(predictions[i])))
+        return resultImageNums
 
-    def getOcclusionMap(self, imageNum, classNum, occSize=15):
+
+    def getOcclusionMap(self, imageNum, classNum, occSize=15, subsetName='train'):
         # try:
             self.startAction(self.getOcclusionMap)
             epochNum = self.getSelectedEpochNum()
             layerName = 'dense_1'    # self.getSelectedLayerName()
-            image = self.imageDataset.getImage(imageNum, self.netWrapper.netPreprocessStageName, 'train')
-            print('occ', image.shape)
-            image[:, 0:80, :] = 100
-            image[:, -65:, :] = 100
-            image[-60:, :] = 100
-#             image[60:150, :] = 0
+            image = self.imageDataset.getImage(imageNum, self.netWrapper.netPreprocessStageName, subsetName)
+
+#             image2 = image.copy()
+#             activations0 = self.netWrapper.getAuxImageActivations(layerName, image2, epochNum)[0]
+#             activations2 = self.netWrapper.getAuxImageActivations(layerName, image2, epochNum)[0]
+#             diff = activations2 - activations0
+#             print('occ diff 1', diff.min(), diff.max())
+#             print('occ', image.shape)
+#             image[:75, -100:, :] = 100
+#             image[:, :45, :] = image[:, 45:, :]
+#             image[:, -45:, :] = 0
+
+#             image = self.imageDataset.getImage(imageNum, 'cropped', subsetName)
+#             print('im', image.shape, image.min(), image.max())
+#             image = imresize(image[90:, 50:-50, :], (224, 224))
+#             image = np.array(image, dtype=np.float32)
+#             image[:, :, 0] -= 123
+#             image[:, :, 1] -= 116
+#             image[:, :, 2] -= 103
+
 
 #             heatmap = np.zeros(tuple(image.shape[:2]))
-            heatmap = np.zeros((image.shape[0], image.shape[1] * 3))
+            heatmap = np.zeros((image.shape[0], image.shape[1]))
             # correct_class = np.argmax(yhat)
             predClasses = []
+
+#             activations2 = self.netWrapper.getAuxImageActivations(layerName, image2, epochNum)[0]
+#             diff = activations2 - activations0
+#             print('occ diff 2', diff.min(), diff.max())
+
             for n, (x, y, curImage) in enumerate(self.getOcclusionIter(image, occSize)):
                 activations = self.netWrapper.getAuxImageActivations(layerName, curImage, epochNum)[0]
                 heatmap[y : y + occSize, x : x + occSize] = activations[classNum]
@@ -1228,30 +1263,21 @@ class NetControlObject():
                 predClasses.append(np.argmax(activations))
                 if n == 0:
                     debugObjs = [np.copy(image), np.copy(activations)]
-                if n < 0:
+#                     plt.show()
+                if n < 2:
 #                 if np.argmax(activations) == 160:
 #                 if activations[classNum] > -40:
-                    ax = plt.imshow(curImage / 64)
-#                     plt.axes().set_ylabel(str(activations[classNum]), loc='right')
-                    plt.text(1.02, 0.5, str(activations[classNum]), transform=plt.axes().transAxes)
-#                     ax.legend(str(activations[classNum]), loc='right')
-                    plt.show()
+                    debugObjs.append(np.copy(curImage))
+#                     ax = plt.imshow(curImage / 64)
+# #                     plt.axes().set_ylabel(str(activations[classNum]), loc='right')
+#                     plt.text(1.02, 0.5, '1, %d: %f' % (n, activations[classNum]), transform=plt.axes().transAxes)
+# #                     ax.legend(str(activations[classNum]), loc='right')
+#                     plt.show()
 
-            for n, (x, y, curImage) in enumerate(self.getOcclusionIter(image, occSize)):
-                activations = self.netWrapper.getAuxImageActivations(layerName, curImage, epochNum)[0]
-                heatmap[y : y + occSize, x + 250 : x + 250 + occSize] = activations[classNum]
-                if n == 0:
-                    debugObjs += [np.copy(curImage), np.copy(activations)]
-                if n < 0:
-#                 if np.argmax(activations) == 160:
-#                 if activations[classNum] > -40:
-                    ax = plt.imshow(curImage / 64)
-#                     plt.axes().set_ylabel(str(activations[classNum]), loc='right')
-                    plt.text(1.02, 0.5, str(activations[classNum]), transform=plt.axes().transAxes)
-#                     ax.legend(str(activations[classNum]), loc='right')
-                    plt.show()
-
-#             print(predClasses)
+            print(predClasses)
+#             activations2 = self.netWrapper.getAuxImageActivations(layerName, image2, epochNum)[0]
+#             diff = activations2 - activations0
+#             print('occ diff', diff.min(), diff.max())
 
             self.debugObjs = debugObjs
 #             class Wrapper(np.ndarray):
@@ -1268,16 +1294,16 @@ class NetControlObject():
 
     @staticmethod
     def getOcclusionIter(image, size=8):
-        occlusion = np.full((size * 5, size * 5, 1), [100], np.float32)
-        occlusion_center = np.full((size, size, 1), [100], np.float32)
+        occlusion = np.full((size * 5, size * 5, 1), [0], np.float32)
+        occlusion_center = np.full((size, size, 1), [0], np.float32)
         occlusion_padding = size * 2
 
         image_padded = np.pad(image, tuple([(occlusion_padding, occlusion_padding + size)] * 2 + \
                                            [(0, 0)] * (len(image.shape) - 2)), \
                 'constant', constant_values = 0.0)
-        ax = plt.imshow(image / 64)
-        plt.text(1.02, 0.5, 'padded %s' % str(image_padded.shape), transform=plt.axes().transAxes)
-        plt.show()
+#         ax = plt.imshow(image / 64)
+#         plt.text(1.02, 0.5, 'padded %s' % str(image_padded.shape), transform=plt.axes().transAxes)
+#         plt.show()
 
         for y in range(occlusion_padding, image.shape[0] + occlusion_padding, size):
             for x in range(occlusion_padding, image.shape[1] + occlusion_padding, size):
@@ -1287,9 +1313,38 @@ class NetControlObject():
                 tmp[y - occlusion_padding:y + occlusion_center.shape[0] + occlusion_padding, \
                     x - occlusion_padding:x + occlusion_center.shape[1] + occlusion_padding] \
                     = occlusion
+#                 tmp[y:y + occlusion_center.shape[0], x:x + occlusion_center.shape[1]] = occlusion_center
+
+#                 if x == occlusion_padding and y == occlusion_padding:
+#                     ax = plt.imshow(tmp / 64)
+#                     plt.text(1.02, 0.5, 'tmp %s' % str(tmp.shape), transform=plt.axes().transAxes)
+#                     plt.show()
+#                     ax = plt.imshow(tmp[occlusion_padding:tmp.shape[0] - occlusion_padding, occlusion_padding:tmp.shape[1] - occlusion_padding] / 64)
+#                     plt.text(1.02, 0.5, 'res %s' % str(tmp.shape), transform=plt.axes().transAxes)
+#                     plt.show()
+
+                yield x - occlusion_padding, y - occlusion_padding, \
+                      tmp[occlusion_padding:image.shape[0] + occlusion_padding, occlusion_padding:image.shape[1] + occlusion_padding]
+
+    @staticmethod
+    def getOcclusionIter2_My_OnlyStarted(image, size=8):
+        occlusion = np.full((size * 5, size * 5, 1), [100], np.float32)
+        occlusion_center = np.full((size, size, 1), [100], np.float32)
+        occlusion_padding = size * 2
+
+        for y in range(0, image.shape[0], size):
+            for x in range(0, image.shape[1], size):
+#                 srcRect = ...
+#                 destRect =
+                tmp = image_padded.copy()
+
+#                 print(x - occlusion_padding, x + occlusion_center.shape[1] + occlusion_padding)
+                tmp[y - occlusion_padding:y + occlusion_center.shape[0] + occlusion_padding, \
+                    x - occlusion_padding:x + occlusion_center.shape[1] + occlusion_padding] \
+                    = occlusion
 
                 tmp[y:y + occlusion_center.shape[0], x:x + occlusion_center.shape[1]] = occlusion_center
-                if x == occlusion_padding and y == occlusion_padding:
+                if x == 0 and y == 0:
                     ax = plt.imshow(tmp / 64)
                     plt.text(1.02, 0.5, 'tmp %s' % str(tmp.shape), transform=plt.axes().transAxes)
                     plt.show()
