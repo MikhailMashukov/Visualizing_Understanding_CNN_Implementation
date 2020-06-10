@@ -1,10 +1,10 @@
 """ Result notes:
-Reinitialization of neirons works bad or doesn't give serious effect.
-It's bad that the resting neirons setups theirs surroundings to theirs old weights.
-Maybe it's not so simple that some neirons are more useful than others. Maybe each (or some) neiron
+Reinitialization of neurons works bad or doesn't give serious effect.
+It's bad that the resting neurons setups theirs surroundings to theirs old weights.
+Maybe it's not so simple that some neurons are more useful than others. Maybe each (or some) neuron
 works in conjunction with some others, which gives theirs final good results. And this looses at
 reinitializations.
-After reinitialization gradients of different neirons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
+After reinitialization gradients of different neurons often becomes correlated (10_Mlab, 12_Mlab\Gradients...png).
 
 With separated towers and full reinitialization or keeping of entire tower reinitializations
 seems to work better - good results restores very quickly and reaches source results more reliably.
@@ -17,13 +17,13 @@ in order to compensate decreasing of total outputs. But I tried this only with 8
 21_Correlations\21_3_BasedOn20_4_3 (8 towers): one tower correlates well with the 0 one, others - much less
 
 Activity regularization doesn't seem to give better generalization. Training becomes much slower,
-even with big networks. Number of active neirons really becomes smaller. Default coefficients l1/l2 0.01
+even with big networks. Number of active neurons really becomes smaller. Default coefficients l1/l2 0.01
 simply kill training, values should be like 1e-6 for both l1 and l2. They maybe depend on previous layers
-(if they also contain such regularization, the choice is smaller... maybe no, since each neiron
+(if they also contain such regularization, the choice is smaller... maybe no, since each neuron
 anyway generates a potentially valuable result).
 
 AlexNet experiments:
-VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned quickly, loss function didn't lower much
+VKI\6: 24 classes, 12400 train images, 4096 neurons at dense levels. Learned quickly, loss function didn't lower much
   until epoch 48 10000 images each, then in about 30 epochs lowered maybe 30 times. Seems overtrained on upper levels -
   bad test predictions, but best activations on lower levels looks like they detect features
 10_2: most probably bad variance on one tower on conv_12 because relu beats tanh.
@@ -36,7 +36,7 @@ VKI\6: 24 classes, 12400 train images, 4096 neirons at dense levels. Learned qui
 1000-classes ImageNet experiments:
 18_5-18_11: high epsilon killed learning
 18_13: people use warming up for several epochs, but for me it worsened variance a lot after 160 mini-epochs,
-  further training only killed neirons finally
+  further training only killed neurons finally
 PyT5_1-5_2: much worser result with shorter warmup, but higher variance at all layers except dense_3
 
 http://apollo2.ci.nsu.ru:9002/view/ImageNet/train/n02088094/n02088094_3511.JPEG: most probably mesh on the right
@@ -55,13 +55,19 @@ Image 109513 (n02091831/n02091831_3681.JPEG, 2 not very good visible dogs and 2 
 
 Further ideas.
   Visualization:
-    * to investigate how weights of particular neirons changed during training;
-    - to take for each neiron its source convolutions with theirs weights and to display;
-    * to find neirons which are active for particular classes (always > some minimum and high average);
-    * to calculate statistics for each neiron how it is activated at correct and at wrong predictions;
+    * to investigate how weights of particular neurons changed during training;
+    - to take for each neuron its source convolutions with theirs weights and to display;
+    -+ to find neurons which are active for particular classes (always > some minimum and high average);
+    -+ to calculate statistics for each neuron how it is activated at correct and at wrong predictions;
+      * to analyze max values or like max + 1/4 of average instead of average;
+    * to look at correlation between neuron activations (max for each input image) and net's
+      prediction confidence for one class; maybe this will show overtrained neurons;
+    * to find islands of activations at some class (i.e. when one class leads to suspiciously different
+      activations); maybe by looking at correlations for pairs of neurons;
+    * to apply t-SNE to activations at some class;
     * to average values for each channel, then multiply channels by them and to sum -
       there will be pixels importance map https://www.youtube.com/watch?v=SOEPNYu6Yzc, near 4:14:00;
-    * to look at activity maps (importance map) on incorrectly classified images,
+    + to look at activity maps (importance map) on incorrectly classified images,
       maybe they are on incorrect features;
       https://raghakot.github.io/keras-vis/visualizations/class_activation_maps/;
     * to exclude incorrect (or all) of them during training from scratch;
@@ -72,9 +78,15 @@ Further ideas.
       at start? Whether regularizers make them less noisy?
 
   Training:
-    - to implement division of neirons: each is divided onto two with close weights
+    - to implement division of neurons: each is divided onto two with close weights
       and theirs output connections get about 1/2 of initial strength;
     * to turn SE blocks initially off;
+    * to train multiple small nets, and to try taking best neurons from them;
+      * maybe by overwriting some random weights in a fresh net
+      * e.g. by finding correlated "base" neurons and expression of other nets' next levels neurons through them;
+    * ensemble nets, trained as usual, with ones, trained more on hard samples;
+    * to track results for each image, to exclude reliably recognized, but sometimes re-test them
+      to check that they are still recognized well
 
   Net architecture:
     * to add 1 + for passing source channels coefficients through SE bottleneck
@@ -88,6 +100,7 @@ Further ideas.
     * it's possible to implement convolution of only neighbour channels by stacking channels[:-10], channels[1:-9], ...
     * to apply the same convolutions to neighbour layers - to recognize the same on different scales;
     * to combine convolutions' weights with multiplication in matrix net;
+    * to add depth-wise convolutions near usual each-to-each; most probably not necessary for ResNeXt
 
   Augmentation:
     * to add blocks of noise to the source images;

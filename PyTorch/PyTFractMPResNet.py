@@ -25,10 +25,10 @@ class FractMaxPoolResNet(PyTResNets.ResNet):
         if replace_stride_with_dilation is None:
             # each element in the tuple indicates if we should replace
             # the 2x2 stride with a dilated convolution instead
-            replace_stride_with_dilation = [False, False, False, False, False]
-#         if len(replace_stride_with_dilation) != 3:
-#             raise ValueError("replace_stride_with_dilation should be None "
-#                              "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
+            replace_stride_with_dilation = [False, False, False]
+        if len(replace_stride_with_dilation) != 3:
+            raise ValueError("replace_stride_with_dilation should be None "
+                             "or a 3-element tuple, got {}".format(replace_stride_with_dilation))
         self.groups = groups
         self.base_width = width_per_group
         self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
@@ -39,20 +39,16 @@ class FractMaxPoolResNet(PyTResNets.ResNet):
         self.maxpool = nn.MaxPool2d(kernel_size=3, stride=2, padding=1)
         # self.maxpool = nn.FractionalMaxPool2d(kernel_size=3, output_ratio=0.66) #, padding=1)
         self.layer1 = self._make_layer(block, 2, 64, layers[0])                   # With fract. m. p. - 73 * 73
-        self.maxpool2 = nn.FractionalMaxPool2d(kernel_size=3, output_size=36)     # 24 * 24
+        self.maxpool2 = nn.FractionalMaxPool2d(kernel_size=3, output_size=38)     # 24 * 24
         self.layer2 = self._make_layer(block, 3, 96, layers[1], stride=1,         # 37 * 37
                                        dilate=replace_stride_with_dilation[0])
-        self.maxpool3 = nn.FractionalMaxPool2d(kernel_size=3, output_size=24)     # 24 * 24
-        self.layer3 = self._make_layer(block, 4, 128, layers[2], stride=1,
+        self.layer3 = self._make_layer(block, 4, 192, layers[2], stride=2,
                                        dilate=replace_stride_with_dilation[1])
-        self.maxpool4 = nn.FractionalMaxPool2d(kernel_size=3, output_size=16)
-        self.layer4 = self._make_layer(block, 5, 224, layers[3], stride=1,
+        self.maxpool3 = nn.FractionalMaxPool2d(kernel_size=3, output_size=12)
+        self.layer4 = self._make_layer(block, 5, 256, layers[3], stride=1,
                                        dilate=replace_stride_with_dilation[2])
-        self.maxpool5 = nn.FractionalMaxPool2d(kernel_size=3, output_size=10)
-        self.layer5 = self._make_layer(block, 6, 320, layers[4], stride=1,
-                                       dilate=replace_stride_with_dilation[3])
-        self.layer6 = self._make_layer(block, 7, 512, layers[5], stride=2,
-                                       dilate=replace_stride_with_dilation[4])
+        self.layer5 = self._make_layer(block, 6, 512, layers[4], stride=2,
+                                       dilate=replace_stride_with_dilation[2])
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))                               # Input images - 6 * 6
         self.namedLayers['avg_pool_5'] = self.avgpool
         self.fc = nn.Linear(512 * block.expansion, num_classes)
@@ -85,13 +81,10 @@ class FractMaxPoolResNet(PyTResNets.ResNet):
         x = self.layer1(x)
         x = self.maxpool2(x)
         x = self.layer2(x)
-        x = self.maxpool3(x)
         x = self.layer3(x)
-        x = self.maxpool4(x)
+        x = self.maxpool3(x)
         x = self.layer4(x)
-        x = self.maxpool5(x)
         x = self.layer5(x)
-        x = self.layer6(x)
 
         # print('avgp:', x.shape)
         x = self.avgpool(x)
@@ -105,6 +98,7 @@ class FractMaxPoolResNet(PyTResNets.ResNet):
         else:
             highestLayer = None
         (layerNum, blockNum, innerLayerSuffix) = self.parseLayerName(self.highestLayerName)
+#         print(layerNum, blockNum, innerLayerSuffix)
 
         x = self.conv1(x)
         if highestLayer == self.conv1:
@@ -120,21 +114,17 @@ class FractMaxPoolResNet(PyTResNets.ResNet):
         if layerNum == 3:
             return self._forward_layer_CutModel(self.layer2, blockNum, innerLayerSuffix, x)
         x = self.layer2(x)
-        x = self.maxpool3(x)
         if layerNum == 4:
             return self._forward_layer_CutModel(self.layer3, blockNum, innerLayerSuffix, x)
         x = self.layer3(x)
-        x = self.maxpool4(x)
+        x = self.maxpool3(x)
         if layerNum == 5:
             return self._forward_layer_CutModel(self.layer4, blockNum, innerLayerSuffix, x)
         x = self.layer4(x)
-        x = self.maxpool5(x)
         if layerNum == 6:
             return self._forward_layer_CutModel(self.layer5, blockNum, innerLayerSuffix, x)
         x = self.layer5(x)
-        if layerNum == 7:
-            return self._forward_layer_CutModel(self.layer6, blockNum, innerLayerSuffix, x)
-        x = self.layer6(x)
+
         x = self.avgpool(x)
         if highestLayer == self.avgpool:
             return x

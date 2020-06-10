@@ -87,8 +87,8 @@ class Bottleneck(nn.Module):
         # Both self.conv2 and self.downsample layers downsample the input when stride != 1
         self.conv1 = conv1x1(inplanes, width) #, groups=groups)
         self.bn1 = norm_layer(width)
-        # print('conv2: w %d, stride %d, groups %d, dilation %d' % \
-        #         (width, stride, groups, dilation))
+        print('conv2: w %d, stride %d, groups %d, dilation %d' % \
+                (width, stride, groups, dilation))
         self.conv2 = conv3x3(width, width, stride, groups, dilation)
         self.bn2 = norm_layer(width)
         self.conv3 = conv1x1(width, planes * self.expansion) #, groups=groups)
@@ -188,9 +188,13 @@ class ResNet(nn.Module):
                                        dilate=replace_stride_with_dilation[1])
         self.layer4 = self._make_layer(block, 5, 512, layers[3], stride=2,
                                        dilate=replace_stride_with_dilation[2])
+
         self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
         self.namedLayers['avg_pool_5'] = self.avgpool
-        self.fc = nn.Linear(512 * block.expansion, num_classes)
+        spatAnSubnetWidth = DeepOptions.netSizeMult // 8
+        self.spatAnSubnet = self._makeSpatialAnalysisSubnet(block, 9, spatAnSubnetWidth, 4)
+
+        self.fc = nn.Linear(512 * block.expansion + spatAnSubnetWidth, num_classes)
         self.namedLayers['dense_1'] = self.fc
 
         for m in self.modules():
@@ -229,6 +233,7 @@ class ResNet(nn.Module):
                             self.base_width, previous_dilation, norm_layer))
         # print('layers.append', layers[-1])
         self.inplanes = planes * block.expansion
+        print(convLayerNamePrefix, 'block:', self.inplanes, planes, self.base_width)
         for i in range(1, blocks):
             layers.append(block(self.inplanes, planes, groups=self.groups, # if i != 2 else 1,
                                 base_width=self.base_width, dilation=self.dilation,
@@ -240,6 +245,35 @@ class ResNet(nn.Module):
             self.namedLayers[convLayerNamePrefix + '%d3' % (i + 1)] = layerBlock.conv3
 
         return nn.Sequential(*layers)
+
+    # def _makeSpatialAnalysisSubnet(self, sizeBeforeAvgPool, sizeMult):
+    def _makeSpatialAnalysisSubnet(self, block, layerNum, width, blocks):
+        # placeConv1 = nn.Conv2d(1, sizeMult, kernel_size=7, stride=2, padding=3,
+        #                        bias=False)
+        layers = []
+        convLayerNamePrefix = 'conv_%d' % layerNum
+        conv1 = conv1x1(self.inplanes, width)   # TODO: another conv -> wider
+        layers.append(conv1)
+        self.namedLayers[convLayerNamePrefix + '1'] = conv1
+
+        for i in range(blocks):
+            layers.append(block(width, width // 4, groups=2,
+                                base_width=self.base_width, dilation=self.dilation,
+                                norm_layer=self._norm_layer))
+        for i, layerBlock in enumerate(layers[1:]):
+            # Block of the Bottleneck type is implied here
+            self.namedLayers[convLayerNamePrefix + '%d1' % (i + 2)] = layerBlock.conv1
+            self.namedLayers[convLayerNamePrefix + '%d2' % (i + 2)] = layerBlock.conv2   # Will be considered main
+            self.namedLayers[convLayerNamePrefix + '%d3' % (i + 2)] = layerBlock.conv3
+
+#         print('out chans', layers[-1].conv3.out_channels, width)
+#         fc = nn.Linear(layers[-1].conv3.out_channels, width)
+#         layers.append(fc)
+#         self.namedLayers['dense_2'] = fc
+
+        # The same self.avgpool will be used here
+        return nn.Sequential(*layers)
+
 
     # Takes layer name like 'conv_11' or None
     def setHighestLayer(self, highestLayerName):
@@ -259,10 +293,21 @@ class ResNet(nn.Module):
         x = self.layer1(x)
         x = self.layer2(x)
         x = self.layer3(x)
-        x = self.layer4(x)
+        xBA = self.layer4(x)   # X before average pool
+
+#         print('xBA', xBA.shape)
+        x2 = self.spatAnSubnet(xBA)
+#         x2 = xBA
+#         for name, l in self.spatAnSubnet.named_children():
+#             x2 = l(x2)
+#             print('x2', name, x2.shape)
+
+        x = torch.cat([xBA, x2], 1)
+#         print('concatenated', x.shape)
 
         x = self.avgpool(x)
         x = torch.flatten(x, 1)
+
         x = self.fc(x)
         return x
 
@@ -291,12 +336,18 @@ class ResNet(nn.Module):
         x = self.layer3(x)
         if layerNum == 5:
             return self._forward_layer_CutModel(self.layer4, blockNum, innerLayerSuffix, x)
-        x = self.layer4(x)
+        xBA = self.layer4(x)
+
+        if layerNum == 9:
+            return self._forward_layer_CutModel(self.spatAnSubnet, blockNum, innerLayerSuffix, xBA)
+        x2 = self.spatAnSubnet(xBA)
+        x = torch.cat([xBA, x2], 1)
 
         x = self.avgpool(x)
         if highestLayer == self.avgpool:
             return x
         x = torch.flatten(x, 1)
+
         x = self.fc(x)
         if highestLayer == self.fc:
             return x

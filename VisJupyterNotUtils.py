@@ -302,8 +302,8 @@ class NetControlObject():
                 activations = np.abs(activations)
                 activations = np.mean(activations, axis=axisToStick)
         else:
-            activations = self.netWrapper.getImageActivations(
-                    layerName, imageNum, epochNum, augment=augment)
+            activations = self.netWrapper.getImagesActivations_Batch(
+                    layerName, [imageNum], epochNum, augment=augment)
             self.showProgress('Activations: %s, min %.4f, max %.4f (%s)' % \
                     (str(activations.shape), activations.min(), activations.max(),
                      str([int(v[0]) for v in np.where(activations == activations.max())])))
@@ -1356,7 +1356,8 @@ class NetControlObject():
                 yield x - occlusion_padding, y - occlusion_padding, \
                       tmp[occlusion_padding:tmp.shape[0] - occlusion_padding, occlusion_padding:tmp.shape[1] - occlusion_padding]
 
-    def doActAnalysis(self, classNum, layerName, plotChanCount=100):
+    def doActAnalysis(self, imageNums, layerName,
+                      plotChanCount=100, xShift=0, markerColor='black', chanOrder=None):
         import torch
 
         # print(np.where(controlObj.imageDataset.subsets['train'].folders == 'n02109961'))
@@ -1364,10 +1365,9 @@ class NetControlObject():
         model = self.netWrapper._getNet(layerName, True)
         epochNum = self.getSelectedEpochNum()
 #         self.netWrapper.loadState(epochNum)
-        model.eval()
-        order = None
+#         model.eval()
         ress = []
-        for imageNum in self.imageDataset.getClassImageNums(classNum)[:260]:
+        for imageNum in imageNums:
         #    img = self.imageDataset.getImage(imageNum, 'net', 'train')
         #    plt.imshow(img / 255.0 + 0.5)
             res = controlObj.netWrapper.getImagesActivations_Batch(layerName, [imageNum], epochNum)[0]
@@ -1390,12 +1390,18 @@ class NetControlObject():
 
             ress.append(res)
         ress = np.stack(ress, axis=0)
-        order = np.mean(ress, axis=0).argsort()
+        if chanOrder is None:
+            order = np.mean(ress, axis=0).argsort()
+        else:
+            order = chanOrder
         print(order[-10:])
-        plt.plot(ress[3][order][-plotChanCount:], alpha=0.4)  # One of diagrams just for example
+#         plt.plot(ress[3][order][-plotChanCount:], alpha=0.4)  # One of diagrams just for example
         for i in range(ress.shape[0]):
-            plt.plot(ress[i][order][-plotChanCount:], 'o', color='black', linewidth=1, alpha=0.03, markersize=1)
-        plt.twinx().plot(np.std(ress, axis=0)[order][-plotChanCount:], linestyle='--', color='orange', alpha=0.4)
+            plt.plot(xShift + np.arange(0, len(ress[i][order][-plotChanCount:])),
+                     ress[i][order][-plotChanCount:], 'o',
+                     color=markerColor,
+                     linewidth=1, alpha=0.03, markersize=1)
+#         plt.twinx().plot(np.std(ress, axis=0)[order][-plotChanCount:], linestyle='--', color='orange', alpha=0.4)
 
         #     if order is None:
         #         print(res.shape)
@@ -1408,6 +1414,7 @@ class NetControlObject():
         #     plt.plot(res[order][-100:], 'o', linewidth=1, alpha=0.1, markersize=1)
         #     plt.imshow(res)
 #         plt.show()
+        return order
 
 
     def onCorrelationAnalyzisPressed(self):
