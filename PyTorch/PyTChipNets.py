@@ -38,7 +38,7 @@ class PadTo(object):
         self.fill = fill
         self.padding_mode = padding_mode
 
-    def forward(self, img):
+    def __call__(self, img):
         if isinstance(img, Image.Image):
             # img = np.array(img)
             shape = img.size
@@ -90,7 +90,7 @@ class ChipDataset(torch.utils.data.Dataset):
         print('%d images, %d masks' % (len(self.imgs), len(self.masks)))
 
     def __getitem__(self, idx):
-        # load images ad masks
+        # print('get', idx)
         img_path = os.path.join(self.root, "PNGImages", self.imgs[idx])
         mask_path = os.path.join(self.root, "PedMasks", self.masks[idx])
         img = Image.open(img_path).convert("RGB")
@@ -105,7 +105,7 @@ class ChipDataset(torch.utils.data.Dataset):
         # print('loaded', img.shape, img.dtype, mask.shape, mask.dtype)
         # mask = np.array(mask, dtype=np.uint8)
         # print('converted')
-        mask[mask > 0] = 1
+        mask[mask > 0] = 255
         # mask = torch.as_tensor(mask, dtype=torch.uint8)
         # target = torchvision.transforms.ToPILImage()(mask)
         target = Image.fromarray(mask)
@@ -115,15 +115,17 @@ class ChipDataset(torch.utils.data.Dataset):
             # print('transform', img.__class__.__name__)
             img = self.transforms(img)
             target = self.transforms(target)
+            # print(target.max())
 
-        return img, {'mask': target}
+
+        return img, target # {'mask': target}
 
     def __len__(self):
         return len(self.imgs)
 
 
 class ChipNet(nn.Module):
-    def __init__(self, num_classes=2, basePlaneCount=16, norm_layer=None):
+    def __init__(self, num_classes=2, basePlaneCount=32, norm_layer=None):
         super().__init__()
         planeCount = basePlaneCount
         if norm_layer is None:
@@ -134,7 +136,9 @@ class ChipNet(nn.Module):
         self.conv1 = conv3x3(3, planeCount, 1)
         self.bn1 = norm_layer(planeCount)
         self.relu = nn.ReLU(inplace=True)
-        self.conv2 = conv3x3(planeCount, num_classes)
+        self.conv2 = conv3x3(planeCount, planeCount)
+        self.bn2 = norm_layer(planeCount)
+        self.conv3 = conv3x3(planeCount, num_classes)
         # self.bn2 = norm_layer(planeCount)
         # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
@@ -147,7 +151,7 @@ class ChipNet(nn.Module):
                 nn.init.constant_(m.bias, 0)
 
     def forward(self, x):
-        print('forward', len(x), x)
+        # print('forward', len(x), x)
         # x = x[0]
         x = self.conv1(x)
         x = self.bn1(x)
@@ -155,10 +159,12 @@ class ChipNet(nn.Module):
         # x = self.maxpool(x)
 
         x = self.conv2(x)
+        x = self.bn2(x)
+        x = self.relu(x)
+        x = self.conv3(x)
         return x
 
 def createSimpleChipNet(num_classes, trainable_backbone_layers=3, **kwargs):
-    num_classes = 2
     return ChipNet(num_classes)
 
 
