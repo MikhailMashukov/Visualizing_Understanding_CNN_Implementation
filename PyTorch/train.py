@@ -55,7 +55,7 @@ def criterion(inputs, target):
     t = target
 
     # losses['out'] = nn.functional.cross_entropy(inputs, target.squeeze(1).long())
-    losses['out'] = nn.BCELoss()(inputs, target.squeeze(1))  
+    losses['out'] = nn.BCEWithLogitsLoss()(inputs, target)
 
     if len(losses) == 1:
         return losses['out']

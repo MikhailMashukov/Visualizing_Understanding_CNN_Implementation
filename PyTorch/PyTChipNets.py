@@ -42,19 +42,22 @@ class PadTo(object):
         if isinstance(img, Image.Image):
             # img = np.array(img)
             shape = img.size
+            # print('image shape', shape)
+            padding = [self.targetSize[0] - shape[0], self.targetSize[1] - shape[1]]
         else:
             shape = img.shape
-        # print('shape', shape) #, 'mode', img.mode)
+            # print('shape', shape) #, 'mode', img.mode)
+            padding = [self.targetSize[1] - shape[0], self.targetSize[0] - shape[1]]
         # print('target shape', target.size, 'mode', target.mode)
         # print('param2', param2.items())
-        padding = [self.targetSize[0] - shape[0], self.targetSize[1] - shape[1]]
+
         if padding[0] <= 0 and padding[1] <= 0:
             return img
         padding = tuple((((v + 1) // 2) if v >= 0 else 0) for v in padding)
 
         if isinstance(img, Image.Image):
             # print('expanding image', img, padding)
-            # print('expanded', padding,ImageOps.expand(img, border=padding, fill=self.fill) )
+            # print('expanded', ImageOps.expand(img, border=padding, fill=self.fill).size)
             return ImageOps.expand(img, border=padding, fill=self.fill)
         else:
             padding = tuple((v, v) for v in padding)
@@ -124,6 +127,72 @@ class ChipDataset(torch.utils.data.Dataset):
         return len(self.imgs)
 
 
+class UnetConv(nn.Module):
+    """(convolution => [BN] => ReLU) * 2"""
+
+    def __init__(self, in_channels, out_channels, mid_channels=None):
+        super().__init__()
+        if not mid_channels:
+            mid_channels = out_channels
+        self.double_conv = nn.Sequential(
+            # nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),  # mid_channels),
+            nn.ReLU(inplace=True),
+            # nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
+            # nn.BatchNorm2d(out_channels),
+            # nn.ReLU(inplace=True)
+        )
+
+    def forward(self, x):
+        return self.double_conv(x)
+
+class Down(nn.Module):
+    """Downscaling with maxpool then double conv"""
+
+    def __init__(self, in_channels, out_channels, scale_factor=2):
+        super().__init__()
+        self.maxpool_conv = nn.Sequential(
+            nn.MaxPool2d(scale_factor),
+            UnetConv(in_channels, out_channels)
+        )
+
+    def forward(self, x):
+        return self.maxpool_conv(x)
+
+
+class Up(nn.Module):
+    """Upscaling then double conv"""
+
+    def __init__(self, in_channels, out_channels, bilinear=True, scale_factor=2):
+        super().__init__()
+
+        # if bilinear, use the normal convolutions to reduce the number of channels
+        if bilinear:
+            self.up = nn.Upsample(scale_factor=scale_factor, mode='bilinear', align_corners=True)
+            self.conv = UnetConv(in_channels, out_channels, in_channels // 2)
+        else:
+            self.up = nn.ConvTranspose2d(in_channels , in_channels // 2, kernel_size=scale_factor, stride=scale_factor)
+            self.conv = UnetConv(in_channels, out_channels)
+
+
+    def forward(self, x1, x2):
+        x1 = self.up(x1)
+        # input is CHW
+        diffY = x2.size()[2] - x1.size()[2]
+        diffX = x2.size()[3] - x1.size()[3]
+        # print('up', x1.shape, x2.shape, diffY, diffX)
+
+        # x1 = F.pad(x1, [diffX // 2, diffX - diffX // 2,
+        #                 diffY // 2, diffY - diffY // 2])
+        # if you have padding issues, see
+        # https://github.com/HaiyongJiang/U-Net-Pytorch-Unstructured-Buggy/commit/0e854509c2cea854e247a9c615f175f76fbb2e3a
+        # https://github.com/xiaopeng-liao/Pytorch-UNet/commit/8ebac70e633bac59fc22bb5195e513d5832fb3bd
+        x = torch.cat([x2, x1], dim=1)
+        return self.conv(x)
+
+
+
 class ChipNet(nn.Module):
     def __init__(self, num_classes=2, basePlaneCount=32, norm_layer=None):
         super().__init__()
@@ -132,14 +201,23 @@ class ChipNet(nn.Module):
             norm_layer = nn.BatchNorm2d
         self._norm_layer = norm_layer
         self.namedLayers = {}
+        bilinear = True
 
         self.conv1 = conv3x3(3, planeCount, 1)
         self.bn1 = norm_layer(planeCount)
+        # self.conv12 = conv1x1(3, planeCount, 1)
+        # self.bn12 = norm_layer(planeCount)
         self.relu = nn.ReLU(inplace=True)
+
+        factor = 2 if bilinear else 1
+        self.down1 = Down(planeCount, basePlaneCount * 2)
+        self.up4 = Up(basePlaneCount * 6 // factor, planeCount, bilinear)
+
         self.conv2 = conv3x3(planeCount, planeCount)
         self.bn2 = norm_layer(planeCount)
-        self.conv3 = conv3x3(planeCount, num_classes)
-        # self.bn2 = norm_layer(planeCount)
+        self.conv3 = conv3x3(planeCount, planeCount)
+        self.bn3 = norm_layer(planeCount)
+        self.conv4 = conv1x1(planeCount, num_classes)
         # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
 
@@ -150,18 +228,34 @@ class ChipNet(nn.Module):
                 nn.init.constant_(m.weight, 1)
                 nn.init.constant_(m.bias, 0)
 
+
     def forward(self, x):
         # print('forward', len(x), x)
         # x = x[0]
+        # x2 = self.conv12(x)
+        # x2 = self.bn12(x2)
+        # x2 = self.relu(x2)
         x = self.conv1(x)
         x = self.bn1(x)
-        x = self.relu(x)
+        x1 = self.relu(x)
         # x = self.maxpool(x)
 
-        x = self.conv2(x)
+        x2 = self.down1(x1)
+        # print('2', x2.shape)
+
+        x = self.conv2(x1)
+        # print('3', x.shape)
         x = self.bn2(x)
         x = self.relu(x)
-        x = self.conv3(x)
+
+
+        x = self.up4(x2, x)
+        # print('4', x.shape)
+        # x = self.conv3(x)   # * x2
+        # x = self.bn2(x)
+        # x = self.relu(x)
+
+        x = self.conv4(x)
         return x
 
 def createSimpleChipNet(num_classes, trainable_backbone_layers=3, **kwargs):
