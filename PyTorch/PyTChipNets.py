@@ -73,6 +73,14 @@ class PadTo(object):
         return self.__class__.__name__ + '(targetSize={0}, fill={1}, padding_mode={2})'.\
             format(self.targetSize, self.fill, self.padding_mode)
 
+class Crop(object):
+    def __init__(self, top, left, height, width):
+        self.rect = (top, left, height, width)
+
+    def __call__(self, img):
+        return F.crop(img, self.rect[1], self.rect[0], self.rect[3], self.rect[2])
+            # left, top, width, height
+
 class ToTensor_Chip(object):
     def __call__(self, image, target):
         image = F.to_tensor(image)
@@ -82,7 +90,7 @@ class ToTensor_Chip(object):
 
 
 
-class ChipDataset(torch.utils.data.Dataset):
+class PennDataset(torch.utils.data.Dataset):
     def __init__(self, root, transforms=None):
         self.root = root
         self.transforms = transforms
@@ -122,6 +130,38 @@ class ChipDataset(torch.utils.data.Dataset):
 
 
         return img, target # {'mask': target}
+
+    def __len__(self):
+        return len(self.imgs)
+
+class ChipDataset(torch.utils.data.Dataset):
+    def __init__(self, root, transforms=None):
+        self.root = root
+        self.transforms = transforms
+        # load all image files, sorting them to
+        # ensure that they are aligned
+        self.imgs = ['2D 2.bmp']
+        self.masks = ['2D_2_mask.png']
+        print(self.imgs)
+        print('%d images, %d masks' % (len(self.imgs), len(self.masks)))
+
+    def __getitem__(self, idx):
+        # print('get', idx)
+        img_path = os.path.join(self.root, self.imgs[idx])
+        mask_path = os.path.join(self.root, self.masks[idx])
+        img = Image.open(img_path).convert("RGB")
+        mask = Image.open(mask_path)
+        mask = np.array(mask)
+        # mask[mask > 0] = 255
+        target = Image.fromarray(mask)
+
+        if self.transforms is not None:
+            # print('transform', img.__class__.__name__)
+            img = self.transforms(img)
+            target = self.transforms(target)
+            # print(target.max())
+
+        return img, target
 
     def __len__(self):
         return len(self.imgs)
@@ -176,7 +216,7 @@ class Up(nn.Module):
             self.conv = UnetConv(in_channels, out_channels)
 
 
-    def forward(self, x1, x2):
+    def forward(self, x1, x2):    # x1 - smaller
         x1 = self.up(x1)
         # input is CHW
         diffY = x2.size()[2] - x1.size()[2]
@@ -194,7 +234,7 @@ class Up(nn.Module):
 
 
 class ChipNet(nn.Module):
-    def __init__(self, num_classes=2, basePlaneCount=32, norm_layer=None):
+    def __init__(self, num_classes=2, basePlaneCount=16, norm_layer=None):
         super().__init__()
         planeCount = basePlaneCount
         if norm_layer is None:
@@ -211,6 +251,8 @@ class ChipNet(nn.Module):
 
         factor = 2 if bilinear else 1
         self.down1 = Down(planeCount, basePlaneCount * 2)
+        self.down2 = Down(basePlaneCount * 2, basePlaneCount * 4)
+        self.up3 = Up(basePlaneCount * 12 // factor, basePlaneCount * 2, bilinear)
         self.up4 = Up(basePlaneCount * 6 // factor, planeCount, bilinear)
 
         self.conv2 = conv3x3(planeCount, planeCount)
@@ -242,14 +284,17 @@ class ChipNet(nn.Module):
 
         x2 = self.down1(x1)
         # print('2', x2.shape)
+        x3 = self.down2(x2)
+        # print('3', x3.shape)
 
         x = self.conv2(x1)
-        # print('3', x.shape)
+        # print('22', x.shape)
         x = self.bn2(x)
-        x = self.relu(x)
+        x1 = self.relu(x)
 
-
-        x = self.up4(x2, x)
+        x = self.up3(x3, x2)
+        # print('4', x.shape)
+        x = self.up4(x, x1)
         # print('4', x.shape)
         # x = self.conv3(x)   # * x2
         # x = self.bn2(x)
@@ -868,3 +913,98 @@ def createSimpleChipNet(num_classes, trainable_backbone_layers=3, **kwargs):
 #     return _resnet('wide_resnet', Bottleneck, DeepOptions.additLayerCounts,
 #                    pretrained, progress, **kwargs)
 #
+
+
+if __name__ == '__main__':
+    import transforms as T
+    from train import *
+    import utils
+
+    def get_transform(train):
+        transforms = []
+        targetSize = None   # (640, 512)
+        # targetSize = (32, 32)
+        transforms.append(Crop(250, 300, 704, 512))
+        if train:
+            # during training, randomly flip the training images
+            # and ground-truth for data augmentation
+            # transforms.append(T.RandomHorizontalFlip(0.5))
+            transforms.append(torchvision.transforms.RandomHorizontalFlip())
+            transforms.append(torchvision.transforms.RandomVerticalFlip())
+        if not targetSize is None:
+            transforms.append(PadTo(targetSize, fill=0))
+            transforms.append(torchvision.transforms.CenterCrop((targetSize[1], targetSize[0])))
+        transforms.append(torchvision.transforms.ToTensor())
+        # return T.Compose(transforms)
+        return torchvision.transforms.Compose(transforms)
+
+    dataset = ChipDataset(r'E:\Projects\Freelance\INIRSibir\Images', get_transform(train=True))
+    dataset_test = ChipDataset(r'E:\Projects\Freelance\INIRSibir\Images', get_transform(train=False))
+
+    # split the dataset in train and test set
+    torch.manual_seed(1)
+    indices = torch.randperm(len(dataset)).tolist()
+    if len(indices) > 50:
+        testImageCount = 50
+    else:
+        testImageCount = len(indices) // 3
+
+    if testImageCount > 0:
+        dataset = torch.utils.data.Subset(dataset, indices[:-testImageCount])
+        dataset_test = torch.utils.data.Subset(dataset_test, indices[-testImageCount:])
+    else:
+        dataset = torch.utils.data.Subset(dataset, indices)
+        dataset_test = torch.utils.data.Subset(dataset_test, indices)
+    train_sampler = torch.utils.data.RandomSampler(dataset)
+    test_sampler = torch.utils.data.SequentialSampler(dataset_test)
+
+    # define training and validation data loaders
+    data_loader = torch.utils.data.DataLoader(
+        dataset, batch_size=16, num_workers=4,  # shuffle=True,
+        sampler=train_sampler, collate_fn=utils.collate_fn)
+    data_loader_test = torch.utils.data.DataLoader(
+        dataset_test, batch_size=1, num_workers=4,  # shuffle=False,
+        sampler=test_sampler, collate_fn=utils.collate_fn)
+
+    num_classes = 1
+    model = createSimpleChipNet(num_classes)
+
+    device = torch.device('cuda') if torch.cuda.is_available() else torch.device('cpu')
+    params = [p for p in model.parameters() if p.requires_grad]
+    optimizer = torch.optim.SGD(params, lr=0.005,   # 0.005
+                                momentum=0.9, weight_decay=0.0005)
+
+    # and a learning rate scheduler which decreases the learning rate by 10x every 3 epochs
+    lr_scheduler = torch.optim.lr_scheduler.StepLR(optimizer, step_size=5,  # 3
+                                                   gamma=0.5)
+    img, target = dataset[0]
+
+    num_epochs = 500
+
+    i = 1
+    t = 1
+    for epoch in range(num_epochs):
+        # train for one epoch, printing every 10 iterations
+        model.eval()
+        with torch.no_grad():
+            if len(img.shape) == 3:
+                img.unsqueeze_(0)
+            prediction = model(img.to(device))
+            prediction = prediction[0].cpu().numpy().transpose(1, 2, 0)
+            # prediction[prediction > 1] = 1
+            # prediction[prediction < 0] = 0
+            print(prediction.shape, prediction.dtype, prediction.min(), np.mean(prediction), prediction.max())
+        # fig = plt.imshow(np.squeeze(prediction, 2),
+        #            vmin=-1, vmax=2, cmap='rainbow');
+        # plt.colorbar()
+        # plt.show()
+
+     # def train_one_epoch(model, criterion, optimizer, data_loader, lr_scheduler,
+     # device, epoch, print_freq):
+        train_one_epoch(model, criterion, optimizer, data_loader, lr_scheduler, \
+                        device, epoch, print_freq=10)
+        # update the learning rate
+        # lr_scheduler.step()
+        # evaluate on the test dataset
+        # evaluate(model, data_loader_test, device, num_classes)
+        # print(x)

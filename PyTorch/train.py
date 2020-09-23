@@ -7,7 +7,7 @@ import torch.utils.data
 from torch import nn
 import torchvision
 
-from coco_utils import get_coco
+# from coco_utils import get_coco
 import transforms as T
 import utils
 
