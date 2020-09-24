@@ -146,12 +146,17 @@ class ChipDataset(torch.utils.data.Dataset):
         # self.masks = ['2D_2_mask.png']
         self.imgs = ['2D_simplified.png']
         self.masks = ['2D_simplified_mask.png']
+        self.cache = {}
         print(self.imgs)
         print('%d images, %d masks' % (len(self.imgs), len(self.masks)))
 
     def __getitem__(self, idx):
         # print('get', idx)
         idx = 0         #d_
+        if idx in self.cache:
+            cacheItem = self.cache[idx]
+            return cacheItem[0].detach().clone(), cacheItem[1].detach().clone()
+
         img_path = os.path.join(self.root, self.imgs[idx])
         mask_path = os.path.join(self.root, self.masks[idx])
         img = Image.open(img_path).convert("RGB")
@@ -160,13 +165,27 @@ class ChipDataset(torch.utils.data.Dataset):
         # mask[mask > 0] = 255
         target = Image.fromarray(mask)
 
+        path = os.path.join(self.root, '2D_simplified_weights.png')
+        weights = Image.open(path)
+        weights = np.array(weights) / 255.0
+        # weights = weights[300:812, 250:954]      # Crop(250, 300, 704, 512)
+        weights = Image.fromarray(weights)
+
         if self.transfSets is not None:
             # print('transform', img.__class__.__name__)
             img = self.transfSets[0](img)
             target = self.transfSets[1](target)
             # print(target.max())
+            weights = self.transfSets[2](weights)
 
+        self.cache[idx] = (img, target, weights)
         return img, target
+
+    def getWeights(self):
+        idx = 0
+        if not idx in self.cache:
+            self[idx]
+        return self.cache[idx][2]
 
     def __len__(self):
         return self.fakeLen       # In order to allow bigger batch
@@ -333,7 +352,7 @@ class ChipNet(nn.Module):
 
 
     def forward(self, x):
-        # print('forward', len(x), x)
+        # print('forward', len(x), x.shape)
         # x = x[0]
         # x2 = self.conv12(x)
         # x2 = self.bn12(x2)
@@ -461,6 +480,7 @@ def get_transforms(train):
     targetSize = None   # (640, 512)
     # targetSize = (32, 32)
     transforms.append(Crop(250, 300, 704, 512))
+    imageWeightsTransforms = list(transforms)
     if 0: # train:
         # during training, randomly flip the training images
         # and ground-truth for data augmentation
@@ -477,7 +497,10 @@ def get_transforms(train):
             [0.27922228] * 3, [0.22716749] * 3, inplace=True)]
     maskTransforms = transforms # + [torchvision.transforms.Normalize(
             # np.array([0.06156306]), np.array([0.23854734]), inplace=True)]
-    transfSets = [torchvision.transforms.Compose(imageTransforms), torchvision.transforms.Compose(maskTransforms)]
+    imageWeightsTransforms.append(torchvision.transforms.ToTensor())
+    transfSets = [torchvision.transforms.Compose(imageTransforms), 
+                  torchvision.transforms.Compose(maskTransforms),
+                  torchvision.transforms.Compose(imageWeightsTransforms)]
     return transfSets
 
 
@@ -549,7 +572,7 @@ if __name__ == '__main__':
 
      # def train_one_epoch(model, criterion, optimizer, data_loader, lr_scheduler,
      # device, epoch, print_freq):
-        train_one_epoch(model, criterion, optimizer, data_loader, lr_scheduler, \
+        train_one_epoch(model, getCriterion(), optimizer, data_loader, lr_scheduler, \
                         device, epoch, print_freq=10)
         # update the learning rate
         # lr_scheduler.step()

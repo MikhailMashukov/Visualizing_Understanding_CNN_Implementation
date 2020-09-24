@@ -42,25 +42,44 @@ def get_transform(train):
 
     return T.Compose(transforms)
 
+def getCriterion(weights=None):
+    if weights is None:
+        loss = nn.BCEWithLogitsLoss()
+    else:
+        loss1 = nn.Sigmoid()
+        loss2 = nn.BCELoss()
+    # print('weights', weights.min(), weights.max())
 
-def criterion(inputs, target):
-    losses = {}
+    # import numpy as np
 
-    # for name, x in inputs.items():
-    #     losses[name] = nn.functional.cross_entropy(x, target, ignore_index=255)
-    # print(inputs.dtype, target.dtype)
-    global i, t
-    i = inputs
-    t = target
+    def criterion(inputs, target):
+        losses = {}
 
-    # losses['out'] = nn.functional.cross_entropy(inputs, target.squeeze(1).long())
-    losses['out'] = nn.BCEWithLogitsLoss()(inputs, target)
+        # for name, x in inputs.items():
+        #     losses[name] = nn.functional.cross_entropy(x, target, ignore_index=255)
+        # print(inputs.dtype, target.dtype)
+        global i, t
+        i = inputs
+        t = target
 
-    if len(losses) == 1:
-        return losses['out']
+        # losses['out'] = nn.functional.cross_entropy(inputs, target.squeeze(1).long())
+        if weights is None:
+            losses['out'] = loss(inputs, target)
+        else:
+            values = loss1(inputs)
+            # print('Shapes', inputs.shape, target.shape, weights.shape)
+            # print('inputs37', inputs[0, 0, 0, 37], values[0, 0, 0, 37],
+            #     weights[0, 0, 37], (target + (values - target) * weights)[0, 0, 0, 37])
+            values = target + (values - target) * weights
+            # print(values.min(), values.max(),  np.argwhere(values.detach().numpy() < 0))
+            losses['out'] = loss2(values, target)
 
-    return losses['out'] + 0.5 * losses['aux']
+        if len(losses) == 1:
+            return losses['out']
 
+        return losses['out'] + 0.5 * losses['aux']
+
+    return criterion
 
 def evaluate(model, data_loader, device, num_classes):
     model.eval()

@@ -69,6 +69,7 @@ def showWeights(weights, colCount):
             fig = plt.figure(figsize=(4, 7))
             ax = fig.add_subplot(111)
             ax.imshow(weightsImageData, cmap='rainbow')
+        return fig, weightsImageData
 
 # def printWeightsStats(model):
 #     info = []
