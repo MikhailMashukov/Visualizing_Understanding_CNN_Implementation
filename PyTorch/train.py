@@ -8,9 +8,8 @@ from torch import nn
 import torchvision
 
 # from coco_utils import get_coco
-import transforms as T
-import utils
-
+from . import transforms as T
+from . import utils
 
 def get_dataset(name, image_set, transform):
     def sbd(*args, **kwargs):

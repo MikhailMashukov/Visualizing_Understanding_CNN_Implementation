@@ -6,7 +6,7 @@ from torchvision.models.utils import load_state_dict_from_url
 from collections.abc import Sequence
 from PIL import Image, ImageOps
 import torchvision
-import transforms as T
+from . import transforms as T
 from torchvision.transforms import functional as F
 
 import numpy as np
@@ -136,14 +136,16 @@ class PennDataset(torch.utils.data.Dataset):
         return len(self.imgs)
 
 class ChipDataset(torch.utils.data.Dataset):
-    def __init__(self, root, transforms=None, fakeLen=1):
+    def __init__(self, root, transfSets=None, fakeLen=1):
         self.root = root
-        self.transforms = transforms
+        self.transfSets = transfSets
         self.fakeLen = fakeLen
         # load all image files, sorting them to
         # ensure that they are aligned
-        self.imgs = ['2D 2.bmp']
-        self.masks = ['2D_2_mask.png']
+        # self.imgs = ['2D 2.bmp']
+        # self.masks = ['2D_2_mask.png']
+        self.imgs = ['2D_simplified.png']
+        self.masks = ['2D_simplified_mask.png']
         print(self.imgs)
         print('%d images, %d masks' % (len(self.imgs), len(self.masks)))
 
@@ -158,10 +160,10 @@ class ChipDataset(torch.utils.data.Dataset):
         # mask[mask > 0] = 255
         target = Image.fromarray(mask)
 
-        if self.transforms is not None:
+        if self.transfSets is not None:
             # print('transform', img.__class__.__name__)
-            img = self.transforms(img)
-            target = self.transforms(target)
+            img = self.transfSets[0](img)
+            target = self.transfSets[1](target)
             # print(target.max())
 
         return img, target
@@ -179,13 +181,16 @@ class UnetConv(nn.Module):
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
-            # nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),  # mid_channels),
+            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(mid_channels),
             nn.ReLU(inplace=True),
-            # nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
+            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True)
+
+            # nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
             # nn.BatchNorm2d(out_channels),
-            # nn.ReLU(inplace=True)
+            # nn.ReLU(inplace=True),
         )
 
     def forward(self, x):
@@ -236,6 +241,52 @@ class Up(nn.Module):
         return self.conv(x)
 
 
+class Bottleneck(nn.Module):
+    expansion = 4
+    __constants__ = ['downsample']
+
+    def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
+                 base_width=64, dilation=1, norm_layer=None):
+        super(Bottleneck, self).__init__()
+        if norm_layer is None:
+            norm_layer = nn.BatchNorm2d
+        width = int(planes * (base_width / 64.)) * groups
+        # Both self.conv2 and self.downsample layers downsample the input when stride != 1
+        self.conv1 = conv1x1(inplanes, width) #, groups=groups)
+        self.bn1 = norm_layer(width)
+        print('conv2: w %d, stride %d, groups %d, dilation %d' % \
+                (width, stride, groups, dilation))
+        self.conv2 = conv3x3(width, width, stride, groups, dilation)
+        self.bn2 = norm_layer(width)
+        self.conv3 = conv1x1(width, planes * self.expansion) #, groups=groups)
+        self.bn3 = norm_layer(planes * self.expansion)
+        self.relu = nn.ReLU(inplace=True)
+        self.downsample = downsample
+        self.stride = stride
+
+    def forward(self, x):
+        identity = x
+        # print('id', x.shape)
+
+        out = self.conv1(x)
+        out = self.bn1(out)
+        out = self.relu(out)
+
+        out = self.conv2(out)
+        out = self.bn2(out)
+        out = self.relu(out)
+
+        out = self.conv3(out)
+        # print('out3', out.shape)
+        out = self.bn3(out)
+
+        if self.downsample is not None:
+            identity = self.downsample(x)
+
+        out += identity
+        out = self.relu(out)
+        return out
+
 class ChipNet(nn.Module):
     def __init__(self, num_classes=2, basePlaneCount=32, norm_layer=None):
         super().__init__()
@@ -246,7 +297,10 @@ class ChipNet(nn.Module):
         self.namedLayers = {}
         bilinear = True
 
-        self.conv1 = conv3x3(3, planeCount, 1)
+        # self.conv1 = conv3x3(3, planeCount, 1)
+        self.conv1 = nn.Conv2d(3, planeCount, kernel_size=7, stride=1,
+                               padding=3, groups=1, bias=False, dilation=1)
+        self.namedLayers['conv1'] = self.conv1
         self.bn1 = norm_layer(planeCount)
         # self.conv12 = conv1x1(3, planeCount, 1)
         # self.bn12 = norm_layer(planeCount)
@@ -254,15 +308,19 @@ class ChipNet(nn.Module):
 
         factor = 2 if bilinear else 1
         self.down1 = Down(planeCount, basePlaneCount)
-        self.down2 = Down(basePlaneCount, basePlaneCount)
-        self.up3 = Up(basePlaneCount * 4 // factor, basePlaneCount, bilinear)
+        self.down2 = Down(basePlaneCount, basePlaneCount * 2)
+        self.resid = Bottleneck(basePlaneCount * 2, basePlaneCount // 2, stride=1, downsample=None, groups=1,
+                 base_width=64, dilation=1, norm_layer=norm_layer)
+        self.up3 = Up(basePlaneCount * 6 // factor, basePlaneCount, bilinear)
         self.up4 = Up(basePlaneCount * 4 // factor, planeCount, bilinear)
 
         self.conv2 = conv3x3(planeCount, planeCount)
+        self.namedLayers['conv2'] = self.conv2
         self.bn2 = norm_layer(planeCount)
         self.conv3 = conv3x3(planeCount, planeCount)
         self.bn3 = norm_layer(planeCount)
         self.conv4 = conv1x1(planeCount, num_classes)
+        self.namedLayers['conv4'] = self.conv4
         # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
 
@@ -289,6 +347,8 @@ class ChipNet(nn.Module):
         # print('2', x2.shape)
         x3 = self.down2(x2)
         # print('3', x3.shape)
+        x3 = self.resid.forward(x3)
+        x3 = self.resid.forward(x3)
 
         x = self.conv2(x1)
         # print('22', x.shape)
@@ -305,6 +365,13 @@ class ChipNet(nn.Module):
 
         x = self.conv4(x)
         return x
+
+    def getLayer(self, layerName):
+        return self.namedLayers[layerName]
+
+    def getAllLayers(self):
+        return self.namedLayers
+
 
     def saveState(self, fileName,
                   additInfo={}, additFileName=None):
@@ -348,16 +415,53 @@ class ChipNet(nn.Module):
     def loadStateAdditInfo(self, fileName):
         return torch.load(fileName)
 
+    def getMultWeights(self, layerName, allowCombinedLayers=False):  # , epochNum):
+        try:
+            layer = self.getLayer(layerName)
+            allWeights = layer.state_dict()
+        except:
+            allWeights = None
+#         print('len ', len(allWeights))
+
+        if allWeights:
+#             assert len(allWeights) == 1 or 'weight' in allWeights
+            weights = allWeights['weight']
+        else:
+            if allowCombinedLayers:
+                allWeights = []
+                for curLayerName, layer in model.getAllLayers():
+                    if curLayerName.find(layerName + '_') == 0:
+                        allLayerWeights = layer.get_weights()
+#                         assert len(allLayerWeights) == 1 or len(allLayerWeights[0].shape) > len(allLayerWeights[1].shape)
+                        allWeights.append(allLayerWeights['weight'])
+                if not allWeights:
+                    raise Exception('No weights found for combined layer %s' % layerName)
+                weights = np.concatenate(allWeights, axis=3)
+            else:
+                raise Exception('No weights found for layer %s' % layerName)
+
+        weights = weights.cpu().numpy()      # E.g. [96, 3, 11, 11]
+        # Converting to channels_last
+        # print('weights', weights.shape)
+        if len(weights.shape) == 5:
+            weights = weights.transpose((2, 3, 4, 0, 1))    # Not tested
+        elif len(weights.shape) == 4:
+            weights = weights.transpose((1, 0, 2, 3))
+        elif len(weights.shape) == 3:
+            weights = weights.transpose((2, 0, 1))          # Not tested
+        return weights
+
+
 def createSimpleChipNet(num_classes, trainable_backbone_layers=3, **kwargs):
     return ChipNet(num_classes)
 
 
-def get_transform(train):
+def get_transforms(train):
     transforms = []
     targetSize = None   # (640, 512)
     # targetSize = (32, 32)
     transforms.append(Crop(250, 300, 704, 512))
-    if train:
+    if 0: # train:
         # during training, randomly flip the training images
         # and ground-truth for data augmentation
         # transforms.append(T.RandomHorizontalFlip(0.5))
@@ -367,32 +471,20 @@ def get_transform(train):
         transforms.append(PadTo(targetSize, fill=0))
         transforms.append(torchvision.transforms.CenterCrop((targetSize[1], targetSize[0])))
     transforms.append(torchvision.transforms.ToTensor())
-    # return T.Compose(transforms)
-    return torchvision.transforms.Compose(transforms)
+    # return torchvision.transforms.Compose(transforms)
+
+    imageTransforms = transforms + [torchvision.transforms.Normalize(
+            [0.27922228] * 3, [0.22716749] * 3, inplace=True)]
+    maskTransforms = transforms # + [torchvision.transforms.Normalize(
+            # np.array([0.06156306]), np.array([0.23854734]), inplace=True)]
+    transfSets = [torchvision.transforms.Compose(imageTransforms), torchvision.transforms.Compose(maskTransforms)]
+    return transfSets
 
 
 if __name__ == '__main__':
     import transforms as T
     from train import *
     import utils
-
-    def get_transform(train):
-        transforms = []
-        targetSize = None   # (640, 512)
-        # targetSize = (32, 32)
-        transforms.append(Crop(250, 300, 704, 512))
-        if train:
-            # during training, randomly flip the training images
-            # and ground-truth for data augmentation
-            # transforms.append(T.RandomHorizontalFlip(0.5))
-            transforms.append(torchvision.transforms.RandomHorizontalFlip())
-            transforms.append(torchvision.transforms.RandomVerticalFlip())
-        if not targetSize is None:
-            transforms.append(PadTo(targetSize, fill=0))
-            transforms.append(torchvision.transforms.CenterCrop((targetSize[1], targetSize[0])))
-        transforms.append(torchvision.transforms.ToTensor())
-        # return T.Compose(transforms)
-        return torchvision.transforms.Compose(transforms)
 
     dataset = ChipDataset(r'E:\Projects\Freelance\INIRSibir\Images', get_transform(train=True), fakeLen=2)
     dataset_test = ChipDataset(r'E:\Projects\Freelance\INIRSibir\Images', get_transform(train=False))
