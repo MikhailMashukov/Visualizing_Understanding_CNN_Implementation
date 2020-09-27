@@ -138,9 +138,10 @@ class MetricLogger(object):
     def __str__(self):
         loss_str = []
         for name, meter in self.meters.items():
-            loss_str.append(
-                "{}: {}".format(name, str(meter))
-            )
+            if name == 'loss':
+                loss_str.append("%s: %.7g" % (name, meter.median))
+            else:
+                loss_str.append("{}: {}".format(name, str(meter)))
         return self.delimiter.join(loss_str)
 
     def synchronize_between_processes(self):
@@ -201,7 +202,7 @@ class MetricLogger(object):
             end = time.time()
         total_time = time.time() - start_time
         total_time_str = str(datetime.timedelta(seconds=int(total_time)))
-        print('{} Total time: {}'.format(header, total_time_str))
+        # print('{} Total time: {}'.format(header, total_time_str))
 
 
 def cat_list(images, fill_value=0):

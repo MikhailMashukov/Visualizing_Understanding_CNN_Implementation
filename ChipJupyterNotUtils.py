@@ -66,7 +66,10 @@ def showWeights(weights, colCount):
             ax.imshow(weightsImageData)
         else:
             weightsImageData = np.mean(weightsImageData, axis=-1)
-            fig = plt.figure(figsize=(4, 7))
+            if weightsImageData.shape[1] > 300:
+                fig = plt.figure(figsize=(20, 10))
+            else:
+                fig = plt.figure(figsize=(8, 7))
             ax = fig.add_subplot(111)
             ax.imshow(weightsImageData, cmap='rainbow')
         return fig, weightsImageData

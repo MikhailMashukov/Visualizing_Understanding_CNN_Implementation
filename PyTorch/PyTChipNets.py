@@ -129,7 +129,6 @@ class PennDataset(torch.utils.data.Dataset):
             target = self.transforms(target)
             # print(target.max())
 
-
         return img, target # {'mask': target}
 
     def __len__(self):
@@ -142,10 +141,10 @@ class ChipDataset(torch.utils.data.Dataset):
         self.fakeLen = fakeLen
         # load all image files, sorting them to
         # ensure that they are aligned
-        # self.imgs = ['2D 2.bmp']
-        # self.masks = ['2D_2_mask.png']
-        self.imgs = ['2D_simplified.png']
-        self.masks = ['2D_simplified_mask.png']
+        self.imgs = ['2D 2.bmp']
+        self.masks = ['2D_2_mask.png']
+        # self.imgs = ['2D_simplified.png']
+        # self.masks = ['2D_simplified_mask.png']
         self.cache = {}
         print(self.imgs)
         print('%d images, %d masks' % (len(self.imgs), len(self.masks)))
@@ -179,7 +178,7 @@ class ChipDataset(torch.utils.data.Dataset):
             weights = self.transfSets[2](weights)
 
         self.cache[idx] = (img, target, weights)
-        return img, target
+        return img.detach().clone(), target.detach().clone()
 
     def getWeights(self):
         idx = 0
@@ -200,16 +199,16 @@ class UnetConv(nn.Module):
         if not mid_channels:
             mid_channels = out_channels
         self.double_conv = nn.Sequential(
-            nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(mid_channels),
-            nn.ReLU(inplace=True),
-            nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
-            nn.BatchNorm2d(out_channels),
-            nn.ReLU(inplace=True)
-
-            # nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
-            # nn.BatchNorm2d(out_channels),
+            # nn.Conv2d(in_channels, mid_channels, kernel_size=3, padding=1),
+            # nn.BatchNorm2d(mid_channels),
             # nn.ReLU(inplace=True),
+            # nn.Conv2d(mid_channels, out_channels, kernel_size=3, padding=1),
+            # nn.BatchNorm2d(out_channels),
+            # nn.ReLU(inplace=True)
+
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1),
+            nn.BatchNorm2d(out_channels),
+            nn.ReLU(inplace=True),
         )
 
     def forward(self, x):
@@ -317,9 +316,9 @@ class ChipNet(nn.Module):
         bilinear = True
 
         # self.conv1 = conv3x3(3, planeCount, 1)
-        self.conv1 = nn.Conv2d(3, planeCount, kernel_size=7, stride=1,
-                               padding=3, groups=1, bias=False, dilation=1)
-        self.namedLayers['conv1'] = self.conv1
+        self.conv1 = nn.Conv2d(3, planeCount, kernel_size=5, stride=1,
+                               padding=2, groups=1, bias=False, dilation=1)
+        # self.namedLayers['conv1'] = self.conv1
         self.bn1 = norm_layer(planeCount)
         # self.conv12 = conv1x1(3, planeCount, 1)
         # self.bn12 = norm_layer(planeCount)
@@ -327,24 +326,30 @@ class ChipNet(nn.Module):
 
         factor = 2 if bilinear else 1
         self.down1 = Down(planeCount, basePlaneCount)
-        self.down2 = Down(basePlaneCount, basePlaneCount * 2)
-        self.resid = Bottleneck(basePlaneCount * 2, basePlaneCount // 2, stride=1, downsample=None, groups=1,
+        self.down2 = Down(basePlaneCount, basePlaneCount)
+        self.down3 = Down(basePlaneCount, basePlaneCount)
+        # self.down4 = Down(basePlaneCount, basePlaneCount)
+        self.resid = Bottleneck(basePlaneCount, basePlaneCount // 4, stride=1, downsample=None, groups=1,
                  base_width=64, dilation=1, norm_layer=norm_layer)
-        self.up3 = Up(basePlaneCount * 6 // factor, basePlaneCount, bilinear)
+        # self.up1 = Up(basePlaneCount * 4 // factor, basePlaneCount, bilinear)
+        self.up2 = Up(basePlaneCount * 4 // factor, basePlaneCount, bilinear)
+        self.up3 = Up(basePlaneCount * 4 // factor, basePlaneCount, bilinear)
         self.up4 = Up(basePlaneCount * 4 // factor, planeCount, bilinear)
 
-        self.conv2 = conv3x3(planeCount, planeCount)
-        self.namedLayers['conv2'] = self.conv2
+        # self.conv2 = conv3x3(planeCount, planeCount)
+        # self.namedLayers['conv2'] = self.conv2
         self.bn2 = norm_layer(planeCount)
         self.conv3 = conv3x3(planeCount, planeCount)
         self.bn3 = norm_layer(planeCount)
         self.conv4 = conv1x1(planeCount, num_classes)
-        self.namedLayers['conv4'] = self.conv4
+        # self.namedLayers['conv4'] = self.conv4
         # self.avgpool = nn.AdaptiveAvgPool2d((1, 1))
 
-
-        for m in self.modules():
+        for name, m in self.named_modules():
             if isinstance(m, nn.Conv2d):
+                # print('conv2d found', name)
+                    # 'conv1', 'down1.maxpool_conv.1.double_conv.0', ...
+                self.namedLayers[name] = m
                 nn.init.kaiming_normal_(m.weight, mode='fan_out', nonlinearity='relu')
             elif isinstance(m, (nn.BatchNorm2d, nn.GroupNorm)):
                 nn.init.constant_(m.weight, 1)
@@ -362,21 +367,39 @@ class ChipNet(nn.Module):
         x1 = self.relu(x)
         # x = self.maxpool(x)
 
+        if hasattr(self, 'conv2'):
+            x = self.conv2(x1)
+            # print('22', x.shape)
+            x = self.bn2(x)
+            x1 = self.relu(x)
+
         x2 = self.down1(x1)
         # print('2', x2.shape)
-        x3 = self.down2(x2)
-        # print('3', x3.shape)
-        x3 = self.resid.forward(x3)
-        x3 = self.resid.forward(x3)
+        if hasattr(self, 'down2'):
+            x3 = self.down2(x2)
+            # print('3', x3.shape)
+        if hasattr(self, 'down3'):
+            x4 = self.down3(x3)
+        if hasattr(self, 'down4'):
+            x5 = self.down4(x4)
+        # x3 = self.resid.forward(x3)
+        # x3 = self.resid.forward(x3)
+        
+        if hasattr(self, 'down4'):
+            x = self.up1(x5, x4)
+            x = self.up2(x, x3)
+            x = self.up3(x, x2)
+            x = self.up4(x, x1)
+        elif hasattr(self, 'down3'):
+            x = self.up2(x4, x3)
+            x = self.up3(x, x2)
+            x = self.up4(x, x1)
+        elif hasattr(self, 'down2'):
+            x = self.up3(x3, x2)
+            x = self.up4(x, x1)
+        else:
+            x = self.up4(x2, x1)
 
-        x = self.conv2(x1)
-        # print('22', x.shape)
-        x = self.bn2(x)
-        x1 = self.relu(x)
-
-        x = self.up3(x3, x2)
-        # print('4', x.shape)
-        x = self.up4(x, x1)
         # print('4', x.shape)
         # x = self.conv3(x)   # * x2
         # x = self.bn2(x)

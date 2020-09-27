@@ -25,22 +25,22 @@ def get_dataset(name, image_set, transform):
     return ds, num_classes
 
 
-def get_transform(train):
-    base_size = 520
-    crop_size = 480
-
-    min_size = int((0.5 if train else 1.0) * base_size)
-    max_size = int((2.0 if train else 1.0) * base_size)
-    transforms = []
-    transforms.append(T.RandomResize(min_size, max_size))
-    if train:
-        transforms.append(T.RandomHorizontalFlip(0.5))
-        transforms.append(T.RandomCrop(crop_size))
-    transforms.append(T.ToTensor())
-    transforms.append(T.Normalize(mean=[0.485, 0.456, 0.406],
-                                  std=[0.229, 0.224, 0.225]))
-
-    return T.Compose(transforms)
+# def get_transform(train):
+#     base_size = 520
+#     crop_size = 480
+#
+#     min_size = int((0.5 if train else 1.0) * base_size)
+#     max_size = int((2.0 if train else 1.0) * base_size)
+#     transforms = []
+#     transforms.append(T.RandomResize(min_size, max_size))
+#     if train:
+#         transforms.append(T.RandomHorizontalFlip(0.5))
+#         transforms.append(T.RandomCrop(crop_size))
+#     transforms.append(T.ToTensor())
+#     transforms.append(T.Normalize(mean=[0.485, 0.456, 0.406],
+#                                   std=[0.229, 0.224, 0.225]))
+#
+#     return T.Compose(transforms)
 
 def getCriterion(weights=None):
     if weights is None:
@@ -73,7 +73,7 @@ def getCriterion(weights=None):
             values = target + (values - target) * weights
             # print(values.min(), values.max(),  np.argwhere(values.detach().numpy() < 0))
             losses['out'] = loss2(values, target)
-
+  
         if len(losses) == 1:
             return losses['out']
 
@@ -113,7 +113,8 @@ def train_one_epoch(model, criterion, optimizer, data_loader, lr_scheduler, devi
         loss.backward()
         optimizer.step()
 
-        lr_scheduler.step()
+        if not lr_scheduler is None:
+            lr_scheduler.step()
 
         metric_logger.update(loss=loss.item(), lr=optimizer.param_groups[0]["lr"])
     return metric_logger
